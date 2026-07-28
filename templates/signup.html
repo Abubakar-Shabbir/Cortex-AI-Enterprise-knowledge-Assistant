@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign up</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+
+:root{
+    --bg: #faf6f5;
+    --panel: #ffffff;
+    --border: #e8dbd9;
+    --text: #201316;
+    --text-muted: #7a6a6c;
+    --accent: #8c2f39;
+    --accent-dark: #6b232b;
+    --danger-bg: #fbeceb;
+    --danger-border: #c8615a;
+    --danger-text: #96342c;
+    --radius: 8px;
+}
+
+*{
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body{
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.signup{
+    width: 100%;
+    max-width: 400px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 40px 36px;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px rgba(16, 24, 40, 0.06);
+}
+
+.signup h1{
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 6px;
+}
+
+.signup .subtitle{
+    font-size: 14px;
+    color: var(--text-muted);
+    margin-bottom: 28px;
+}
+
+.error-box{
+    background: var(--danger-bg);
+    border: 1px solid var(--danger-border);
+    color: var(--danger-text);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 13px;
+    margin-bottom: 20px;
+    line-height: 1.4;
+}
+
+.field{
+    margin-bottom: 16px;
+}
+
+.field label{
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 6px;
+}
+
+.field input{
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--text);
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.field input::placeholder{
+    color: #9aa1ab;
+}
+
+.field input:focus{
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(140, 47, 57, 0.14);
+}
+
+.signup button{
+    width: 100%;
+    padding: 11px;
+    margin-top: 6px;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.signup button:hover{
+    background: var(--accent-dark);
+}
+
+.signup button:focus-visible{
+    outline: 2px solid var(--accent-dark);
+    outline-offset: 2px;
+}
+
+.signup .footer-text{
+    margin-top: 22px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.signup .footer-text a{
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.signup .footer-text a:hover{
+    text-decoration: underline;
+}
+
+@media (max-width: 420px){
+    .signup{
+        padding: 32px 24px;
+    }
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="signup">
+
+    <h1>Create your account</h1>
+    <p class="subtitle">Fill in your details below to get started.</p>
+
+    <form method="POST">
+
+        {% csrf_token %}
+
+        {% if error %}
+        <div class="error-box">
+            {{ error }}
+        </div>
+        {% endif %}
+
+        <div class="field">
+            <label for="full_name">Full name</label>
+            <input
+                id="full_name"
+                type="text"
+                name="fullname"
+                placeholder="Enter your full name"
+                required
+            >
+        </div>
+
+        <div class="field">
+            <label for="email">Email</label>
+            <input
+                id="email"
+                type="email"
+                name="email"
+                placeholder="Enter your email"
+                required
+            >
+        </div>
+
+        <div class="field">
+            <label for="username">Username</label>
+            <input
+                id="username"
+                type="text"
+                name="username"
+                placeholder="Choose a username"
+                required
+            >
+        </div>
+
+        <div class="field">
+            <label for="password">Password</label>
+            <input
+                id="password"
+                type="password"
+                name="password"
+                placeholder="Create a password"
+                required
+            >
+        </div>
+
+        <div class="field">
+            <label for="confirm_password">Confirm password</label>
+            <input
+                id="confirm_password"
+                type="password"
+                name="confirm_password"
+                placeholder="Re-enter your password"
+                required
+            >
+        </div>
+
+        <button type="submit">Sign up</button>
+
+        <p class="footer-text">
+            Already have an account?
+            <a href="{% url 'login' %}">Log in</a>
+        </p>
+
+    </form>
+
+</div>
+
+</body>
+</html>
