@@ -2,10 +2,10 @@ from django.shortcuts import render, redirect
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
-from .services.retriever import retrieve_chunks
+from .services.retrieval_service import retrieve_chunks
 from .models import Document, DocumentChunk
-from .services.retriever import retrieve_chunks
-from .services.llm import generate_answer
+from .services.retrieval_service import retrieve_chunks
+from .services.llm_service import generate_answer
 from .services.query_service import search_vectors
 
 from .services.document_processor import (
@@ -15,7 +15,7 @@ from .services.document_processor import (
 )
 
 from .services.embedding_service import generate_embedding
-from .services.vector_store import save_vectors
+from .services.vector_service import save_vectors
 
 def signup(request):
 

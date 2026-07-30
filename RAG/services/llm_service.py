@@ -1,27 +1,43 @@
-from transformers import pipeline
+import google.generativeai as genai
+from django.conf import settings
 
 
-
-# Load Model
-
-generator = pipeline(
-    "text-generation",
-    model="google/flan-t5-base"
+# Configure Gemini API
+genai.configure(
+    api_key=settings.GEMINI_API_KEY
 )
 
 
+def generate_answer(context, question):
 
-def generate_answer(question, context):
+    try:
+
+        # Initialize Gemini model
+        model = genai.GenerativeModel(
+            "gemini-2.0-flash"
+        )
 
 
-    prompt = f"""
+        prompt = f"""
+You are a helpful AI assistant.
 
-You are an AI assistant.
+Your task is to answer the user's question
+ONLY using the provided context.
 
-Answer the question using only the given context.
+Rules:
+1. Do not use your own knowledge.
+2. If the answer is not available in the context,
+   reply exactly:
+
+"I couldn't find the answer in the uploaded document."
+
+3. Keep the answer clear and concise.
+
 
 Context:
+----------------
 {context}
+----------------
 
 
 Question:
@@ -29,14 +45,38 @@ Question:
 
 
 Answer:
-
 """
 
 
-    response = generator(
-        prompt,
-        max_length=200
-    )
+        # Generate response
+        response = model.generate_content(
+            prompt
+        )
 
 
-    return response[0]["generated_text"]
+        # Check response
+        if response.text:
+
+            return response.text
+
+
+        else:
+
+            return (
+                "I couldn't find the answer "
+                "in the uploaded document."
+            )
+
+
+    except Exception as e:
+
+        print(
+            "Gemini API Error:",
+            e
+        )
+
+
+        return (
+            "AI service is currently unavailable. "
+            "Please try again later."
+        )
