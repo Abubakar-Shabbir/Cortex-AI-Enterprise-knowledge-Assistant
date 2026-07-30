@@ -1,62 +1,68 @@
-import faiss
-import pickle
-import os
-import numpy as np
+from django.conf import settings
+from django.db.models import F
+from pgvector.django import L2Distance
 
+from ..models import ChunkEmbedding
 from .embedding_service import generate_embedding
 
-VECTOR_PATH = "vector_db"
 
-INDEX_PATH = os.path.join(
-    VECTOR_PATH,
-    "index.faiss"
-)
+def retrieve_chunks(question):
+    """
+    Retrieve the most relevant chunks
+    using PostgreSQL + pgvector.
+    """
 
-CHUNKS_PATH = os.path.join(
-    VECTOR_PATH,
-    "chunks.pkl"
-)
-
-
-def retrieve_chunks(question, top_k=3):
-
-    # Load FAISS Index
-    index = faiss.read_index(
-        INDEX_PATH
-    )
-
-    # Load Stored Chunks
-    with open(
-        CHUNKS_PATH,
-        "rb"
-    ) as f:
-
-        chunks = pickle.load(f)
-
+    # -------------------------
     # Generate Question Embedding
-    embedding = generate_embedding(
+    # -------------------------
+
+    query_embedding = generate_embedding(
         question
     )
 
-    embedding = np.array(
-        [embedding],
-        dtype=np.float32
+    # -------------------------
+    # Vector Search
+    # -------------------------
+
+    similar_chunks = (
+
+        ChunkEmbedding.objects
+
+        .annotate(
+
+            distance=L2Distance(
+                "embedding",
+                query_embedding
+            )
+
+        )
+
+        .order_by("distance")[:settings.TOP_K]
+
     )
 
-    # Search Similar Chunks
-    distances, indices = index.search(
-        embedding,
-        top_k
-    )
+    # -------------------------
+    # Build Results
+    # -------------------------
 
     results = []
 
-    for idx in indices[0]:
+    for item in similar_chunks:
 
-        if idx != -1:
+        results.append(
 
-            results.append(
-                chunks[idx]
-            )
+            {
+
+                "content": item.chunk.content,
+
+                "document": item.chunk.document.title,
+
+                "chunk_number": item.chunk.chunk_number,
+
+                "distance": round(item.distance, 4)
+
+            }
+
+        )
 
     return results

@@ -1,13 +1,14 @@
-from django.db import models
 from django.contrib.auth.models import User
-
+from django.db import models
+from pgvector.django import VectorField
 
 
 class Document(models.Model):
 
     user = models.ForeignKey(
         User,
-        on_delete=models.CASCADE
+        on_delete=models.CASCADE,
+        related_name="documents"
     )
 
     title = models.CharField(
@@ -22,11 +23,8 @@ class Document(models.Model):
         auto_now_add=True
     )
 
-
     def __str__(self):
         return self.title
-
-
 
 
 class DocumentChunk(models.Model):
@@ -37,18 +35,44 @@ class DocumentChunk(models.Model):
         related_name="chunks"
     )
 
-
     content = models.TextField()
 
-
-    chunk_number = models.IntegerField()
-
+    chunk_number = models.PositiveIntegerField()
 
     created_at = models.DateTimeField(
         auto_now_add=True
     )
 
+    class Meta:
+        ordering = ["chunk_number"]
 
     def __str__(self):
-
         return f"{self.document.title} - Chunk {self.chunk_number}"
+
+
+class ChunkEmbedding(models.Model):
+
+    chunk = models.OneToOneField(
+        DocumentChunk,
+        on_delete=models.CASCADE,
+        related_name="vector"
+    )
+
+    embedding = VectorField(
+        dimensions=384
+    )
+
+    embedding_model = models.CharField(
+        max_length=100,
+        default="all-MiniLM-L6-v2"
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    def __str__(self):
+        return (
+            f"{self.chunk.document.title} "
+            f"- Embedding ({self.embedding_model})"
+        )
