@@ -34,9 +34,9 @@ def answer_question(question):
 
     answer = generate_answer(
 
-        question,
+        context,
 
-        context
+        question
 
     )
 

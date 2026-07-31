@@ -69,14 +69,7 @@ Answer:
 
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
 
-        print(
-            "Gemini API Error:",
-            e
-        )
-
-
-        return (
-            "AI service is currently unavailable. "
-            "Please try again later."
-        )
+        return f"Gemini Error: {e}"

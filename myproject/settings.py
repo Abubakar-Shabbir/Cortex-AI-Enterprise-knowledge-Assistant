@@ -145,8 +145,25 @@ EMBEDDING_MODEL = os.getenv(
     "EMBEDDING_MODEL",
     "all-MiniLM-L6-v2"
 )
+EMBEDDING_DIMENSION = 1024
 
 LLM_MODEL = os.getenv(
     "LLM_MODEL",
     "gemini-2.0-flash"
 )
+# ==========================================
+# Document Validation
+# ==========================================
+
+ALLOWED_FILE_EXTENSIONS = [
+    ".pdf",
+    ".docx",
+    ".txt",
+]
+
+MAX_FILE_SIZE = 20 * 1024 * 1024   # 20 MB
+
+CHUNK_SIZE = 800
+
+CHUNK_OVERLAP = 150
+

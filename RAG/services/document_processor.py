@@ -1,35 +1,101 @@
-from ..utils.file_parser import extract_text
-from ..utils.text_cleaner import clean_text
-from ..utils.chunking import create_chunks
+from django.conf import settings
+
+from langchain_text_splitters import (
+    RecursiveCharacterTextSplitter
+)
+
+from .text_extractor import extract_text
+from .semantic_chunk_service import semantic_chunk
 
 
-def process_document(
-    file_path,
-    chunk_size=500
-):
+def process_document(file_path):
     """
-    Complete document processing pipeline.
+    Enterprise Document Processing Pipeline
 
-    Steps:
-        1. Extract text
-        2. Clean text
-        3. Create chunks
-
-    Returns:
-        List[str]
+    Steps
+    -----
+    1. Extract Text
+    2. Clean Text
+    3. Recursive Chunking
+    4. Semantic Chunking
+    5. Return Final Chunks
     """
+
+    # -------------------------
+    # Extract Text
+    # -------------------------
 
     text = extract_text(
         file_path
     )
 
-    cleaned_text = clean_text(
-        text
+    # -------------------------
+    # Clean Text
+    # -------------------------
+
+    text = " ".join(
+        text.split()
     )
 
-    chunks = create_chunks(
-        cleaned_text,
-        chunk_size
+    # -------------------------
+    # Recursive Chunking
+    # -------------------------
+
+    recursive_splitter = (
+        RecursiveCharacterTextSplitter(
+
+            chunk_size=settings.CHUNK_SIZE,
+
+            chunk_overlap=settings.CHUNK_OVERLAP,
+
+            separators=[
+                "\n\n",
+                "\n",
+                ". ",
+                "? ",
+                "! ",
+                ";",
+                ",",
+                " ",
+                ""
+            ]
+        )
     )
 
-    return chunks
+    recursive_chunks = (
+        recursive_splitter.split_text(
+            text
+        )
+    )
+
+    # -------------------------
+    # Semantic Chunking
+    # -------------------------
+
+    final_chunks = []
+
+    for chunk in recursive_chunks:
+
+        semantic_chunks = semantic_chunk(
+            chunk
+        )
+
+        final_chunks.extend(
+            semantic_chunks
+        )
+
+    # -------------------------
+    # Remove Empty Chunks
+    # -------------------------
+
+    final_chunks = [
+
+        chunk.strip()
+
+        for chunk in final_chunks
+
+        if chunk.strip()
+
+    ]
+
+    return final_chunks

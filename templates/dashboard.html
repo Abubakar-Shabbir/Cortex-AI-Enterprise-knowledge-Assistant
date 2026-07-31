@@ -474,6 +474,21 @@ Manage your documents and ask questions using Retrieval-Augmented Generation (RA
 </div>
 
 <div class="upload panel fade-in d3">
+    {% if upload_error %}
+
+<div style="
+background:#ffecec;
+color:#b00020;
+padding:12px;
+border-radius:8px;
+margin-bottom:15px;
+">
+
+{{ upload_error }}
+
+</div>
+
+{% endif %}
 
     <h2>Upload Documents</h2>
 

@@ -5,6 +5,9 @@ from ..models import (
     DocumentChunk,
 )
 
+from .validation_service import validate_document
+from .duplicate_service import check_duplicate
+from .metadata_service import extract_metadata
 from .document_processor import process_document
 from .embedding_service import generate_embedding
 from .vector_service import save_embedding
@@ -16,44 +19,93 @@ def upload_document(
     file,
 ):
     """
-    Upload a document and process it.
+    Enterprise Upload Pipeline
 
-    Steps:
-    1. Save document
-    2. Extract and chunk text
-    3. Save chunks
-    4. Generate embeddings
-    5. Save embeddings in PostgreSQL (pgvector)
+    Steps
+    -----
+    1. Validate uploaded file
+    2. Check duplicate document
+    3. Extract metadata
+    4. Save document
+    5. Process document
+    6. Save document chunks
+    7. Generate embeddings
+    8. Store embeddings in PostgreSQL (pgvector)
+    9. Update document metadata
     """
 
-    # -------------------------
-    # Save Document
-    # -------------------------
+    # ==================================================
+    # Step 1 : Validate File
+    # ==================================================
 
-    document = Document.objects.create(
+    validate_document(file)
+
+    # ==================================================
+    # Step 2 : Duplicate Detection
+    # ==================================================
+
+    duplicate, file_hash = check_duplicate(
         user=user,
-        title=title,
         file=file,
     )
 
-    # -------------------------
-    # Process Document
-    # -------------------------
+    if duplicate:
+
+        raise ValueError(
+            "This document has already been uploaded."
+        )
+
+    # ==================================================
+    # Step 3 : Metadata Extraction
+    # ==================================================
+
+    metadata = extract_metadata(
+        file
+    )
+
+    # ==================================================
+    # Step 4 : Save Document
+    # ==================================================
+
+    document = Document.objects.create(
+
+        user=user,
+
+        title=title,
+
+        file=file,
+
+        file_hash=file_hash,
+
+        file_type=metadata["file_type"],
+
+        file_size=metadata["file_size"],
+
+    )
+
+    # ==================================================
+    # Step 5 : Process Document
+    # ==================================================
 
     chunks = process_document(
         document.file.path
     )
 
-    # -------------------------
-    # Save Chunks + Embeddings
-    # -------------------------
+    # ==================================================
+    # Step 6 & 7 :
+    # Save Chunks + Generate Embeddings
+    # ==================================================
 
     for index, chunk_text in enumerate(chunks):
 
         document_chunk = DocumentChunk.objects.create(
+
             document=document,
+
             content=chunk_text,
+
             chunk_number=index,
+
         )
 
         embedding = generate_embedding(
@@ -61,9 +113,29 @@ def upload_document(
         )
 
         save_embedding(
+
             chunk=document_chunk,
+
             embedding=embedding,
+
             model_name=settings.EMBEDDING_MODEL,
+
         )
+
+    # ==================================================
+    # Step 8 : Update Document Metadata
+    # ==================================================
+
+    document.chunk_count = len(chunks)
+
+    document.save(
+        update_fields=[
+            "chunk_count",
+        ]
+    )
+
+    # ==================================================
+    # Step 9 : Return Document
+    # ==================================================
 
     return document

@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from django.db import models
 from pgvector.django import VectorField
-
+from django.conf import settings
 
 class Document(models.Model):
 
@@ -21,6 +21,25 @@ class Document(models.Model):
 
     uploaded_at = models.DateTimeField(
         auto_now_add=True
+    )
+
+    file_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_index=True
+    )
+    file_size = models.BigIntegerField(
+        default=0
+    )
+
+    file_type = models.CharField(
+        max_length=20,
+        blank=True
+    )
+
+    chunk_count = models.PositiveIntegerField(
+        default=0
     )
 
     def __str__(self):
@@ -59,7 +78,7 @@ class ChunkEmbedding(models.Model):
     )
 
     embedding = VectorField(
-        dimensions=384
+        dimensions=settings.EMBEDDING_DIMENSION
     )
 
     embedding_model = models.CharField(

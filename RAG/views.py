@@ -133,13 +133,35 @@ def dashboard(request):
             title = request.POST.get("title")
             file = request.FILES.get("document")
 
-            upload_document(
-                user=request.user,
-                title=title,
-                file=file,
-            )
+            try:
 
-            return redirect("home")
+                upload_document(
+                    user=request.user,
+                    title=title,
+                    file=file,
+                )
+
+                return redirect("home")
+
+            except ValueError as e:
+
+                documents = Document.objects.filter(
+                    user=request.user
+                )
+
+                total_chunks = DocumentChunk.objects.filter(
+                    document__user=request.user
+                ).count()
+
+                return render(
+                    request,
+                    "dashboard.html",
+                    {
+                        "documents": documents,
+                        "total_chunks": total_chunks,
+                        "upload_error": str(e),
+                    },
+                )
 
         # ==========================
         # QUESTION ANSWERING

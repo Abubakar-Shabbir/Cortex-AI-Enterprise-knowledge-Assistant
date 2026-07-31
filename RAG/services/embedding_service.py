@@ -1,16 +1,20 @@
 from sentence_transformers import SentenceTransformer
+from django.conf import settings
 
-
+# Load Model Once
 model = SentenceTransformer(
-    "all-MiniLM-L6-v2"
+    settings.EMBEDDING_MODEL
 )
 
 
-
 def generate_embedding(text):
+    """
+    Generate multilingual embedding using BGE-M3.
+    """
 
     embedding = model.encode(
-        text
+        text,
+        normalize_embeddings=True
     )
 
     return embedding
