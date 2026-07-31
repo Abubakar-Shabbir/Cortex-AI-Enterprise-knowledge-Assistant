@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}Documents{% endblock %}
+
+{% block content %}
+
+<div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Documents</h1>
+    <p class="text-sm text-muted dark:text-muted-dark">Upload and manage the documents your assistant can answer from.</p>
+  </div>
+</div>
+
+<div x-data="{ uploadOpen: false }" class="mb-6 rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <button @click="uploadOpen = !uploadOpen" class="flex w-full items-center justify-between px-5 py-4">
+    <span class="flex items-center gap-2.5 text-sm font-semibold text-ink dark:text-ink-dark">
+      <i data-lucide="upload-cloud" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Upload Document
+    </span>
+    <i data-lucide="chevron-down" class="h-4 w-4 text-muted transition-transform dark:text-muted-dark" :class="uploadOpen && 'rotate-180'"></i>
+  </button>
+
+  <div x-show="uploadOpen" x-cloak x-transition x-init="uploadOpen = {% if upload_error %}true{% else %}false{% endif %}" class="border-t border-line px-5 py-5 dark:border-line-dark">
+
+    {% if upload_error %}
+      <div class="mb-4 flex items-start gap-2.5 rounded-lg border border-danger/20 bg-danger/10 px-3.5 py-3 text-sm text-danger dark:text-danger-dark">
+        <i data-lucide="alert-circle" class="mt-0.5 h-4 w-4 shrink-0"></i>
+        {{ upload_error }}
+      </div>
+    {% endif %}
+
+    <form method="POST" enctype="multipart/form-data" class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {% csrf_token %}
+
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Document Title</label>
+        <input
+          type="text" name="title" required placeholder="e.g. Q3 Financial Report"
+          class="w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
+        >
+      </div>
+
+      <div>
+        <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">File (PDF, DOCX, TXT — max 20 MB)</label>
+        <input
+          type="file" name="document" accept=".pdf,.docx,.txt" required
+          class="w-full rounded-lg border border-line bg-surface px-3.5 py-2 text-sm text-ink file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white dark:border-line-dark dark:bg-white/5 dark:text-ink-dark"
+        >
+      </div>
+
+      <div class="sm:col-span-2">
+        <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+          <i data-lucide="upload" class="h-4 w-4"></i> Upload
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if search_query %}
+  <div class="mb-4 flex items-center gap-2 text-sm text-muted dark:text-muted-dark">
+    Showing results for <span class="font-semibold text-ink dark:text-ink-dark">"{{ search_query }}"</span>
+    <a href="{% url 'documents' %}" class="text-primary hover:underline dark:text-primary-soft">Clear</a>
+  </div>
+{% endif %}
+
+<div class="overflow-hidden rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <div class="overflow-x-auto">
+    <table class="w-full text-left text-sm">
+      <thead class="sticky top-0 border-b border-line bg-surface dark:border-line-dark dark:bg-white/5">
+        <tr class="text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">
+          <th class="px-5 py-3.5">Document</th>
+          <th class="px-5 py-3.5">Type</th>
+          <th class="px-5 py-3.5">Uploaded</th>
+          <th class="px-5 py-3.5">Chunks</th>
+          <th class="px-5 py-3.5">Embedding</th>
+          <th class="px-5 py-3.5">Size</th>
+          <th class="px-5 py-3.5 text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line dark:divide-line-dark">
+        {% for item in documents_data %}
+          <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
+            <td class="px-5 py-3.5">
+              <div class="flex items-center gap-2.5">
+                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
+                  <i data-lucide="file-text" class="h-4 w-4"></i>
+                </div>
+                <span class="max-w-[220px] truncate font-medium text-ink dark:text-ink-dark">{{ item.doc.title }}</span>
+              </div>
+            </td>
+            <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.doc.file_type|upper }}</td>
+            <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.doc.uploaded_at|date:"M d, Y" }}</td>
+            <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.doc.chunk_count }}</td>
+            <td class="px-5 py-3.5">
+              <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium
+                {% if item.status == 'Embedded' %} bg-success/10 text-success dark:text-success-dark
+                {% elif item.status == 'Partial' %} bg-warning/10 text-warning dark:text-warning-dark
+                {% else %} bg-line text-muted dark:bg-white/5 dark:text-muted-dark {% endif %}">
+                <span class="h-1.5 w-1.5 rounded-full
+                  {% if item.status == 'Embedded' %} bg-success
+                  {% elif item.status == 'Partial' %} bg-warning
+                  {% else %} bg-muted {% endif %}"></span>
+                {{ item.status }}
+              </span>
+            </td>
+            <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.file_size }}</td>
+            <td class="px-5 py-3.5">
+              <div class="flex items-center justify-end gap-1" x-data="{ confirmOpen: false }">
+                <a href="{{ item.doc.file.url }}" target="_blank" title="Open" class="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+                  <i data-lucide="external-link" class="h-4 w-4"></i>
+                </a>
+                <a href="{{ item.doc.file.url }}" download title="Download" class="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+                  <i data-lucide="download" class="h-4 w-4"></i>
+                </a>
+                <button @click="confirmOpen = true" title="Delete" class="rounded-lg p-2 text-muted transition-colors hover:bg-danger/10 hover:text-danger dark:text-muted-dark dark:hover:text-danger-dark">
+                  <i data-lucide="trash-2" class="h-4 w-4"></i>
+                </button>
+
+                <div x-show="confirmOpen" x-cloak x-transition.opacity class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                  <div @click.outside="confirmOpen = false" class="w-full max-w-sm rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+                    <div class="mb-1 flex items-center gap-2.5 text-danger dark:text-danger-dark">
+                      <i data-lucide="alert-triangle" class="h-5 w-5"></i>
+                      <h3 class="text-sm font-semibold">Delete document</h3>
+                    </div>
+                    <p class="mb-4 text-sm text-muted dark:text-muted-dark">
+                      Delete "<span class="font-medium text-ink dark:text-ink-dark">{{ item.doc.title }}</span>" and all {{ item.doc.chunk_count }} of its chunks? This can't be undone.
+                    </p>
+                    <div class="flex justify-end gap-2">
+                      <button @click="confirmOpen = false" class="rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Cancel</button>
+                      <form method="POST" action="{% url 'document_delete' item.doc.id %}">
+                        {% csrf_token %}
+                        <button type="submit" class="rounded-lg bg-danger px-3.5 py-2 text-sm font-semibold text-white hover:bg-danger/90">Delete</button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="7" class="px-5 py-14 text-center text-sm text-muted dark:text-muted-dark">
+              {% if search_query %}No documents match "{{ search_query }}".{% else %}No documents uploaded yet.{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

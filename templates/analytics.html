@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics{% endblock %}
+
+{% block content %}
+
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Analytics</h1>
+  <p class="text-sm text-muted dark:text-muted-dark">Usage trends across your document library and question activity, last 14 days.</p>
+</div>
+
+<div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+  {% include "partials/_stat_card.html" with icon="timer" label="Average Response Time" value=data.avg_response_time %}
+  {% include "partials/_stat_card.html" with icon="hard-drive" label="Storage Used" value=data.total_storage %}
+</div>
+
+<div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+
+  <div class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark xl:col-span-2">
+    <h2 class="mb-4 text-sm font-semibold text-ink dark:text-ink-dark">Questions &amp; Documents Uploaded Over Time</h2>
+    <div class="h-72"><canvas id="activityChart"></canvas></div>
+  </div>
+
+  <div class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <h2 class="mb-4 text-sm font-semibold text-ink dark:text-ink-dark">Chunk Distribution by Document</h2>
+    <div class="h-64"><canvas id="chunkChart"></canvas></div>
+  </div>
+
+  <div class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <h2 class="mb-4 text-sm font-semibold text-ink dark:text-ink-dark">Search Type Usage</h2>
+    <div class="h-64"><canvas id="searchTypeChart"></canvas></div>
+  </div>
+
+  <div class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark xl:col-span-2">
+    <h2 class="mb-4 text-sm font-semibold text-ink dark:text-ink-dark">Storage Usage by File Type</h2>
+    <div class="h-64"><canvas id="storageChart"></canvas></div>
+  </div>
+
+</div>
+
+{{ data.labels|json_script:"labels-data" }}
+{{ data.questions_series|json_script:"questions-data" }}
+{{ data.uploads_series|json_script:"uploads-data" }}
+{{ data.chunk_labels|json_script:"chunk-labels-data" }}
+{{ data.chunk_values|json_script:"chunk-values-data" }}
+{{ data.search_type_labels|json_script:"search-type-labels-data" }}
+{{ data.search_type_values|json_script:"search-type-values-data" }}
+{{ data.storage_type_labels|json_script:"storage-type-labels-data" }}
+{{ data.storage_type_values|json_script:"storage-type-values-data" }}
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+(function () {
+  const read = (id) => JSON.parse(document.getElementById(id).textContent);
+
+  const labels = read('labels-data');
+  const questions = read('questions-data');
+  const uploads = read('uploads-data');
+  const chunkLabels = read('chunk-labels-data');
+  const chunkValues = read('chunk-values-data');
+  const searchLabels = read('search-type-labels-data');
+  const searchValues = read('search-type-values-data');
+  const storageLabels = read('storage-type-labels-data');
+  const storageValues = read('storage-type-values-data');
+
+  const gridColor = 'rgba(109, 102, 101, 0.12)';
+  const tickColor = '#8a7d7d';
+  const primary = '#8B1E2D';
+  const wine = '#6D1B27';
+  const rose = '#E7C8CC';
+  const palette = ['#8B1E2D', '#E7C8CC', '#6D1B27', '#C77700', '#1F7A4D'];
+
+  Chart.defaults.font.family = 'Inter, ui-sans-serif, system-ui, sans-serif';
+  Chart.defaults.color = tickColor;
+
+  new Chart(document.getElementById('activityChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Questions', data: questions, borderColor: primary, backgroundColor: primary, tension: 0.35, pointRadius: 0, borderWidth: 2 },
+        { label: 'Documents Uploaded', data: uploads, borderColor: rose, backgroundColor: rose, tension: 0.35, pointRadius: 0, borderWidth: 2 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 7 } },
+        y: { grid: { color: gridColor }, beginAtZero: true, ticks: { precision: 0 } },
+      },
+    },
+  });
+
+  new Chart(document.getElementById('chunkChart'), {
+    type: 'bar',
+    data: { labels: chunkLabels.length ? chunkLabels : ['No documents yet'], datasets: [{ data: chunkValues.length ? chunkValues : [0], backgroundColor: primary, borderRadius: 6, maxBarThickness: 28 }] },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { grid: { color: gridColor }, beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } },
+    },
+  });
+
+  new Chart(document.getElementById('searchTypeChart'), {
+    type: 'doughnut',
+    data: { labels: searchLabels, datasets: [{ data: searchValues, backgroundColor: palette, borderWidth: 0 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '68%',
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true } } },
+    },
+  });
+
+  new Chart(document.getElementById('storageChart'), {
+    type: 'bar',
+    data: { labels: storageLabels, datasets: [{ label: 'Bytes', data: storageValues, backgroundColor: wine, borderRadius: 6, maxBarThickness: 40 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { grid: { display: false } }, y: { grid: { color: gridColor }, beginAtZero: true } },
+    },
+  });
+})();
+</script>
+{% endblock %}

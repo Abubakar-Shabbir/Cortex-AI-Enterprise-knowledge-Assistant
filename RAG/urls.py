@@ -24,4 +24,11 @@ urlpatterns = [
     path("login/", views.login_user, name="login"),
     path("logout/", views.logout_user, name="logout"),
 
+    path("ask/", views.ask_ai, name="ask_ai"),
+    path("documents/", views.documents_view, name="documents"),
+    path("documents/<int:doc_id>/delete/", views.document_delete, name="document_delete"),
+    path("history/", views.search_history, name="search_history"),
+    path("analytics/", views.analytics_view, name="analytics"),
+    path("profile/", views.profile_view, name="profile"),
+    path("settings/", views.settings_view, name="settings"),
 ]

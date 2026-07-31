@@ -1,0 +1,12 @@
+<a
+  href="{% url name %}"
+  class="group flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+    {% if active == name %}
+      bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft
+    {% else %}
+      text-muted hover:bg-surface hover:text-ink dark:text-muted-dark dark:hover:bg-white/5 dark:hover:text-ink-dark
+    {% endif %}"
+>
+  <i data-lucide="{{ icon }}" class="h-4 w-4 shrink-0 {% if active == name %}text-primary dark:text-primary-soft{% endif %}"></i>
+  {{ label }}
+</a>

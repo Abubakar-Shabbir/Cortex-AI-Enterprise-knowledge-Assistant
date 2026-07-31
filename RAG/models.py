@@ -95,3 +95,50 @@ class ChunkEmbedding(models.Model):
             f"{self.chunk.document.title} "
             f"- Embedding ({self.embedding_model})"
         )
+
+
+class QueryLog(models.Model):
+    """
+    Records every question asked so the
+    Search History and Analytics pages can
+    show real usage instead of placeholders.
+    """
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="query_logs"
+    )
+
+    question = models.TextField()
+
+    answer = models.TextField()
+
+    sources = models.JSONField(
+        default=list,
+        blank=True
+    )
+
+    search_method = models.CharField(
+        max_length=50,
+        default="Hybrid (Vector + BM25)"
+    )
+
+    response_time_ms = models.PositiveIntegerField(
+        default=0
+    )
+
+    confidence = models.PositiveSmallIntegerField(
+        default=0
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user.username}: {self.question[:50]}"

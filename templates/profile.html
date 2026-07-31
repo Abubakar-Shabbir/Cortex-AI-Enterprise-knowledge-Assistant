@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block title %}Profile{% endblock %}
+
+{% block content %}
+
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Profile</h1>
+  <p class="text-sm text-muted dark:text-muted-dark">Manage your personal information and account security.</p>
+</div>
+
+<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+
+  <div class="lg:col-span-2 space-y-6">
+
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Personal Information</h2>
+      </div>
+      <form method="POST" class="space-y-4 px-5 py-5">
+        {% csrf_token %}
+        <input type="hidden" name="form" value="profile">
+
+        <div class="flex items-center gap-4">
+          <div class="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary text-xl font-semibold text-white">
+            {{ request.user.first_name|first|default:request.user.username|first|upper }}{{ request.user.last_name|first|upper }}
+          </div>
+          <div>
+            <p class="text-sm font-medium text-ink dark:text-ink-dark">{{ request.user.first_name }} {{ request.user.last_name }}</p>
+            <p class="text-xs text-muted dark:text-muted-dark">Avatar generated from your name initials</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">First Name</label>
+            <input type="text" name="first_name" value="{{ request.user.first_name }}"
+              class="w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Last Name</label>
+            <input type="text" name="last_name" value="{{ request.user.last_name }}"
+              class="w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+          </div>
+        </div>
+
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Email</label>
+          <input type="email" name="email" value="{{ request.user.email }}"
+            class="w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Username</label>
+            <input type="text" value="{{ request.user.username }}" disabled
+              class="w-full cursor-not-allowed rounded-lg border border-line bg-line/40 px-3.5 py-2.5 text-sm text-muted dark:border-line-dark dark:bg-white/5 dark:text-muted-dark">
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Member Since</label>
+            <input type="text" value="{{ request.user.date_joined|date:'M d, Y' }}" disabled
+              class="w-full cursor-not-allowed rounded-lg border border-line bg-line/40 px-3.5 py-2.5 text-sm text-muted dark:border-line-dark dark:bg-white/5 dark:text-muted-dark">
+          </div>
+        </div>
+
+        <div class="flex justify-end">
+          <button type="submit" class="rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">Save Changes</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+        <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+          <i data-lucide="shield" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Security
+        </h2>
+      </div>
+      <form method="POST" class="space-y-4 px-5 py-5">
+        {% csrf_token %}
+        <input type="hidden" name="form" value="password">
+
+        {% if password_form.non_field_errors %}
+          <div class="rounded-lg border border-danger/20 bg-danger/10 px-3.5 py-3 text-sm text-danger dark:text-danger-dark">
+            {{ password_form.non_field_errors.0 }}
+          </div>
+        {% endif %}
+
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Current Password</label>
+          <input type="password" name="old_password"
+            class="w-full rounded-lg border {% if password_form.old_password.errors %}border-danger{% else %}border-line dark:border-line-dark{% endif %} bg-surface px-3.5 py-2.5 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:bg-white/5 dark:text-ink-dark">
+          {% if password_form.old_password.errors %}<p class="mt-1 text-xs text-danger dark:text-danger-dark">{{ password_form.old_password.errors.0 }}</p>{% endif %}
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">New Password</label>
+            <input type="password" name="new_password1"
+              class="w-full rounded-lg border {% if password_form.new_password1.errors %}border-danger{% else %}border-line dark:border-line-dark{% endif %} bg-surface px-3.5 py-2.5 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:bg-white/5 dark:text-ink-dark">
+            {% if password_form.new_password1.errors %}<p class="mt-1 text-xs text-danger dark:text-danger-dark">{{ password_form.new_password1.errors.0 }}</p>{% endif %}
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Confirm New Password</label>
+            <input type="password" name="new_password2"
+              class="w-full rounded-lg border {% if password_form.new_password2.errors %}border-danger{% else %}border-line dark:border-line-dark{% endif %} bg-surface px-3.5 py-2.5 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:bg-white/5 dark:text-ink-dark">
+            {% if password_form.new_password2.errors %}<p class="mt-1 text-xs text-danger dark:text-danger-dark">{{ password_form.new_password2.errors.0 }}</p>{% endif %}
+          </div>
+        </div>
+
+        <div class="flex justify-end">
+          <button type="submit" class="rounded-lg border border-line px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Update Password</button>
+        </div>
+      </form>
+    </div>
+
+  </div>
+
+  <div class="space-y-6">
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Preferences</h2>
+      </div>
+      <div class="space-y-4 px-5 py-5">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-medium text-ink dark:text-ink-dark">Theme</p>
+            <p class="text-xs text-muted dark:text-muted-dark">Switch between light and dark mode</p>
+          </div>
+          <button
+            @click="document.documentElement.classList.toggle('dark'); localStorage.theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light'"
+            class="flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5"
+          >
+            <i data-lucide="sun" class="hidden h-3.5 w-3.5 dark:block"></i>
+            <i data-lucide="moon" class="block h-3.5 w-3.5 dark:hidden"></i>
+            <span class="hidden dark:inline">Dark</span>
+            <span class="inline dark:hidden">Light</span>
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between border-t border-line pt-4 dark:border-line-dark">
+          <div>
+            <p class="text-sm font-medium text-ink dark:text-ink-dark">Language</p>
+            <p class="text-xs text-muted dark:text-muted-dark">Interface language</p>
+          </div>
+          <select disabled class="cursor-not-allowed rounded-lg border border-line bg-line/40 px-3 py-2 text-xs text-muted dark:border-line-dark dark:bg-white/5 dark:text-muted-dark">
+            <option>English (US)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Account</h2>
+      </div>
+      <div class="space-y-3 px-5 py-5 text-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-muted dark:text-muted-dark">Last Login</span>
+          <span class="font-medium text-ink dark:text-ink-dark">{{ request.user.last_login|date:"M d, Y H:i" }}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-muted dark:text-muted-dark">Documents Owned</span>
+          <span class="font-medium text-ink dark:text-ink-dark">{{ request.user.documents.count }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}

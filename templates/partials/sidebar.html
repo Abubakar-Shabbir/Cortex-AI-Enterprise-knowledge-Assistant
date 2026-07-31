@@ -1,0 +1,103 @@
+{% load static %}
+{% with active=request.resolver_match.url_name %}
+
+<div
+  x-show="sidebarOpen"
+  x-cloak
+  x-transition.opacity
+  @click="sidebarOpen = false"
+  class="fixed inset-0 z-30 bg-black/30 lg:hidden"
+></div>
+
+<aside
+  class="fixed inset-y-0 left-0 z-40 flex w-64 -translate-x-full flex-col border-r border-line bg-card transition-transform duration-200 dark:border-line-dark dark:bg-card-dark lg:translate-x-0"
+  :class="sidebarOpen && '!translate-x-0'"
+>
+
+  <div class="flex h-16 shrink-0 items-center gap-2.5 border-b border-line px-5 dark:border-line-dark">
+    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-white">K</div>
+    <div class="leading-tight">
+      <div class="text-sm font-semibold text-ink dark:text-ink-dark">Knowledge Assistant</div>
+      <div class="text-[11px] text-muted dark:text-muted-dark">Enterprise Edition</div>
+    </div>
+  </div>
+
+  <nav class="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
+
+    {% include "partials/_nav_item.html" with name="home" label="Dashboard" icon="layout-dashboard" active=active %}
+    {% include "partials/_nav_item.html" with name="ask_ai" label="Ask AI" icon="message-square" active=active %}
+    {% include "partials/_nav_item.html" with name="documents" label="Documents" icon="file-text" active=active %}
+    {% include "partials/_nav_item.html" with name="search_history" label="Search History" icon="history" active=active %}
+    {% include "partials/_nav_item.html" with name="analytics" label="Analytics" icon="bar-chart-3" active=active %}
+
+    <div class="my-3 border-t border-line dark:border-line-dark"></div>
+
+    {% include "partials/_nav_item.html" with name="profile" label="Profile" icon="user-round" active=active %}
+    {% include "partials/_nav_item.html" with name="settings" label="Settings" icon="settings" active=active %}
+
+  </nav>
+
+  <div class="border-t border-line px-4 py-4 dark:border-line-dark">
+    <div class="mb-2.5 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">
+      System Status
+    </div>
+
+    <div class="space-y-2 text-xs">
+
+      <div class="flex items-center justify-between gap-2">
+        <span class="flex items-center gap-1.5 text-muted dark:text-muted-dark">
+          <i data-lucide="database" class="h-3.5 w-3.5"></i> Vector Database
+        </span>
+        <span class="flex items-center gap-1.5 font-medium text-ink dark:text-ink-dark">
+          <span class="h-1.5 w-1.5 rounded-full {% if system_status.db_online and system_status.pgvector_enabled %}bg-success{% else %}bg-danger{% endif %}"></span>
+          {% if system_status.db_online and system_status.pgvector_enabled %}Online{% else %}Offline{% endif %}
+        </span>
+      </div>
+
+      <div class="flex items-center justify-between gap-2">
+        <span class="flex items-center gap-1.5 text-muted dark:text-muted-dark">
+          <i data-lucide="cpu" class="h-3.5 w-3.5"></i> Embedding Model
+        </span>
+        <span class="truncate max-w-[110px] font-medium text-ink dark:text-ink-dark" title="{{ system_status.embedding_model }}">
+          {{ system_status.embedding_model|default:"—" }}
+        </span>
+      </div>
+
+      <div class="flex items-center justify-between gap-2">
+        <span class="flex items-center gap-1.5 text-muted dark:text-muted-dark">
+          <i data-lucide="bot" class="h-3.5 w-3.5"></i> LLM Status
+        </span>
+        <span class="flex items-center gap-1.5 font-medium text-ink dark:text-ink-dark">
+          <span class="h-1.5 w-1.5 rounded-full {% if system_status.llm_configured %}bg-success{% else %}bg-warning{% endif %}"></span>
+          {% if system_status.llm_configured %}Configured{% else %}Not set{% endif %}
+        </span>
+      </div>
+
+      <div class="flex items-center justify-between gap-2">
+        <span class="flex items-center gap-1.5 text-muted dark:text-muted-dark">
+          <i data-lucide="hard-drive" class="h-3.5 w-3.5"></i> Storage Used
+        </span>
+        <span class="font-medium text-ink dark:text-ink-dark">{{ system_status.total_storage|default:"0 B" }}</span>
+      </div>
+
+      <div class="flex items-center justify-between gap-2">
+        <span class="flex items-center gap-1.5 text-muted dark:text-muted-dark">
+          <i data-lucide="server" class="h-3.5 w-3.5"></i> Server Status
+        </span>
+        <span class="flex items-center gap-1.5 font-medium text-ink dark:text-ink-dark">
+          <span class="h-1.5 w-1.5 rounded-full bg-success"></span> Online
+        </span>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="border-t border-line p-3 dark:border-line-dark">
+    <a href="{% url 'logout' %}" class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-muted transition-colors hover:bg-danger/10 hover:text-danger dark:text-muted-dark dark:hover:text-danger-dark">
+      <i data-lucide="log-out" class="h-4 w-4"></i> Logout
+    </a>
+  </div>
+
+</aside>
+
+{% endwith %}

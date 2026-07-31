@@ -1,0 +1,109 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Dashboard{% endblock %} · Enterprise Knowledge Assistant</title>
+
+<script>
+  if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark');
+  }
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        },
+        borderRadius: {
+          xl: '12px',
+          '2xl': '14px',
+        },
+        colors: {
+          primary: { DEFAULT: '#8B1E2D', dark: '#6D1B27', soft: '#E7C8CC', light: '#A6333F' },
+          ink:     { DEFAULT: '#1F1B1B', dark: '#F1E9E8' },
+          muted:   { DEFAULT: '#6D6665', dark: '#A9989A' },
+          surface: { DEFAULT: '#FAF8F7', dark: '#14100F' },
+          card:    { DEFAULT: '#FFFFFF', dark: '#1D1615' },
+          line:    { DEFAULT: '#ECE3E2', dark: '#2C2221' },
+          success: { DEFAULT: '#1F7A4D', dark: '#3EAE78' },
+          warning: { DEFAULT: '#C77700', dark: '#E0972B' },
+          danger:  { DEFAULT: '#C62828', dark: '#E35B5B' },
+        },
+        boxShadow: {
+          soft: '0 1px 2px rgba(31,27,27,0.04), 0 6px 20px rgba(31,27,27,0.05)',
+          softer: '0 1px 2px rgba(31,27,27,0.03)',
+        },
+      },
+    },
+  };
+</script>
+
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+<style>
+  [x-cloak] { display: none !important; }
+  * { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #ECE3E2; border-radius: 8px; }
+  .dark ::-webkit-scrollbar-thumb { background: #2C2221; }
+</style>
+
+{% block extra_head %}{% endblock %}
+</head>
+
+<body
+  class="bg-surface dark:bg-surface-dark text-ink dark:text-ink-dark antialiased"
+  x-data="{ sidebarOpen: false }"
+>
+
+<div class="min-h-screen flex">
+
+  {% include "partials/sidebar.html" %}
+
+  <div class="flex-1 min-w-0 flex flex-col lg:pl-64">
+
+    {% include "partials/topbar.html" %}
+
+    <main class="flex-1 px-4 sm:px-6 lg:px-8 py-6 lg:py-8 w-full max-w-[1500px] mx-auto">
+
+      {% if messages %}
+        <div class="mb-6 space-y-2">
+          {% for message in messages %}
+            <div class="rounded-xl border px-4 py-3 text-sm font-medium
+              {% if message.tags == 'success' %} bg-success/10 border-success/20 text-success dark:text-success-dark
+              {% elif message.tags == 'error' %} bg-danger/10 border-danger/20 text-danger dark:text-danger-dark
+              {% else %} bg-primary-soft/40 border-primary-soft text-primary dark:text-primary-soft {% endif %}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+
+    </main>
+
+  </div>
+
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => lucide.createIcons());
+  document.addEventListener('alpine:initialized', () => lucide.createIcons());
+</script>
+
+{% block extra_scripts %}{% endblock %}
+
+</body>
+</html>

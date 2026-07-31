@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+
+<div class="mb-6">
+  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Settings</h1>
+  <p class="text-sm text-muted dark:text-muted-dark">Current RAG pipeline configuration and system information. Set via environment variables.</p>
+</div>
+
+<div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+
+  <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <div class="flex items-center gap-2 border-b border-line px-5 py-4 dark:border-line-dark">
+      <i data-lucide="sliders-horizontal" class="h-4 w-4 text-primary dark:text-primary-soft"></i>
+      <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">RAG Pipeline Configuration</h2>
+    </div>
+    <div class="divide-y divide-line dark:divide-line-dark">
+      {% include "partials/_setting_row.html" with label="LLM Model" description="Used to generate answers from retrieved context" value=status.llm_model %}
+      {% include "partials/_setting_row.html" with label="Embedding Model" description="Used to embed document chunks and questions" value=status.embedding_model %}
+      {% include "partials/_setting_row.html" with label="Embedding Dimension" description="Vector size stored in pgvector" value=status.embedding_dimension %}
+      {% include "partials/_setting_row.html" with label="Chunk Size" description="Max characters per recursive chunk" value=chunk_size %}
+      {% include "partials/_setting_row.html" with label="Chunk Overlap" description="Overlapping characters between chunks" value=chunk_overlap %}
+      {% include "partials/_setting_row.html" with label="Top K" description="Chunks retrieved per question" value=top_k %}
+      {% include "partials/_setting_row.html" with label="Temperature" description="Not overridden — uses the Gemini API default" value="Default" %}
+    </div>
+  </div>
+
+  <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <div class="flex items-center gap-2 border-b border-line px-5 py-4 dark:border-line-dark">
+      <i data-lucide="server-cog" class="h-4 w-4 text-primary dark:text-primary-soft"></i>
+      <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">System Information</h2>
+    </div>
+    <div class="divide-y divide-line dark:divide-line-dark">
+
+      <div class="flex items-center justify-between gap-4 px-5 py-3.5">
+        <p class="text-sm font-medium text-ink dark:text-ink-dark">Database Status</p>
+        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium {% if status.db_online %}bg-success/10 text-success dark:text-success-dark{% else %}bg-danger/10 text-danger dark:text-danger-dark{% endif %}">
+          <span class="h-1.5 w-1.5 rounded-full {% if status.db_online %}bg-success{% else %}bg-danger{% endif %}"></span>
+          {% if status.db_online %}Connected{% else %}Unreachable{% endif %}
+        </span>
+      </div>
+
+      <div class="flex items-center justify-between gap-4 px-5 py-3.5">
+        <p class="text-sm font-medium text-ink dark:text-ink-dark">pgvector Extension</p>
+        <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium {% if status.pgvector_enabled %}bg-success/10 text-success dark:text-success-dark{% else %}bg-danger/10 text-danger dark:text-danger-dark{% endif %}">
+          <span class="h-1.5 w-1.5 rounded-full {% if status.pgvector_enabled %}bg-success{% else %}bg-danger{% endif %}"></span>
+          {% if status.pgvector_enabled %}Enabled{% else %}Not Enabled{% endif %}
+        </span>
+      </div>
+
+      {% include "partials/_setting_row.html" with label="Django Version" value=django_version %}
+      {% include "partials/_setting_row.html" with label="Total Documents" value=status.total_documents %}
+      {% include "partials/_setting_row.html" with label="Total Chunks" value=status.total_chunks %}
+      {% include "partials/_setting_row.html" with label="Total Embeddings" value=status.total_embeddings %}
+      {% include "partials/_setting_row.html" with label="Total Storage" value=status.total_storage %}
+
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
