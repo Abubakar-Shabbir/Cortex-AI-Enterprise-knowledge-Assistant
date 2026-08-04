@@ -1,3 +1,5 @@
+import csv
+
 import django
 
 from django.conf import settings
@@ -8,12 +10,33 @@ from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
 from django.db.models import Count
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
-from .models import Document, DocumentChunk, QueryLog
+from .models import Document, DocumentChunk, Entity, QueryLog
+from .services.health_service import get_health_status
+from .services.knowledge_service import (
+    get_citation_explorer,
+    get_entity_detail,
+    get_graph_data,
+    get_graph_insights,
+    get_knowledge_overview,
+    get_relation_types,
+    get_relationships,
+    search_entities,
+)
+from .services.prompt_templates import is_not_found_answer
 from .services.query_service import answer_question
+from .services.reports_service import (
+    DOCUMENTS_REPORT_HEADER,
+    USAGE_REPORT_HEADER,
+    get_documents_report_rows,
+    get_usage_report_rows,
+)
+from .services.retrieval_filters import RetrievalFilters
 from .services.stats_service import (
     get_analytics_data,
+    get_dashboard_insights,
     get_dashboard_stats,
     get_recent_activity,
     get_system_status,
@@ -133,12 +156,17 @@ def dashboard(request):
 
     stats = get_dashboard_stats(request.user)
     activity = get_recent_activity(request.user)
+    trends = get_analytics_data(request.user, days=7)
+    insights = get_dashboard_insights(request.user)
 
     return render(
         request,
         "dashboard.html",
         {
             "stats": stats,
+            "trends": trends,
+            "insights": insights["insights"],
+            "recommendations": insights["recommendations"],
             **activity,
         },
     )
@@ -154,16 +182,39 @@ def ask_ai(request):
 
     result = None
 
+    selected_document_id = request.POST.get("document_id", "")
+
     if request.method == "POST" and "question" in request.POST:
 
         question = request.POST.get("question", "").strip()
 
         if question:
-            result = answer_question(question, user=request.user)
+
+            filters = RetrievalFilters.from_request(
+                document_id=selected_document_id
+            )
+
+            result = answer_question(
+                question,
+                user=request.user,
+                filters=filters,
+            )
 
     recent_questions = QueryLog.objects.filter(
         user=request.user
     ).order_by("-created_at")[:6]
+
+    documents = Document.objects.filter(
+        user=request.user
+    ).order_by("title")
+
+    # Suggested Questions: the user's own most-mentioned entities,
+    # turned into a ready-to-ask prompt - real, derived from their
+    # knowledge graph, not LLM-generated.
+    suggested_questions = [
+        f"What can you tell me about {entity.display_name}?"
+        for entity in Entity.objects.filter(user=request.user).order_by("-mention_count")[:4]
+    ]
 
     return render(
         request,
@@ -171,6 +222,9 @@ def ask_ai(request):
         {
             "result": result,
             "recent_questions": recent_questions,
+            "documents": documents,
+            "selected_document_id": selected_document_id,
+            "suggested_questions": suggested_questions,
         },
     )
 
@@ -233,6 +287,9 @@ def documents_view(request):
             "status": status,
         })
 
+    embedded_count = sum(1 for item in documents_data if item["status"] == "Embedded")
+    total_storage = sum(item["doc"].file_size for item in documents_data)
+
     return render(
         request,
         "documents.html",
@@ -240,6 +297,9 @@ def documents_view(request):
             "documents_data": documents_data,
             "upload_error": upload_error,
             "search_query": search_query,
+            "total_documents": len(documents_data),
+            "embedded_count": embedded_count,
+            "total_storage": format_bytes(total_storage),
         },
     )
 
@@ -261,9 +321,6 @@ def document_delete(request, doc_id):
     return redirect("documents")
 
 
-NOT_FOUND_ANSWER = "couldn't find the answer"
-
-
 @login_required
 def search_history(request):
 
@@ -279,7 +336,7 @@ def search_history(request):
                 for source in (log.sources or [])
                 if source.get("document")
             }),
-            "answered": NOT_FOUND_ANSWER not in log.answer,
+            "answered": not is_not_found_answer(log.answer),
         }
         for log in logs
     ]
@@ -356,26 +413,190 @@ def profile_view(request):
         "profile.html",
         {
             "password_form": password_form,
+            "current_user_agent": request.META.get("HTTP_USER_AGENT", "Unknown device"),
         },
     )
 
 
 @login_required
-def settings_view(request):
+def monitoring_view(request):
+    """
+    Admin-only system/infra monitoring - RAG pipeline configuration,
+    database/pgvector status, and (Sprint 10) Redis/Celery health.
+    Gated on request.user.is_staff, a real, already-existing Django
+    field - no separate RBAC system was introduced for this. Replaces
+    the old settings_view, which any authenticated user could reach;
+    exposing DB/config internals to every user was never intentional,
+    just never tightened until now.
+    """
+
+    if not request.user.is_staff:
+        messages.error(request, "You don't have access to that page.")
+        return redirect("home")
 
     system_status = get_system_status()
+    health = get_health_status()
 
     return render(
         request,
-        "settings.html",
+        "monitoring.html",
         {
             "status": system_status,
+            "health": health,
             "chunk_size": settings.CHUNK_SIZE,
             "chunk_overlap": settings.CHUNK_OVERLAP,
             "top_k": settings.TOP_K,
             "django_version": django.get_version(),
+            "settings_use_redis_cache": settings.USE_REDIS_CACHE,
         },
     )
+
+
+@login_required
+def knowledge_base_view(request):
+    """
+    Browse Knowledge: overview stats, category breakdown, and a
+    filterable/searchable entity list. The Knowledge Base's other
+    pages (Entity/Relationship Explorer, Graph, Citations) are reached
+    from the tabs on this page rather than the sidebar, keeping the
+    main nav to one entry per section.
+    """
+
+    overview = get_knowledge_overview(request.user)
+
+    query = request.GET.get("q", "").strip()
+    entity_type = request.GET.get("type", "").strip()
+
+    entities_page = search_entities(
+        request.user, query=query, entity_type=entity_type, page=request.GET.get("page")
+    )
+
+    return render(
+        request,
+        "knowledge/browse.html",
+        {
+            "overview": overview,
+            "entities_page": entities_page,
+            "query": query,
+            "selected_type": entity_type,
+        },
+    )
+
+
+@login_required
+def entity_detail_view(request, entity_id):
+
+    detail = get_entity_detail(request.user, entity_id)
+
+    if detail is None:
+        messages.error(request, "That entity couldn't be found.")
+        return redirect("knowledge_base")
+
+    return render(
+        request,
+        "knowledge/entity_detail.html",
+        {
+            **detail,
+            "breadcrumb_leaf": detail["entity"].display_name,
+        },
+    )
+
+
+@login_required
+def relationships_view(request):
+
+    relation_type = request.GET.get("type", "").strip()
+
+    relationships_page = get_relationships(
+        request.user, relation_type=relation_type, page=request.GET.get("page")
+    )
+
+    return render(
+        request,
+        "knowledge/relationships.html",
+        {
+            "relationships_page": relationships_page,
+            "relation_types": get_relation_types(request.user),
+            "selected_type": relation_type,
+        },
+    )
+
+
+@login_required
+def knowledge_graph_view(request):
+
+    graph_data = get_graph_data(request.user)
+    insights = get_graph_insights(request.user)
+
+    return render(
+        request,
+        "knowledge/graph.html",
+        {
+            "graph_data": graph_data,
+            "insights": insights,
+        },
+    )
+
+
+@login_required
+def citation_explorer_view(request):
+
+    citations = get_citation_explorer(request.user)
+
+    return render(
+        request,
+        "knowledge/citations.html",
+        {
+            "citations": citations,
+        },
+    )
+
+
+@login_required
+def reports_view(request):
+    return render(request, "reports.html")
+
+
+@login_required
+def export_documents_report(request):
+
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = 'attachment; filename="documents_report.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow(DOCUMENTS_REPORT_HEADER)
+    writer.writerows(get_documents_report_rows(request.user))
+
+    return response
+
+
+@login_required
+def export_usage_report(request):
+
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = 'attachment; filename="usage_report.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow(USAGE_REPORT_HEADER)
+    writer.writerows(get_usage_report_rows(request.user))
+
+    return response
+
+
+def health_check(request):
+    """
+    Public liveness/readiness probe (Sprint 10) for Docker/
+    orchestrators - deliberately not @login_required (a health check
+    has to work before anyone can log in) and deliberately minimal:
+    see health_service.get_health_status() vs. settings_view's full
+    system_status for the detailed, admin-only view.
+    """
+
+    health = get_health_status()
+
+    status_code = 200 if health["status"] == "ok" else 503
+
+    return JsonResponse(health, status=status_code)
 
 
 # ==========================

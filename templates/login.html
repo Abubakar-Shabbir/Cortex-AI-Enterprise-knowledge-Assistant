@@ -1,94 +1,56 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Log in · Knowledge Assistant</title>
+{% extends "auth_base.html" %}
 
-<script>
-  if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-    document.documentElement.classList.add('dark');
-  }
-</script>
+{% block title %}Log in{% endblock %}
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+{% block auth_content %}
 
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-  tailwind.config = {
-    darkMode: 'class',
-    theme: {
-      extend: {
-        fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
-        borderRadius: { xl: '12px' },
-        colors: {
-          primary: { DEFAULT: '#8B1E2D', dark: '#6D1B27', soft: '#E7C8CC' },
-          ink:     { DEFAULT: '#1F1B1B', dark: '#F1E9E8' },
-          muted:   { DEFAULT: '#6D6665', dark: '#A9989A' },
-          surface: { DEFAULT: '#FAF8F7', dark: '#14100F' },
-          card:    { DEFAULT: '#FFFFFF', dark: '#1D1615' },
-          line:    { DEFAULT: '#ECE3E2', dark: '#2C2221' },
-          danger:  { DEFAULT: '#C62828', dark: '#E35B5B' },
-        },
-        boxShadow: { soft: '0 1px 2px rgba(31,27,27,0.04), 0 8px 24px rgba(31,27,27,0.06)' },
-      },
-    },
-  };
-</script>
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-<style>* { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }</style>
-</head>
+<h1 class="text-xl font-bold tracking-tight text-ink dark:text-ink-dark">Log in to your account</h1>
+<p class="mb-6 mt-1 text-sm text-muted dark:text-muted-dark">Enter your details below to continue.</p>
 
-<body class="flex min-h-screen items-center justify-center bg-surface p-6 text-ink dark:bg-surface-dark dark:text-ink-dark">
+<form method="POST" class="space-y-4" x-data="{ showPassword: false }">
+  {% csrf_token %}
 
-<div class="w-full max-w-[380px]">
+  {% if error %}
+    <div class="flex items-start gap-2 rounded-lg border border-danger/20 bg-danger/10 px-3.5 py-3 text-sm text-danger dark:text-danger-dark">
+      <i data-lucide="alert-circle" class="mt-0.5 h-4 w-4 shrink-0"></i>
+      {{ error }}
+    </div>
+  {% endif %}
 
-  <div class="mb-6 flex items-center justify-center gap-2.5">
-    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-sm font-bold text-white">K</div>
-    <span class="text-sm font-semibold text-ink dark:text-ink-dark">Knowledge Assistant</span>
+  <div>
+    <label for="username" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Username</label>
+    <div class="relative">
+      <i data-lucide="user-round" class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted dark:text-muted-dark"></i>
+      <input id="username" type="text" name="username" placeholder="Enter your username" required autofocus
+        class="w-full rounded-lg border border-line bg-surface py-2.5 pl-10 pr-3.5 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark">
+    </div>
   </div>
 
-  <div class="rounded-xl border border-line bg-card p-8 shadow-soft dark:border-line-dark dark:bg-card-dark">
-
-    <h1 class="text-xl font-bold tracking-tight text-ink dark:text-ink-dark">Log in to your account</h1>
-    <p class="mb-6 mt-1 text-sm text-muted dark:text-muted-dark">Enter your details below to continue.</p>
-
-    <form method="POST" class="space-y-4">
-      {% csrf_token %}
-
-      {% if error %}
-        <div class="flex items-start gap-2 rounded-lg border border-danger/20 bg-danger/10 px-3.5 py-3 text-sm text-danger dark:text-danger-dark">
-          <i data-lucide="alert-circle" class="mt-0.5 h-4 w-4 shrink-0"></i>
-          {{ error }}
-        </div>
-      {% endif %}
-
-      <div>
-        <label for="username" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Username</label>
-        <input id="username" type="text" name="username" placeholder="Enter your username" required
-          class="w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark">
-      </div>
-
-      <div>
-        <label for="password" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Password</label>
-        <input id="password" type="password" name="password" placeholder="Enter your password" required
-          class="w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark">
-      </div>
-
-      <button type="submit" class="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
-        Log in
+  <div>
+    <label for="password" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Password</label>
+    <div class="relative">
+      <i data-lucide="lock" class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted dark:text-muted-dark"></i>
+      <input :type="showPassword ? 'text' : 'password'" id="password" name="password" placeholder="Enter your password" required
+        class="w-full rounded-lg border border-line bg-surface py-2.5 pl-10 pr-10 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark">
+      <button
+        type="button"
+        @click="showPassword = !showPassword"
+        class="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark"
+        :aria-label="showPassword ? 'Hide password' : 'Show password'"
+      >
+        <i data-lucide="eye" class="h-4 w-4" x-show="!showPassword"></i>
+        <i data-lucide="eye-off" class="h-4 w-4" x-show="showPassword" x-cloak></i>
       </button>
-
-      <p class="text-center text-sm text-muted dark:text-muted-dark">
-        Don't have an account? <a href="{% url 'signup' %}" class="font-semibold text-primary hover:underline dark:text-primary-soft">Sign up</a>
-      </p>
-    </form>
-
+    </div>
   </div>
-</div>
 
-<script>document.addEventListener('DOMContentLoaded', () => lucide.createIcons());</script>
-</body>
-</html>
+  <button type="submit" class="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-white shadow-softer transition-colors hover:bg-primary-dark">
+    Log in
+  </button>
+
+  <p class="text-center text-sm text-muted dark:text-muted-dark">
+    Don't have an account? <a href="{% url 'signup' %}" class="font-semibold text-primary hover:underline dark:text-primary-soft">Sign up</a>
+  </p>
+</form>
+
+{% endblock %}

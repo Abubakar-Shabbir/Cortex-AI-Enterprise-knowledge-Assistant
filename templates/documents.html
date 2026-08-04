@@ -4,11 +4,12 @@
 
 {% block content %}
 
-<div class="mb-6 flex flex-wrap items-center justify-between gap-3">
-  <div>
-    <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Documents</h1>
-    <p class="text-sm text-muted dark:text-muted-dark">Upload and manage the documents your assistant can answer from.</p>
-  </div>
+{% include "partials/_page_header.html" with title="Documents" subtitle="Upload and manage the documents your assistant can answer from." %}
+
+<div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+  {% include "partials/_stat_card.html" with icon="file-text" label="Total Documents" value=total_documents numeric=True %}
+  {% include "partials/_stat_card.html" with icon="check-circle-2" label="Fully Embedded" value=embedded_count numeric=True %}
+  {% include "partials/_stat_card.html" with icon="hard-drive" label="Storage Used" value=total_storage %}
 </div>
 
 <div x-data="{ uploadOpen: false }" class="mb-6 rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
@@ -147,6 +148,10 @@
       </tbody>
     </table>
   </div>
+</div>
+
+<div class="mt-6">
+  {% include "partials/_coming_soon.html" with icon="folder-plus" title="Collections, Tags &amp; Favorites" description="Organize documents into custom collections, tag them, and pin favorites for quick access — planned for a future release." %}
 </div>
 
 {% endblock %}

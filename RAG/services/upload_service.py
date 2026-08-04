@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 
 from ..models import (
@@ -11,6 +13,9 @@ from .metadata_service import extract_metadata
 from .document_processor import process_document
 from .embedding_service import generate_embedding
 from .vector_service import save_embedding
+from .graph_service import build_graph_for_chunk
+
+logger = logging.getLogger(__name__)
 
 
 def upload_document(
@@ -27,11 +32,9 @@ def upload_document(
     2. Check duplicate document
     3. Extract metadata
     4. Save document
-    5. Process document
-    6. Save document chunks
-    7. Generate embeddings
-    8. Store embeddings in PostgreSQL (pgvector)
-    9. Update document metadata
+    5-9. Process document (see process_uploaded_document()) - run
+         inline, or dispatched to a Celery worker (Sprint 10), per
+         settings.ENABLE_ASYNC_PROCESSING.
     """
 
     # ==================================================
@@ -84,6 +87,45 @@ def upload_document(
     )
 
     # ==================================================
+    # Steps 5-9 : Process Document
+    # ==================================================
+    # `document.chunk_count` stays at its default (0) until this
+    # completes - documents_view already reads that as "Processing"
+    # status, so dispatching this asynchronously needs no UI change:
+    # the document simply shows "Processing" until the worker (or, if
+    # ENABLE_ASYNC_PROCESSING is off, this same request) finishes it.
+
+    if settings.ENABLE_ASYNC_PROCESSING:
+
+        from ..tasks import process_document_task
+
+        process_document_task.delay(document.id)
+
+    else:
+
+        process_uploaded_document(document)
+
+    return document
+
+
+def process_uploaded_document(document):
+    """
+    Steps 5-9 of the upload pipeline: extract/chunk, embed, and
+    knowledge-graph-enrich `document`, then update its chunk count.
+
+    Split out from upload_document() (Sprint 10) so the exact same
+    processing logic runs whether it's called inline (the historical
+    behavior, settings.ENABLE_ASYNC_PROCESSING off) or from
+    RAG.tasks.process_document_task in a Celery worker (when it's on)
+    - the caller decides *when* this runs, never *what* it does. Takes
+    `document` (not a separate `user`) so a Celery task only needs to
+    pass a document_id and re-fetch it - the graph-enrichment owner is
+    always document.user.
+    """
+
+    user = document.user
+
+    # ==================================================
     # Step 5 : Process Document
     # ==================================================
 
@@ -122,8 +164,30 @@ def upload_document(
 
         )
 
+        # ==================================================
+        # Step 8 : Knowledge Graph Extraction
+        # ==================================================
+        # Best-effort: a failed extraction should never fail
+        # the upload, since the document/chunks/embeddings it
+        # would enrich are already saved.
+
+        try:
+
+            build_graph_for_chunk(
+                document_chunk,
+                user,
+            )
+
+        except Exception:
+
+            logger.exception(
+                "Graph enrichment failed for document %s chunk %s",
+                document.id,
+                document_chunk.chunk_number,
+            )
+
     # ==================================================
-    # Step 8 : Update Document Metadata
+    # Step 9 : Update Document Metadata
     # ==================================================
 
     document.chunk_count = len(chunks)
@@ -133,9 +197,5 @@ def upload_document(
             "chunk_count",
         ]
     )
-
-    # ==================================================
-    # Step 9 : Return Document
-    # ==================================================
 
     return document

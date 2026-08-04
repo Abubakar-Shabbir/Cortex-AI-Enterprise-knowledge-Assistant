@@ -1,0 +1,16 @@
+{% comment %}
+Usage: {% include "partials/_page_header.html" with title="Documents" subtitle="..." %}
+Optional primary CTA: action_url, action_label, action_icon.
+{% endcomment %}
+<div class="mb-6 flex flex-wrap items-start justify-between gap-3">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">{{ title }}</h1>
+    {% if subtitle %}<p class="mt-1 text-sm text-muted dark:text-muted-dark">{{ subtitle }}</p>{% endif %}
+  </div>
+  {% if action_url %}
+    <a href="{{ action_url }}" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+      {% if action_icon %}<i data-lucide="{{ action_icon }}" class="h-4 w-4"></i>{% endif %}
+      {{ action_label }}
+    </a>
+  {% endif %}
+</div>

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Citation Explorer{% endblock %}
+
+{% block content %}
+
+{% include "partials/_page_header.html" with title="Citation Explorer" subtitle="Every source your AI answers have actually cited, most recent first." %}
+
+{% include "partials/_kb_tabs.html" with active="citations" %}
+
+<div class="overflow-hidden rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <div class="overflow-x-auto">
+    <table class="w-full text-left text-sm">
+      <thead class="border-b border-line bg-surface dark:border-line-dark dark:bg-white/5">
+        <tr class="text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">
+          <th class="px-5 py-3.5">Question</th>
+          <th class="px-5 py-3.5">Cited Source</th>
+          <th class="px-5 py-3.5">Citation</th>
+          <th class="px-5 py-3.5">Asked</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line dark:divide-line-dark">
+        {% for citation in citations %}
+          <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
+            <td class="max-w-[320px] px-5 py-3.5">
+              <p class="truncate font-medium text-ink dark:text-ink-dark" title="{{ citation.question }}">{{ citation.question }}</p>
+            </td>
+            <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ citation.document }} · chunk {{ citation.chunk_number }}</td>
+            <td class="px-5 py-3.5">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary-soft/40 px-2.5 py-1 text-xs font-medium text-primary dark:bg-primary/15 dark:text-primary-soft">
+                <i data-lucide="quote" class="h-3 w-3"></i> [{{ citation.citation_number }}]
+              </span>
+            </td>
+            <td class="whitespace-nowrap px-5 py-3.5 text-muted dark:text-muted-dark">{{ citation.created_at|timesince }} ago</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="4">
+              {% url 'ask_ai' as ask_ai_url %}
+              {% include "partials/_empty_state.html" with icon="quote" title="No citations yet" message="Once an AI Search answer cites a source, it'll show up here." action_url=ask_ai_url action_label="Ask a question" %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

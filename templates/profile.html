@@ -164,6 +164,24 @@
         </div>
       </div>
     </div>
+
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+        <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+          <i data-lucide="monitor-smartphone" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Active Sessions
+        </h2>
+      </div>
+      <div class="space-y-3 px-5 py-5">
+        <div class="flex items-start gap-3">
+          <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-success"></span>
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-ink dark:text-ink-dark">This device — current session</p>
+            <p class="truncate text-xs text-muted dark:text-muted-dark" title="{{ current_user_agent }}">{{ current_user_agent|truncatechars:60 }}</p>
+          </div>
+        </div>
+        <p class="border-t border-line pt-3 text-xs text-muted dark:border-line-dark dark:text-muted-dark">Viewing and revoking sessions on other devices is planned for a future release.</p>
+      </div>
+    </div>
   </div>
 
 </div>

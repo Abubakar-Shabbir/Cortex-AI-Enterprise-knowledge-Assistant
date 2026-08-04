@@ -1,11 +1,13 @@
 from rank_bm25 import BM25Okapi
 
 from ..models import DocumentChunk
+from .retrieval_filters import apply_document_filters
 
 
 def bm25_search(
     question,
     top_k,
+    filters=None,
 ):
     """
     Perform BM25 keyword search
@@ -16,13 +18,15 @@ def bm25_search(
     # Load All Chunks
     # -------------------------
 
-    chunks = list(
-
-        DocumentChunk.objects.select_related(
-            "document"
-        )
-
+    chunks_queryset = DocumentChunk.objects.select_related(
+        "document"
     )
+
+    chunks_queryset = apply_document_filters(
+        chunks_queryset, filters, document_field="document"
+    )
+
+    chunks = list(chunks_queryset)
 
     if not chunks:
 

@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Monitoring{% endblock %}
+
+{% block content %}
+
+<div
+  x-data="{
+    status: '{{ health.status }}',
+    checkedAt: new Date(),
+    refresh() {
+      fetch('{% url 'health_check' %}').then(r => r.json()).then(data => { this.status = data.status; this.checkedAt = new Date(); });
+    },
+  }"
+  x-init="setInterval(() => refresh(), 15000)"
+>
+
+  <div class="mb-6 flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Monitoring</h1>
+      <p class="mt-1 text-sm text-muted dark:text-muted-dark">Live infrastructure health and RAG pipeline configuration. Visible to administrators only.</p>
+    </div>
+    <div class="flex items-center gap-2 rounded-lg border border-line bg-card px-3.5 py-2 text-xs font-medium shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <span class="h-1.5 w-1.5 rounded-full" :class="status === 'ok' ? 'bg-success' : 'bg-danger'"></span>
+      <span class="text-ink dark:text-ink-dark" x-text="status === 'ok' ? 'All systems operational' : 'Degraded'"></span>
+      <span class="text-muted dark:text-muted-dark">· auto-refreshes every 15s</span>
+    </div>
+  </div>
+
+  <div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+
+    <div class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted dark:text-muted-dark">PostgreSQL</span>
+        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft"><i data-lucide="database" class="h-4 w-4"></i></div>
+      </div>
+      <div class="mt-3 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+        <span class="h-1.5 w-1.5 rounded-full {% if health.checks.database %}bg-success{% else %}bg-danger{% endif %}"></span>
+        {% if health.checks.database %}Connected{% else %}Unreachable{% endif %}
+      </div>
+      <p class="mt-1 text-xs text-muted dark:text-muted-dark">pgvector {% if health.checks.pgvector %}enabled{% else %}not enabled{% endif %}</p>
+    </div>
+
+    <div class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted dark:text-muted-dark">Redis</span>
+        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft"><i data-lucide="zap" class="h-4 w-4"></i></div>
+      </div>
+      <div class="mt-3 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+        <span class="h-1.5 w-1.5 rounded-full {% if health.checks.redis %}bg-success{% else %}bg-danger{% endif %}"></span>
+        {% if health.checks.redis %}Reachable{% else %}Unreachable{% endif %}
+      </div>
+      <p class="mt-1 text-xs text-muted dark:text-muted-dark">Cache: {% if settings_use_redis_cache %}Redis{% else %}In-memory{% endif %}</p>
+    </div>
+
+    <div class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted dark:text-muted-dark">Background Jobs</span>
+        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft"><i data-lucide="cog" class="h-4 w-4"></i></div>
+      </div>
+      {% if health.celery_workers is None %}
+        <div class="mt-3 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+          <span class="h-1.5 w-1.5 rounded-full bg-muted"></span> Disabled
+        </div>
+        <p class="mt-1 text-xs text-muted dark:text-muted-dark">Uploads process inline</p>
+      {% else %}
+        <div class="mt-3 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+          <span class="h-1.5 w-1.5 rounded-full {% if health.celery_workers %}bg-success{% else %}bg-danger{% endif %}"></span>
+          {{ health.celery_workers }} worker{{ health.celery_workers|pluralize }}
+        </div>
+        <p class="mt-1 text-xs text-muted dark:text-muted-dark">Async processing enabled</p>
+      {% endif %}
+    </div>
+
+    <div class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted dark:text-muted-dark">Gemini LLM</span>
+        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft"><i data-lucide="bot" class="h-4 w-4"></i></div>
+      </div>
+      <div class="mt-3 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+        <span class="h-1.5 w-1.5 rounded-full {% if status.llm_configured %}bg-success{% else %}bg-warning{% endif %}"></span>
+        {% if status.llm_configured %}Configured{% else %}Not set{% endif %}
+      </div>
+      <p class="mt-1 truncate text-xs text-muted dark:text-muted-dark" title="{{ status.llm_model }}">{{ status.llm_model }}</p>
+    </div>
+
+  </div>
+
+  <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center gap-2 border-b border-line px-5 py-4 dark:border-line-dark">
+        <i data-lucide="sliders-horizontal" class="h-4 w-4 text-primary dark:text-primary-soft"></i>
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">RAG Pipeline Configuration</h2>
+      </div>
+      <div class="divide-y divide-line dark:divide-line-dark">
+        {% include "partials/_setting_row.html" with label="LLM Model" description="Used to generate answers from retrieved context" value=status.llm_model %}
+        {% include "partials/_setting_row.html" with label="Embedding Model" description="Used to embed document chunks and questions" value=status.embedding_model %}
+        {% include "partials/_setting_row.html" with label="Embedding Dimension" description="Vector size stored in pgvector" value=status.embedding_dimension %}
+        {% include "partials/_setting_row.html" with label="Chunk Size" description="Max characters per recursive chunk" value=chunk_size %}
+        {% include "partials/_setting_row.html" with label="Chunk Overlap" description="Overlapping characters between chunks" value=chunk_overlap %}
+        {% include "partials/_setting_row.html" with label="Top K" description="Chunks retrieved per question" value=top_k %}
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center gap-2 border-b border-line px-5 py-4 dark:border-line-dark">
+        <i data-lucide="server-cog" class="h-4 w-4 text-primary dark:text-primary-soft"></i>
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">System Information</h2>
+      </div>
+      <div class="divide-y divide-line dark:divide-line-dark">
+        {% include "partials/_setting_row.html" with label="Django Version" value=django_version %}
+        {% include "partials/_setting_row.html" with label="Total Documents" value=status.total_documents %}
+        {% include "partials/_setting_row.html" with label="Total Chunks" value=status.total_chunks %}
+        {% include "partials/_setting_row.html" with label="Total Embeddings" value=status.total_embeddings %}
+        {% include "partials/_setting_row.html" with label="Total Storage" value=status.total_storage %}
+      </div>
+    </div>
+
+  </div>
+
+  <div class="mt-6">
+    {% include "partials/_coming_soon.html" with icon="scroll-text" title="Centralized Log Viewer" description="Aggregated application logs across web and worker processes are planned for a future release. Logs currently go to each process's console output." %}
+  </div>
+
+</div>
+
+{% endblock %}

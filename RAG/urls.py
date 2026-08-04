@@ -19,6 +19,8 @@ from django.urls import path, include
 from .import views
 
 urlpatterns = [
+    path("health/", views.health_check, name="health_check"),
+
     path("", views.dashboard, name="home"),
     path("signup/", views.signup, name="signup"),
     path("login/", views.login_user, name="login"),
@@ -30,5 +32,16 @@ urlpatterns = [
     path("history/", views.search_history, name="search_history"),
     path("analytics/", views.analytics_view, name="analytics"),
     path("profile/", views.profile_view, name="profile"),
-    path("settings/", views.settings_view, name="settings"),
+
+    path("knowledge/", views.knowledge_base_view, name="knowledge_base"),
+    path("knowledge/entities/<int:entity_id>/", views.entity_detail_view, name="entity_detail"),
+    path("knowledge/relationships/", views.relationships_view, name="relationships"),
+    path("knowledge/graph/", views.knowledge_graph_view, name="knowledge_graph"),
+    path("knowledge/citations/", views.citation_explorer_view, name="citation_explorer"),
+
+    path("reports/", views.reports_view, name="reports"),
+    path("reports/documents.csv", views.export_documents_report, name="export_documents_report"),
+    path("reports/usage.csv", views.export_usage_report, name="export_usage_report"),
+
+    path("monitoring/", views.monitoring_view, name="monitoring"),
 ]

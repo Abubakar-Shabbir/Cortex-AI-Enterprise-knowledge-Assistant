@@ -1,0 +1,149 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#FAF8F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14100F" media="(prefers-color-scheme: dark)">
+<title>{% block title %}{% endblock %} · Knowledge Assistant</title>
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%238B1E2D'/%3E%3Cg stroke='white' stroke-width='1.6' stroke-linecap='round'%3E%3Cline x1='16' y1='7' x2='8' y2='22'/%3E%3Cline x1='16' y1='7' x2='24' y2='22'/%3E%3Cline x1='8' y1='22' x2='24' y2='22'/%3E%3C/g%3E%3Ccircle cx='16' cy='7' r='3' fill='white'/%3E%3Ccircle cx='8' cy='22' r='3' fill='white'/%3E%3Ccircle cx='24' cy='22' r='3' fill='white'/%3E%3C/svg%3E">
+
+<script>
+  if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark');
+  }
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
+        borderRadius: { xl: '12px', '2xl': '14px' },
+        colors: {
+          primary: { DEFAULT: '#8B1E2D', dark: '#6D1B27', soft: '#E7C8CC', light: '#A6333F' },
+          ink:     { DEFAULT: '#1F1B1B', dark: '#F1E9E8' },
+          muted:   { DEFAULT: '#6D6665', dark: '#A9989A' },
+          surface: { DEFAULT: '#FAF8F7', dark: '#14100F' },
+          card:    { DEFAULT: '#FFFFFF', dark: '#1D1615' },
+          line:    { DEFAULT: '#ECE3E2', dark: '#2C2221' },
+          success: { DEFAULT: '#1F7A4D', dark: '#3EAE78' },
+          warning: { DEFAULT: '#C77700', dark: '#E0972B' },
+          danger:  { DEFAULT: '#C62828', dark: '#E35B5B' },
+        },
+        boxShadow: {
+          soft: '0 1px 2px rgba(31,27,27,0.04), 0 8px 24px rgba(31,27,27,0.06)',
+          softer: '0 1px 2px rgba(31,27,27,0.03)',
+        },
+      },
+    },
+  };
+</script>
+<script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+<style>
+  [x-cloak] { display: none !important; }
+  * { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+  @keyframes fade-in-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .auth-card { animation: fade-in-up 0.45s ease-out both; }
+</style>
+
+{% block extra_head %}{% endblock %}
+</head>
+
+<body class="min-h-screen bg-surface text-ink antialiased dark:bg-surface-dark dark:text-ink-dark">
+
+<div class="flex min-h-screen">
+
+  {# Brand panel - hidden below lg, this is the one place the product gets to make its case #}
+  <div class="relative hidden w-[42%] max-w-[560px] shrink-0 overflow-hidden bg-primary lg:flex lg:flex-col lg:justify-between dark:bg-primary-dark">
+
+    <div class="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl"></div>
+    <div class="pointer-events-none absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-black/10 blur-3xl"></div>
+
+    <div class="relative px-10 pt-10">
+      <a href="{% url 'login' %}" class="inline-flex items-center gap-2.5 text-white">
+        {% include "partials/_logo.html" with size="h-9 w-9" mono=True %}
+        <span class="text-sm font-semibold">Knowledge Assistant</span>
+      </a>
+    </div>
+
+    <div class="relative px-10">
+      <h2 class="max-w-sm text-2xl font-bold leading-snug tracking-tight text-white">
+        Answers grounded in your own documents.
+      </h2>
+      <p class="mt-3 max-w-sm text-sm leading-relaxed text-white/75">
+        An enterprise knowledge assistant that reads what you upload, cites where every answer came from, and maps how your information connects.
+      </p>
+
+      <ul class="mt-8 space-y-5">
+        <li class="flex items-start gap-3">
+          <span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white">
+            <i data-lucide="share-2" class="h-4 w-4"></i>
+          </span>
+          <div>
+            <p class="text-sm font-semibold text-white">Knowledge Graph</p>
+            <p class="text-xs leading-relaxed text-white/70">Entities and relationships are extracted automatically, so you can explore how your documents connect.</p>
+          </div>
+        </li>
+        <li class="flex items-start gap-3">
+          <span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white">
+            <i data-lucide="quote" class="h-4 w-4"></i>
+          </span>
+          <div>
+            <p class="text-sm font-semibold text-white">Grounded, Cited Answers</p>
+            <p class="text-xs leading-relaxed text-white/70">Every answer traces back to the exact source chunk it came from — never guesswork.</p>
+          </div>
+        </li>
+        <li class="flex items-start gap-3">
+          <span class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white">
+            <i data-lucide="shield-check" class="h-4 w-4"></i>
+          </span>
+          <div>
+            <p class="text-sm font-semibold text-white">Private by Default</p>
+            <p class="text-xs leading-relaxed text-white/70">Your documents, questions, and answers are scoped to your account alone.</p>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <div class="relative px-10 pb-10 text-xs text-white/50">
+      &copy; {% now "Y" %} Knowledge Assistant · Enterprise Edition
+    </div>
+  </div>
+
+  {# Form panel #}
+  <div class="flex min-h-screen flex-1 flex-col items-center justify-center px-6 py-10">
+
+    <a href="{% url 'login' %}" class="mb-8 flex items-center gap-2.5 text-primary lg:hidden dark:text-primary-soft">
+      {% include "partials/_logo.html" with size="h-9 w-9" %}
+      <span class="text-sm font-semibold text-ink dark:text-ink-dark">Knowledge Assistant</span>
+    </a>
+
+    <div class="w-full max-w-[400px]">
+      <div class="auth-card rounded-2xl border border-line bg-card p-8 shadow-soft dark:border-line-dark dark:bg-card-dark">
+        {% block auth_content %}{% endblock %}
+      </div>
+
+      <p class="mt-6 flex items-center justify-center gap-1.5 text-center text-xs text-muted dark:text-muted-dark">
+        <i data-lucide="lock" class="h-3.5 w-3.5"></i> Secure sign-in
+      </p>
+    </div>
+
+  </div>
+
+</div>
+
+<script>document.addEventListener('DOMContentLoaded', () => lucide.createIcons());</script>
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

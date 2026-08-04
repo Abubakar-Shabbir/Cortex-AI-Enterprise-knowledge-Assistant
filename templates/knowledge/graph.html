@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Knowledge Graph{% endblock %}
+
+{% block content %}
+
+{% include "partials/_page_header.html" with title="Knowledge Graph" subtitle="A visual map of how the entities in your documents connect to each other." %}
+
+{% include "partials/_kb_tabs.html" with active="graph" %}
+
+<div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+  {% include "partials/_stat_card.html" with icon="tag" label="Entities" value=insights.total_entities %}
+  {% include "partials/_stat_card.html" with icon="git-branch" label="Relationships" value=insights.total_relationships %}
+  {% include "partials/_stat_card.html" with icon="star" label="Most Mentioned" value=insights.most_mentioned_entity.display_name|default:"—" sublabel=insights.most_mentioned_entity.mention_count|default:"" %}
+  {% include "partials/_stat_card.html" with icon="network" label="Most Connected" value=insights.most_connected.entity.display_name|default:"—" sublabel=insights.most_connected.degree|default:"" %}
+</div>
+
+<div class="rounded-xl border border-line bg-card p-2 shadow-soft dark:border-line-dark dark:bg-card-dark">
+  {% if graph_data.nodes %}
+    <div id="knowledgeGraph" class="h-[560px] w-full rounded-lg bg-surface dark:bg-white/[0.02]"></div>
+    <p class="px-3 py-2 text-xs text-muted dark:text-muted-dark">Showing your {{ graph_data.nodes|length }} most-mentioned entities. Node size reflects mention count; colors group entities by type. Drag to rearrange, scroll to zoom.</p>
+  {% else %}
+    {% include "partials/_empty_state.html" with icon="share-2" title="Nothing to visualize yet" message="Once your documents are processed and entities are extracted, their relationships will appear here as a graph." %}
+  {% endif %}
+</div>
+
+{{ graph_data.nodes|json_script:"graph-nodes-data" }}
+{{ graph_data.edges|json_script:"graph-edges-data" }}
+
+{% endblock %}
+
+{% block extra_scripts %}
+{% if graph_data.nodes %}
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9/standalone/umd/vis-network.min.js"></script>
+<script>
+(function () {
+  const read = (id) => JSON.parse(document.getElementById(id).textContent);
+
+  const nodes = new vis.DataSet(read('graph-nodes-data').map((n) => ({
+    ...n,
+    value: n.value,
+    font: { color: '#8a7d7d', face: 'Inter, ui-sans-serif, system-ui, sans-serif', size: 13 },
+  })));
+
+  const edges = new vis.DataSet(read('graph-edges-data').map((e) => ({
+    ...e,
+    arrows: 'to',
+    color: { color: 'rgba(109, 102, 101, 0.35)', highlight: '#8B1E2D' },
+    font: { color: '#8a7d7d', size: 10, strokeWidth: 0, align: 'middle' },
+  })));
+
+  const container = document.getElementById('knowledgeGraph');
+
+  new vis.Network(container, { nodes, edges }, {
+    nodes: {
+      shape: 'dot',
+      scaling: { min: 10, max: 34 },
+      borderWidth: 2,
+      color: { border: '#8B1E2D', background: '#E7C8CC' },
+    },
+    edges: { smooth: { type: 'continuous' }, width: 1.5 },
+    physics: { stabilization: { iterations: 120 }, barnesHut: { gravitationalConstant: -6000, springLength: 140 } },
+    interaction: { hover: true, tooltipDelay: 150 },
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

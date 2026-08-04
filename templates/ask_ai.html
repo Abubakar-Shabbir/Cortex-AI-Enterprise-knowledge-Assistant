@@ -1,13 +1,28 @@
 {% extends "base.html" %}
 
-{% block title %}Ask AI{% endblock %}
+{% block title %}AI Search{% endblock %}
 
 {% block content %}
 
 <div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Ask AI</h1>
+  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">AI Search</h1>
   <p class="text-sm text-muted dark:text-muted-dark">Ask anything about your uploaded documents — answers are grounded only in retrieved context.</p>
 </div>
+
+{% if suggested_questions %}
+  <div class="mb-6 flex flex-wrap items-center gap-2">
+    <span class="flex items-center gap-1 text-xs font-medium text-muted dark:text-muted-dark"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i> Suggested:</span>
+    {% for suggestion in suggested_questions %}
+      <button
+        type="button"
+        @click="const el = document.querySelector('textarea[name=question]'); el.value = '{{ suggestion|escapejs }}'; el.dispatchEvent(new Event('input')); el.focus();"
+        class="rounded-full border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-primary hover:text-primary dark:border-line-dark dark:text-ink-dark dark:hover:border-primary-soft dark:hover:text-primary-soft"
+      >
+        {{ suggestion }}
+      </button>
+    {% endfor %}
+  </div>
+{% endif %}
 
 <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
 
@@ -27,6 +42,20 @@
           placeholder="e.g. What are the key findings in the Q3 report?"
           class="w-full resize-none rounded-lg border border-line bg-surface p-3.5 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
         >{% if result %}{{ result.question }}{% endif %}</textarea>
+
+        <div class="mt-3">
+          <label for="document_id" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Search in</label>
+          <select
+            name="document_id"
+            id="document_id"
+            class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark sm:w-64"
+          >
+            <option value="">All documents</option>
+            {% for doc in documents %}
+              <option value="{{ doc.id }}" {% if selected_document_id == doc.id|stringformat:"s" %}selected{% endif %}>{{ doc.title }}</option>
+            {% endfor %}
+          </select>
+        </div>
 
         <div class="mt-3 flex items-center justify-between">
           <span class="text-xs text-muted dark:text-muted-dark">Hybrid vector + keyword search over your document library.</span>
@@ -60,6 +89,10 @@
             <span class="font-semibold text-ink dark:text-ink-dark">{{ result.sources|length }}</span>
           </div>
           <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
+            <i data-lucide="quote" class="h-3.5 w-3.5"></i> Citations
+            <span class="font-semibold text-ink dark:text-ink-dark">{{ result.citations|length }}</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
             <i data-lucide="git-merge" class="h-3.5 w-3.5"></i> Search Method
             <span class="font-semibold text-ink dark:text-ink-dark">{{ result.search_method }}</span>
           </div>
@@ -81,8 +114,15 @@
                       <i data-lucide="file-text" class="h-3.5 w-3.5 shrink-0 text-primary dark:text-primary-soft"></i>
                       {{ source.document }} <span class="text-muted dark:text-muted-dark">· chunk {{ source.chunk_number }}</span>
                     </span>
-                    <span class="shrink-0 rounded-full border border-line px-2 py-0.5 text-[11px] font-medium capitalize text-muted dark:border-line-dark dark:text-muted-dark">
-                      {{ source.search_type }}
+                    <span class="flex shrink-0 items-center gap-1.5">
+                      {% if source.citation_number %}
+                        <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary dark:bg-primary-soft/10 dark:text-primary-soft">
+                          Cited [{{ source.citation_number }}]
+                        </span>
+                      {% endif %}
+                      <span class="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium capitalize text-muted dark:border-line-dark dark:text-muted-dark">
+                        {{ source.search_type }}
+                      </span>
                     </span>
                   </div>
                   <p class="line-clamp-2 text-xs text-muted dark:text-muted-dark">{{ source.content }}</p>

@@ -36,11 +36,25 @@
     <div class="h-64"><canvas id="storageChart"></canvas></div>
   </div>
 
+  <div class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <h2 class="mb-1 text-sm font-semibold text-ink dark:text-ink-dark">Confidence Trend</h2>
+    <p class="mb-4 text-xs text-muted dark:text-muted-dark">Average answer confidence per day.</p>
+    <div class="h-64"><canvas id="confidenceChart"></canvas></div>
+  </div>
+
+  <div class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <h2 class="mb-1 text-sm font-semibold text-ink dark:text-ink-dark">Response Time Trend</h2>
+    <p class="mb-4 text-xs text-muted dark:text-muted-dark">Average response time per day, in milliseconds.</p>
+    <div class="h-64"><canvas id="responseTimeChart"></canvas></div>
+  </div>
+
 </div>
 
 {{ data.labels|json_script:"labels-data" }}
 {{ data.questions_series|json_script:"questions-data" }}
 {{ data.uploads_series|json_script:"uploads-data" }}
+{{ data.confidence_series|json_script:"confidence-data" }}
+{{ data.response_time_series|json_script:"response-time-data" }}
 {{ data.chunk_labels|json_script:"chunk-labels-data" }}
 {{ data.chunk_values|json_script:"chunk-values-data" }}
 {{ data.search_type_labels|json_script:"search-type-labels-data" }}
@@ -121,6 +135,35 @@
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: { x: { grid: { display: false } }, y: { grid: { color: gridColor }, beginAtZero: true } },
+    },
+  });
+
+  const confidence = read('confidence-data');
+  const responseTimes = read('response-time-data');
+
+  new Chart(document.getElementById('confidenceChart'), {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Confidence %', data: confidence, borderColor: primary, backgroundColor: primary, tension: 0.35, pointRadius: 2, borderWidth: 2, spanGaps: true }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 7 } },
+        y: { grid: { color: gridColor }, beginAtZero: true, max: 100, ticks: { callback: (v) => v + '%' } },
+      },
+    },
+  });
+
+  new Chart(document.getElementById('responseTimeChart'), {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Response Time (ms)', data: responseTimes, borderColor: wine, backgroundColor: wine, tension: 0.35, pointRadius: 2, borderWidth: 2, spanGaps: true }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 7 } },
+        y: { grid: { color: gridColor }, beginAtZero: true, ticks: { callback: (v) => v + ' ms' } },
+      },
     },
   });
 })();

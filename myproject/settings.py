@@ -68,6 +68,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'RAG.context_processors.sidebar_status',
+                'RAG.context_processors.breadcrumbs',
             ],
         },
     },
@@ -168,3 +169,176 @@ CHUNK_SIZE = 800
 
 CHUNK_OVERLAP = 150
 
+# ==========================================
+# Advanced Retrieval (Sprint 6)
+# ==========================================
+# Query expansion, HyDE, and multi-query retrieval each cost at least
+# one extra Gemini call per question on top of the existing hybrid
+# pipeline, so they default OFF - flip them on per-deployment via
+# .env once the added latency/cost is acceptable. Metadata filtering
+# is opt-in per-call (a `filters=None` param), so it needs no flag.
+# Dynamic top-k is local/free (no LLM call) and defaults ON.
+
+ENABLE_QUERY_EXPANSION = os.getenv("ENABLE_QUERY_EXPANSION", "False") == "True"
+
+ENABLE_HYDE = os.getenv("ENABLE_HYDE", "False") == "True"
+
+ENABLE_MULTI_QUERY = os.getenv("ENABLE_MULTI_QUERY", "False") == "True"
+
+ENABLE_DYNAMIC_TOP_K = os.getenv("ENABLE_DYNAMIC_TOP_K", "True") == "True"
+
+DYNAMIC_TOP_K_MAX = int(os.getenv("DYNAMIC_TOP_K_MAX", 10))
+
+MULTI_QUERY_VARIANTS = int(os.getenv("MULTI_QUERY_VARIANTS", 3))
+
+# ==========================================
+# Reranking (Sprint 7)
+# ==========================================
+# BGE Reranker re-scores merged candidate chunks with a cross-encoder
+# pass over (question, chunk) pairs - a stronger relevance signal than
+# the independent per-chunk scores hybrid retrieval already attaches.
+# It costs a local model inference pass per question (no extra Gemini
+# call, no new dependency - see reranker_service.py), but still adds
+# latency and a one-time model load, so it defaults OFF like the
+# Sprint 6 LLM-cost features - flip it on per-deployment via .env.
+
+ENABLE_RERANKER = os.getenv("ENABLE_RERANKER", "False") == "True"
+
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")
+
+# When reranking is enabled, retrieve_chunks() over-fetches this many
+# times the effective top-k from each source before reranking, so the
+# reranker has a real candidate pool to reorder rather than just
+# re-scoring an already-truncated list.
+RERANKER_CANDIDATE_MULTIPLIER = int(os.getenv("RERANKER_CANDIDATE_MULTIPLIER", 3))
+
+# ==========================================
+# Context Compression (Sprint 8)
+# ==========================================
+# Hybrid retrieval (especially with HyDE/multi-query/reranking
+# enabled) can surface near-duplicate chunks - the same fact
+# paraphrased, or overlapping chunks from CHUNK_OVERLAP - that pad the
+# LLM's context without adding information. Compression removes
+# chunks that are semantically redundant with one already kept (see
+# context_compression_service.py), reusing the existing embedding
+# model - no new dependency, no LLM call. Off by default: an overly
+# aggressive threshold could drop a chunk that genuinely mattered, so
+# this should be enabled deliberately per-deployment via .env.
+
+ENABLE_CONTEXT_COMPRESSION = os.getenv("ENABLE_CONTEXT_COMPRESSION", "False") == "True"
+
+CONTEXT_COMPRESSION_THRESHOLD = float(os.getenv("CONTEXT_COMPRESSION_THRESHOLD", 0.92))
+
+# ==========================================
+# Answer Generation (Sprint 9)
+# ==========================================
+# Prompt templates, grounding/citation rules, and the "not found"
+# fallback text live in prompt_templates.py / citation_service.py.
+# ANSWER_TEMPERATURE lowers Gemini's sampling temperature below the
+# provider default, so the model sticks closer to the cited sources
+# instead of improvising - a direct hallucination-reduction lever.
+# Applied unconditionally (not feature-flagged): it costs nothing
+# extra and is a generation-quality default for this sprint, not an
+# opt-in.
+
+ANSWER_TEMPERATURE = float(os.getenv("ANSWER_TEMPERATURE", 0.2))
+
+# ==========================================
+# Celery + Redis (Sprint 10)
+# ==========================================
+# REDIS_URL backs both the Celery broker/result store and, when
+# USE_REDIS_CACHE is enabled, Django's cache backend (currently used
+# by context_processors.sidebar_status()).
+# Everything here defaults to behavior identical to before Sprint 10:
+# no Redis/Celery worker required to run the app, matching every
+# other infra-dependent flag in this project (off by default, flip
+# via .env - docker-compose.yml sets both True).
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
+
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
+
+CELERY_ACCEPT_CONTENT = ["json"]
+
+CELERY_TASK_SERIALIZER = "json"
+
+CELERY_RESULT_SERIALIZER = "json"
+
+CELERY_TIMEZONE = TIME_ZONE
+
+# When False (default), upload_service.upload_document() processes a
+# document inline, exactly as every sprint before this one. When
+# True, it dispatches RAG.tasks.process_document_task instead and
+# returns immediately - the request/response cycle no longer waits on
+# extraction/chunking/embedding/graph-enrichment for large documents.
+# Requires a running Celery worker (see Dockerfile/docker-compose.yml)
+# once enabled - with no worker consuming the queue, documents would
+# stay stuck at chunk_count=0 ("Processing").
+ENABLE_ASYNC_PROCESSING = os.getenv("ENABLE_ASYNC_PROCESSING", "False") == "True"
+
+# When True, Django's cache (LocMemCache by default - see CACHES
+# below) is swapped for django-redis pointed at REDIS_URL. LocMemCache
+# is process-local, so it's fine for the sidebar status cache and for
+# rate limiting a single dev/test process, but doesn't share state
+# across multiple gunicorn workers/machines - Redis is required for
+# rate limiting to work correctly in any multi-process deployment.
+USE_REDIS_CACHE = os.getenv("USE_REDIS_CACHE", "False") == "True"
+
+if USE_REDIS_CACHE:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": REDIS_URL,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            },
+            "KEY_PREFIX": "rag",
+        }
+    }
+
+# ==========================================
+# Monitoring (Sprint 10)
+# ==========================================
+# Activates the logger.info()/logger.exception() calls already
+# present throughout RAG/services/*.py (previously relying on
+# Django's implicit default, which only surfaces WARNING+ on the root
+# logger) with a consistent console format. DJANGO_LOG_LEVEL lets a
+# deployment turn up verbosity without a code change.
+
+DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "%(asctime)s %(levelname)s %(name)s: %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": DJANGO_LOG_LEVEL,
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["console"],
+            "level": os.getenv("DJANGO_FRAMEWORK_LOG_LEVEL", "WARNING"),
+            "propagate": False,
+        },
+        # Chatty third-party HTTP/model-download clients that would
+        # otherwise drown out RAG.* logs at INFO - each request the
+        # embedding/reranker model libraries make to Hugging Face
+        # logs a line by default.
+        "httpx": {"level": "WARNING", "propagate": True},
+        "httpcore": {"level": "WARNING", "propagate": True},
+        "urllib3": {"level": "WARNING", "propagate": True},
+    },
+}

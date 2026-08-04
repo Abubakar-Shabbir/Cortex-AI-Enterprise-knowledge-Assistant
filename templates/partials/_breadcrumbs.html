@@ -1,0 +1,19 @@
+{% if breadcrumb_trail %}
+<nav aria-label="Breadcrumb" class="mb-4 flex flex-wrap items-center gap-1.5 text-xs text-muted dark:text-muted-dark">
+  <a href="{% url 'home' %}" class="flex items-center hover:text-ink dark:hover:text-ink-dark" aria-label="Dashboard">
+    <i data-lucide="home" class="h-3.5 w-3.5"></i>
+  </a>
+  {% for label, url_name in breadcrumb_trail %}
+    <i data-lucide="chevron-right" class="h-3 w-3 shrink-0 text-line dark:text-line-dark"></i>
+    {% if url_name %}
+      <a href="{% url url_name %}" class="hover:text-ink dark:hover:text-ink-dark">{{ label }}</a>
+    {% else %}
+      <span class="font-medium text-ink dark:text-ink-dark">{{ label }}</span>
+    {% endif %}
+  {% endfor %}
+  {% if breadcrumb_leaf %}
+    <i data-lucide="chevron-right" class="h-3 w-3 shrink-0 text-line dark:text-line-dark"></i>
+    <span class="max-w-[240px] truncate font-medium text-ink dark:text-ink-dark">{{ breadcrumb_leaf }}</span>
+  {% endif %}
+</nav>
+{% endif %}

@@ -1,5 +1,4 @@
 {% load static %}
-{% with active=request.resolver_match.url_name %}
 
 <div
   x-show="sidebarOpen"
@@ -14,26 +13,35 @@
   :class="sidebarOpen && '!translate-x-0'"
 >
 
-  <div class="flex h-16 shrink-0 items-center gap-2.5 border-b border-line px-5 dark:border-line-dark">
-    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-white">K</div>
+  <a href="{% url 'home' %}" class="flex h-16 shrink-0 items-center gap-2.5 border-b border-line px-5 dark:border-line-dark">
+    <div class="text-primary dark:text-primary-soft">{% include "partials/_logo.html" with size="h-8 w-8" %}</div>
     <div class="leading-tight">
       <div class="text-sm font-semibold text-ink dark:text-ink-dark">Knowledge Assistant</div>
       <div class="text-[11px] text-muted dark:text-muted-dark">Enterprise Edition</div>
     </div>
-  </div>
+  </a>
 
   <nav class="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
 
-    {% include "partials/_nav_item.html" with name="home" label="Dashboard" icon="layout-dashboard" active=active %}
-    {% include "partials/_nav_item.html" with name="ask_ai" label="Ask AI" icon="message-square" active=active %}
-    {% include "partials/_nav_item.html" with name="documents" label="Documents" icon="file-text" active=active %}
-    {% include "partials/_nav_item.html" with name="search_history" label="Search History" icon="history" active=active %}
-    {% include "partials/_nav_item.html" with name="analytics" label="Analytics" icon="bar-chart-3" active=active %}
+    {% include "partials/_nav_item.html" with name="home" label="Dashboard" icon="layout-dashboard" active=active_nav %}
+
+    <div class="mb-1.5 mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Workspace</div>
+    {% include "partials/_nav_item.html" with name="documents" label="Documents" icon="file-text" active=active_nav %}
+    {% include "partials/_nav_item.html" with name="knowledge_base" label="Knowledge Base" icon="share-2" active=active_nav %}
+    {% include "partials/_nav_item.html" with name="ask_ai" label="AI Search" icon="message-square" active=active_nav %}
+
+    <div class="mb-1.5 mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Insights</div>
+    {% include "partials/_nav_item.html" with name="analytics" label="Analytics" icon="bar-chart-3" active=active_nav %}
+    {% include "partials/_nav_item.html" with name="reports" label="Reports" icon="file-down" active=active_nav %}
+
+    {% if request.user.is_staff %}
+      <div class="mb-1.5 mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Administration</div>
+      {% include "partials/_nav_item.html" with name="monitoring" label="Monitoring" icon="activity" active=active_nav %}
+    {% endif %}
 
     <div class="my-3 border-t border-line dark:border-line-dark"></div>
 
-    {% include "partials/_nav_item.html" with name="profile" label="Profile" icon="user-round" active=active %}
-    {% include "partials/_nav_item.html" with name="settings" label="Settings" icon="settings" active=active %}
+    {% include "partials/_nav_item.html" with name="profile" label="Profile" icon="user-round" active=active_nav %}
 
   </nav>
 
@@ -99,5 +107,3 @@
   </div>
 
 </aside>
-
-{% endwith %}

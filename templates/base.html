@@ -3,7 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Enterprise Knowledge Assistant — upload documents and get AI-powered answers grounded in their content.">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#FAF8F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14100F" media="(prefers-color-scheme: dark)">
 <title>{% block title %}Dashboard{% endblock %} · Enterprise Knowledge Assistant</title>
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%238B1E2D'/%3E%3Cg stroke='white' stroke-width='1.6' stroke-linecap='round'%3E%3Cline x1='16' y1='7' x2='8' y2='22'/%3E%3Cline x1='16' y1='7' x2='24' y2='22'/%3E%3Cline x1='8' y1='22' x2='24' y2='22'/%3E%3C/g%3E%3Ccircle cx='16' cy='7' r='3' fill='white'/%3E%3Ccircle cx='8' cy='22' r='3' fill='white'/%3E%3Ccircle cx='24' cy='22' r='3' fill='white'/%3E%3C/svg%3E">
 
 <script>
   if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -48,7 +55,7 @@
   };
 </script>
 
-<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
 <style>
@@ -57,6 +64,9 @@
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-thumb { background: #ECE3E2; border-radius: 8px; }
   .dark ::-webkit-scrollbar-thumb { background: #2C2221; }
+  html { scrollbar-width: thin; scrollbar-color: #ECE3E2 transparent; }
+  html.dark { scrollbar-color: #2C2221 transparent; }
+  .skip-link:focus { clip: auto; width: auto; height: auto; overflow: visible; }
 </style>
 
 {% block extra_head %}{% endblock %}
@@ -70,6 +80,7 @@
 <div class="min-h-screen flex">
 
   {% include "partials/sidebar.html" %}
+  {% if request.user.is_authenticated %}{% include "partials/_command_palette.html" %}{% endif %}
 
   <div class="flex-1 min-w-0 flex flex-col lg:pl-64">
 
@@ -89,6 +100,8 @@
           {% endfor %}
         </div>
       {% endif %}
+
+      {% include "partials/_breadcrumbs.html" %}
 
       {% block content %}{% endblock %}
 

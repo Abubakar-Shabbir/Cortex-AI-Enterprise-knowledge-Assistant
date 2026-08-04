@@ -13,16 +13,117 @@
   </p>
 </div>
 
+<div class="mb-6 flex flex-wrap gap-2.5">
+  <a href="{% url 'documents' %}" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+    <i data-lucide="upload-cloud" class="h-4 w-4"></i> Upload Document
+  </a>
+  <a href="{% url 'ask_ai' %}" class="inline-flex items-center gap-2 rounded-lg border border-line bg-card px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-surface dark:border-line-dark dark:bg-card-dark dark:text-ink-dark dark:hover:bg-white/5">
+    <i data-lucide="message-square" class="h-4 w-4"></i> Ask AI
+  </a>
+  <a href="{% url 'knowledge_base' %}" class="inline-flex items-center gap-2 rounded-lg border border-line bg-card px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-surface dark:border-line-dark dark:bg-card-dark dark:text-ink-dark dark:hover:bg-white/5">
+    <i data-lucide="share-2" class="h-4 w-4"></i> Browse Knowledge
+  </a>
+  <a href="{% url 'reports' %}" class="inline-flex items-center gap-2 rounded-lg border border-line bg-card px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-surface dark:border-line-dark dark:bg-card-dark dark:text-ink-dark dark:hover:bg-white/5">
+    <i data-lucide="file-down" class="h-4 w-4"></i> Export Report
+  </a>
+</div>
+
 <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-  {% include "partials/_stat_card.html" with icon="file-text" label="Total Documents" value=stats.total_documents %}
-  {% include "partials/_stat_card.html" with icon="layers" label="Total Chunks" value=stats.total_chunks %}
-  {% include "partials/_stat_card.html" with icon="message-square" label="Questions Asked" value=stats.questions_asked %}
-  {% include "partials/_stat_card.html" with icon="calendar-clock" label="Today's Queries" value=stats.today_queries %}
+  {% include "partials/_stat_card.html" with icon="file-text" label="Total Documents" value=stats.total_documents numeric=True %}
+  {% include "partials/_stat_card.html" with icon="layers" label="Total Chunks" value=stats.total_chunks numeric=True %}
+  {% include "partials/_stat_card.html" with icon="message-square" label="Questions Asked" value=stats.questions_asked numeric=True %}
+  {% include "partials/_stat_card.html" with icon="calendar-clock" label="Today's Queries" value=stats.today_queries numeric=True %}
   {% include "partials/_stat_card.html" with icon="timer" label="Avg Response Time" value=stats.avg_response_time %}
   {% include "partials/_stat_card.html" with icon="hard-drive" label="Storage Used" value=stats.storage_used %}
   {% include "partials/_stat_card.html" with icon="upload" label="Last Upload" value=stats.last_upload.title|default:"—"|truncatechars:18 sublabel=stats.last_upload.uploaded_at|timesince|default:"No uploads yet" %}
   {% include "partials/_stat_card.html" with icon="shield-check" label="Active Session" value="Active" sublabel=request.user.last_login|date:"M d, H:i" %}
 </div>
+
+{% if insights or recommendations %}
+<div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+
+  {% if insights %}
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center gap-2 border-b border-line px-5 py-4 dark:border-line-dark">
+        <i data-lucide="lightbulb" class="h-4 w-4 text-primary dark:text-primary-soft"></i>
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Smart Insights</h2>
+      </div>
+      <div class="divide-y divide-line dark:divide-line-dark">
+        {% for insight in insights %}
+          <div class="flex items-start gap-3 px-5 py-3.5">
+            <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
+              <i data-lucide="{{ insight.icon }}" class="h-4 w-4"></i>
+            </div>
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-ink dark:text-ink-dark">{{ insight.title }}</p>
+              <p class="text-xs text-muted dark:text-muted-dark">{{ insight.description }}</p>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  {% if recommendations %}
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center gap-2 border-b border-line px-5 py-4 dark:border-line-dark">
+        <i data-lucide="target" class="h-4 w-4 text-primary dark:text-primary-soft"></i>
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recommendations</h2>
+      </div>
+      <div class="divide-y divide-line dark:divide-line-dark">
+        {% for rec in recommendations %}
+          <div class="flex items-start gap-3 px-5 py-3.5">
+            <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-warning/10 text-warning dark:text-warning-dark">
+              <i data-lucide="{{ rec.icon }}" class="h-4 w-4"></i>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium text-ink dark:text-ink-dark">{{ rec.title }}</p>
+              <p class="text-xs text-muted dark:text-muted-dark">{{ rec.description }}</p>
+              {% if rec.action_url_name %}
+                <a href="{% url rec.action_url_name %}" class="mt-1 inline-block text-xs font-medium text-primary hover:underline dark:text-primary-soft">{{ rec.action_label }} →</a>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+</div>
+{% endif %}
+
+<div class="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
+
+  <div class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark xl:col-span-2">
+    <div class="mb-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Activity Trend</h2>
+        <p class="text-xs text-muted dark:text-muted-dark">Questions &amp; uploads, last 7 days</p>
+      </div>
+      <a href="{% url 'analytics' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">Full analytics</a>
+    </div>
+    <div class="h-64"><canvas id="trendChart"></canvas></div>
+  </div>
+
+  <div class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <h2 class="mb-4 text-sm font-semibold text-ink dark:text-ink-dark">Search Type Mix</h2>
+    <div class="h-64"><canvas id="searchTypeChart"></canvas></div>
+  </div>
+
+  <div class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark xl:col-span-3">
+    <h2 class="mb-4 text-sm font-semibold text-ink dark:text-ink-dark">Chunks by Document</h2>
+    <div class="h-56"><canvas id="chunkChart"></canvas></div>
+  </div>
+
+</div>
+
+{{ trends.labels|json_script:"trend-labels-data" }}
+{{ trends.questions_series|json_script:"trend-questions-data" }}
+{{ trends.uploads_series|json_script:"trend-uploads-data" }}
+{{ trends.search_type_labels|json_script:"trend-search-labels-data" }}
+{{ trends.search_type_values|json_script:"trend-search-values-data" }}
+{{ trends.chunk_labels|json_script:"trend-chunk-labels-data" }}
+{{ trends.chunk_values|json_script:"trend-chunk-values-data" }}
 
 <div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
 
@@ -53,7 +154,7 @@
 
   <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
     <div class="flex items-center justify-between border-b border-line px-5 py-4 dark:border-line-dark">
-      <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Questions</h2>
+      <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Searches</h2>
       <a href="{% url 'search_history' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
     </div>
     <div class="divide-y divide-line dark:divide-line-dark">
@@ -78,4 +179,71 @@
 
 </div>
 
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+(function () {
+  const read = (id) => JSON.parse(document.getElementById(id).textContent);
+
+  const labels = read('trend-labels-data');
+  const questions = read('trend-questions-data');
+  const uploads = read('trend-uploads-data');
+  const searchLabels = read('trend-search-labels-data');
+  const searchValues = read('trend-search-values-data');
+  const chunkLabels = read('trend-chunk-labels-data');
+  const chunkValues = read('trend-chunk-values-data');
+
+  const gridColor = 'rgba(109, 102, 101, 0.12)';
+  const tickColor = '#8a7d7d';
+  const primary = '#8B1E2D';
+  const gold = '#C77700';
+  const categorical = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'];
+
+  Chart.defaults.font.family = 'Inter, ui-sans-serif, system-ui, sans-serif';
+  Chart.defaults.color = tickColor;
+
+  new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Questions', data: questions, borderColor: primary, backgroundColor: primary, tension: 0.35, pointRadius: 0, borderWidth: 2 },
+        { label: 'Documents Uploaded', data: uploads, borderColor: gold, backgroundColor: gold, tension: 0.35, pointRadius: 0, borderWidth: 2 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true } } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 7 } },
+        y: { grid: { color: gridColor }, beginAtZero: true, ticks: { precision: 0 } },
+      },
+    },
+  });
+
+  new Chart(document.getElementById('searchTypeChart'), {
+    type: 'doughnut',
+    data: { labels: searchLabels, datasets: [{ data: searchValues, backgroundColor: categorical.slice(0, searchLabels.length), borderWidth: 0 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '68%',
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true } } },
+    },
+  });
+
+  new Chart(document.getElementById('chunkChart'), {
+    type: 'bar',
+    data: { labels: chunkLabels.length ? chunkLabels : ['No documents yet'], datasets: [{ data: chunkValues.length ? chunkValues : [0], backgroundColor: primary, borderRadius: 6, maxBarThickness: 28 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false } },
+        y: { grid: { color: gridColor }, beginAtZero: true, ticks: { precision: 0 } },
+      },
+    },
+  });
+})();
+</script>
 {% endblock %}
