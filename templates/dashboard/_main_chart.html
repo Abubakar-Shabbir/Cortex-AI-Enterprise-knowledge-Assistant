@@ -1,0 +1,17 @@
+{% comment %}
+"Documents Over Time" — real Chart.js line chart, cumulative document
+count for the last 7 days (stats_service.get_documents_over_time).
+{% endcomment %}
+
+<div class="rounded-2xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <div class="mb-4 flex items-center justify-between">
+    <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Documents Over Time</h2>
+    <div class="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted dark:border-line-dark dark:text-muted-dark">
+      7 Days <i data-lucide="chevron-down" class="h-3.5 w-3.5"></i>
+    </div>
+  </div>
+  <div class="h-72"><canvas id="documentsOverTimeChart"></canvas></div>
+</div>
+
+{{ documents_over_time.labels|json_script:"documents-over-time-labels" }}
+{{ documents_over_time.series|json_script:"documents-over-time-series" }}

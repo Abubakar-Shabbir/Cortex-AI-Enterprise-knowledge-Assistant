@@ -1,0 +1,34 @@
+{% comment %}
+Activity Feed — reuses the global activity_feed context var
+(context_processors.sidebar_status), the same real data the topbar
+notification dropdown already shows. "View all" points to Search
+History, the closest existing page to a full activity log (see the
+Activity Logs TODO in _sidebar.html for the gap this doesn't cover).
+{% endcomment %}
+
+<div class="rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+  <div class="flex items-center justify-between border-b border-line px-5 py-4 dark:border-line-dark">
+    <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Activity Feed</h2>
+    <a href="{% url 'search_history' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+  </div>
+
+  <div class="divide-y divide-line dark:divide-line-dark">
+    {% for event in activity_feed %}
+      <div class="flex items-start gap-3 px-5 py-3">
+        <div class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <i data-lucide="{{ event.icon }}" class="h-3.5 w-3.5"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm text-ink dark:text-ink-dark">{{ event.text }}</p>
+        </div>
+        <span class="shrink-0 text-xs text-muted dark:text-muted-dark">{{ event.at|timesince }} ago</span>
+      </div>
+    {% empty %}
+      <div class="px-5 py-8 text-center">
+        <p class="text-sm text-muted dark:text-muted-dark">You're all caught up.</p>
+      </div>
+    {% endfor %}
+  </div>
+
+</div>

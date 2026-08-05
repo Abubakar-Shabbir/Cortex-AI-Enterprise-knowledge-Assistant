@@ -1,0 +1,54 @@
+{% comment %}
+Quick Actions — real destinations where a page exists; "Manage Users"
+has no backend/page yet (see _sidebar.html's Users placeholder) and
+is rendered disabled instead of linking nowhere.
+{% endcomment %}
+
+<div class="rounded-2xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <h2 class="mb-4 text-sm font-semibold text-ink dark:text-ink-dark">Quick Actions</h2>
+
+  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+
+    <a href="{% url 'documents' %}" class="group flex items-start gap-3 rounded-xl border border-line p-4 transition-colors hover:border-primary/30 hover:bg-primary/5 dark:border-line-dark dark:hover:bg-primary/10">
+      <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <i data-lucide="upload" class="h-4 w-4"></i>
+      </div>
+      <div class="min-w-0">
+        <p class="text-sm font-semibold text-ink dark:text-ink-dark">Upload Document</p>
+        <p class="text-xs text-muted dark:text-muted-dark">Add new documents</p>
+      </div>
+    </a>
+
+    {# TODO: no user-management backend/page yet - disabled placeholder. #}
+    <div class="flex items-start gap-3 rounded-xl border border-dashed border-line p-4 opacity-60" title="Waiting for backend implementation">
+      <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-info/10 text-info">
+        <i data-lucide="users" class="h-4 w-4"></i>
+      </div>
+      <div class="min-w-0">
+        <p class="text-sm font-semibold text-ink dark:text-ink-dark">Manage Users</p>
+        <p class="text-xs text-muted dark:text-muted-dark">Coming soon</p>
+      </div>
+    </div>
+
+    <a href="{% url 'analytics' %}" class="group flex items-start gap-3 rounded-xl border border-line p-4 transition-colors hover:border-success/30 hover:bg-success/5 dark:border-line-dark dark:hover:bg-success/10">
+      <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-success/10 text-success">
+        <i data-lucide="bar-chart-3" class="h-4 w-4"></i>
+      </div>
+      <div class="min-w-0">
+        <p class="text-sm font-semibold text-ink dark:text-ink-dark">View Analytics</p>
+        <p class="text-xs text-muted dark:text-muted-dark">Explore insights</p>
+      </div>
+    </a>
+
+    <a href="{% url 'monitoring' %}" class="group flex items-start gap-3 rounded-xl border border-line p-4 transition-colors hover:border-accent/30 hover:bg-accent/5 dark:border-line-dark dark:hover:bg-accent/10">
+      <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
+        <i data-lucide="settings" class="h-4 w-4"></i>
+      </div>
+      <div class="min-w-0">
+        <p class="text-sm font-semibold text-ink dark:text-ink-dark">System Settings</p>
+        <p class="text-xs text-muted dark:text-muted-dark">Configure system</p>
+      </div>
+    </a>
+
+  </div>
+</div>

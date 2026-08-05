@@ -36,9 +36,12 @@ from .services.reports_service import (
 from .services.retrieval_filters import RetrievalFilters
 from .services.stats_service import (
     get_analytics_data,
-    get_dashboard_insights,
     get_dashboard_stats,
+    get_document_type_breakdown,
+    get_documents_over_time,
+    get_kpi_trends,
     get_recent_activity,
+    get_recent_documents_table,
     get_system_status,
 )
 from .services.upload_service import upload_document
@@ -149,15 +152,16 @@ def login_user(request):
 @login_required
 def dashboard(request):
     """
-    Dashboard overview: quick stats and recent
-    activity. Upload lives on the Documents page,
-    questions live on the Ask AI page.
+    Admin-style workspace overview: KPI cards with trend sparklines,
+    documents-over-time and document-type charts, and a recent
+    documents table. Upload lives on the Documents page, questions
+    live on the Ask AI page. system_status / activity_feed are already
+    supplied globally by context_processors.sidebar_status.
     """
 
     stats = get_dashboard_stats(request.user)
     activity = get_recent_activity(request.user)
     trends = get_analytics_data(request.user, days=7)
-    insights = get_dashboard_insights(request.user)
 
     return render(
         request,
@@ -165,8 +169,10 @@ def dashboard(request):
         {
             "stats": stats,
             "trends": trends,
-            "insights": insights["insights"],
-            "recommendations": insights["recommendations"],
+            "kpi_trends": get_kpi_trends(request.user),
+            "documents_over_time": get_documents_over_time(request.user, days=7),
+            "document_types": get_document_type_breakdown(request.user),
+            "recent_documents_table": get_recent_documents_table(request.user),
             **activity,
         },
     )

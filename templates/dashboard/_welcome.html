@@ -1,0 +1,22 @@
+{% comment %}
+Welcome banner — greeting + date. The "date picker" is a static
+display of today's date (real, via {% now %}); there's no date-range
+backend behind the dashboard yet, so it isn't wired to an interactive
+range picker. All KPI/chart data below is fixed to a real last-7-days
+window - see stats_service.get_kpi_trends / get_documents_over_time.
+{% endcomment %}
+
+<div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">
+      Good {% now "G" as hour %}{% if hour|add:0 < 12 %}morning{% elif hour|add:0 < 18 %}afternoon{% else %}evening{% endif %}, {{ request.user.first_name|default:request.user.username }} <span aria-hidden="true">👋</span>
+    </h1>
+    <p class="mt-1 text-sm text-muted dark:text-muted-dark">Here's what's happening in your workspace today.</p>
+  </div>
+
+  <div class="inline-flex items-center gap-2 self-start rounded-lg border border-line bg-card px-3.5 py-2.5 text-sm font-medium text-ink shadow-softer dark:border-line-dark dark:bg-card-dark dark:text-ink-dark">
+    <i data-lucide="calendar" class="h-4 w-4 text-muted dark:text-muted-dark"></i>
+    {% now "F j, Y" %}
+    <i data-lucide="chevron-down" class="h-4 w-4 text-muted dark:text-muted-dark"></i>
+  </div>
+</div>
