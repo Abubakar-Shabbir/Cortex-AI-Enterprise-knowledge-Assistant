@@ -1,12 +1,16 @@
 {% comment %}
-Admin Dashboard sidebar — used by dashboard.html (rendered only via
-admin_dashboard_view, @admin_required) and every page under
-admin/_base.html. Distinct from the User Dashboard's own sidebar
-(templates/user/_sidebar.html), which has its own, shorter nav list.
-Since this sidebar is now only ever reached by an admin/super_admin,
-its items are unconditional - no {% if is_admin %} needed here (that
-pattern was an interim step before the User Dashboard had its own
-template; see CLAUDE.md's RBAC section).
+User Dashboard sidebar — same visual design language as the Admin
+Dashboard's dark sidebar (dashboard/_sidebar.html), but a genuinely
+separate, shorter nav list: only the real pages a non-admin role uses.
+
+Two spec items don't get their own nav entry because they'd just
+duplicate an existing destination rather than pointing anywhere new:
+"Search" is already built into the Documents page (its own search
+box, ?q=), and "Settings" (theme/language) - only theme exists today,
+as the toggle at the bottom of this sidebar; there's no i18n/language
+feature anywhere in the app to link a "Language" setting to. Both are
+folded in rather than added as dead links to a page that doesn't
+exist. See CLAUDE.md's RBAC section for the rest of this reasoning.
 {% endcomment %}
 
 <aside class="fixed inset-y-0 left-0 z-40 flex w-64 -translate-x-full flex-col bg-sidebar text-ink-dark transition-transform duration-200 lg:translate-x-0" :class="sidebarOpen && '!translate-x-0'">
@@ -15,14 +19,14 @@ template; see CLAUDE.md's RBAC section).
     <div class="text-primary-soft">{% include "partials/_logo.html" with size="h-8 w-8" %}</div>
     <div class="leading-tight">
       <div class="text-sm font-semibold text-white">DocIntelligence</div>
-      <div class="text-[11px] text-muted-dark">Admin Panel</div>
+      <div class="text-[11px] text-muted-dark">Workspace</div>
     </div>
   </a>
 
   <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4 text-sm">
 
     <a href="{% url 'home' %}" class="flex items-center gap-3 rounded-lg bg-primary px-3 py-2.5 font-medium text-white shadow-soft">
-      <i data-lucide="home" class="h-4 w-4"></i> Overview
+      <i data-lucide="home" class="h-4 w-4"></i> Dashboard
     </a>
 
     <a href="{% url 'ask_ai' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
@@ -30,43 +34,19 @@ template; see CLAUDE.md's RBAC section).
     </a>
 
     <a href="{% url 'documents' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="file-text" class="h-4 w-4"></i> Documents
+      <i data-lucide="file-text" class="h-4 w-4"></i> My Documents
     </a>
 
-    <a href="{% url 'admin_users' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="users" class="h-4 w-4"></i> Users
-    </a>
-
-    <a href="{% url 'admin_roles' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="shield" class="h-4 w-4"></i> Roles
-    </a>
-
-    <a href="{% url 'analytics' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="bar-chart-3" class="h-4 w-4"></i> Analytics
-    </a>
-
-    <a href="{% url 'admin_queries' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="search" class="h-4 w-4"></i> Queries
+    <a href="{% url 'search_history' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
+      <i data-lucide="history" class="h-4 w-4"></i> History
     </a>
 
     <a href="{% url 'knowledge_base' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
       <i data-lucide="share-2" class="h-4 w-4"></i> Knowledge Base
     </a>
 
-    <a href="{% url 'monitoring' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="heart-pulse" class="h-4 w-4"></i> System Health
-    </a>
-
-    <a href="{% url 'admin_activity_logs' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="scroll-text" class="h-4 w-4"></i> Activity Logs
-    </a>
-
     <a href="{% url 'profile' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
       <i data-lucide="user-round" class="h-4 w-4"></i> Profile
-    </a>
-
-    <a href="{% url 'admin_settings' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="settings" class="h-4 w-4"></i> Settings
     </a>
 
   </nav>
@@ -79,7 +59,7 @@ template; see CLAUDE.md's RBAC section).
         </div>
         <div class="min-w-0 flex-1 leading-tight">
           <div class="truncate text-sm font-medium text-white">{{ request.user.first_name|default:request.user.username }}</div>
-          <div class="text-xs text-muted-dark">{% if request.user.is_staff %}Administrator{% else %}Member{% endif %}</div>
+          <div class="text-xs text-muted-dark">Member</div>
         </div>
         <i data-lucide="chevron-down" class="h-4 w-4 shrink-0 text-muted-dark"></i>
       </button>

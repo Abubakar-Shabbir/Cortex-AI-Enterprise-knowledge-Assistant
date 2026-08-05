@@ -42,6 +42,20 @@ class Document(models.Model):
         default=0
     )
 
+    class ProcessingStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        PROCESSING = "processing", "Processing"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    processing_status = models.CharField(
+        max_length=20,
+        choices=ProcessingStatus.choices,
+        default=ProcessingStatus.PENDING,
+        help_text="Set by upload_service.process_uploaded_document() - "
+                   "PENDING until the Embed button is clicked (documents_view.document_embed).",
+    )
+
     def __str__(self):
         return self.title
 
@@ -272,3 +286,239 @@ class Relationship(models.Model):
 
     def __str__(self):
         return f"{self.source.display_name} -[{self.relation_type}]-> {self.target.display_name}"
+
+
+# ============================================================
+# RBAC
+# ============================================================
+#
+# Role/Permission/UserRole are the single source of truth for
+# authorization from here on - see RAG/services/permission_service.py
+# for the read API and RAG/decorators.py / RAG/middleware.py for how
+# views enforce it. is_staff/is_superuser are only ever read once, as
+# the seed data source for existing accounts in
+# RAG/management/commands/seed_rbac.py; no other code should branch on
+# them going forward.
+
+class Permission(models.Model):
+    """
+    A single grantable capability, namespaced as "<area>.<action>"
+    (e.g. "users.suspend") so new areas can be added without colliding
+    with existing codenames.
+    """
+
+    codename = models.CharField(
+        max_length=100,
+        unique=True
+    )
+
+    name = models.CharField(
+        max_length=150
+    )
+
+    description = models.CharField(
+        max_length=255,
+        blank=True
+    )
+
+    class Meta:
+        ordering = ["codename"]
+
+    def __str__(self):
+        return self.codename
+
+    @property
+    def namespace(self):
+        """The "<area>" half of "<area>.<action>" - lets the Role Management UI group permissions by area without a second lookup table."""
+        return self.codename.split(".")[0]
+
+
+class Role(models.Model):
+    """
+    A named bundle of Permissions. Adding a future role (Manager, HR,
+    Auditor, ...) means creating a Role row and attaching Permissions
+    to it - no code changes required, since every permission check
+    goes through Role.has_permission() / permission_service, never a
+    hardcoded role name.
+    """
+
+    name = models.CharField(
+        max_length=100,
+        unique=True
+    )
+
+    slug = models.SlugField(
+        max_length=100,
+        unique=True
+    )
+
+    description = models.CharField(
+        max_length=255,
+        blank=True
+    )
+
+    permissions = models.ManyToManyField(
+        Permission,
+        blank=True,
+        related_name="roles"
+    )
+
+    is_system = models.BooleanField(
+        default=False,
+        help_text="Built-in role (super_admin/admin/user) seeded by seed_rbac - not meant to be deleted.",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+    def has_permission(self, codename):
+        return self.permissions.filter(codename=codename).exists()
+
+
+class UserRole(models.Model):
+    """
+    A user's single active role. One-to-one rather than many-to-many:
+    this product's roles (Super Admin / Admin / User, and whatever is
+    added later) are mutually exclusive tiers, not stackable grants -
+    a user needing broader access gets reassigned, not given a second
+    role.
+    """
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="role_assignment"
+    )
+
+    role = models.ForeignKey(
+        Role,
+        on_delete=models.PROTECT,
+        related_name="user_assignments"
+    )
+
+    assigned_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+"
+    )
+
+    assigned_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    def __str__(self):
+        return f"{self.user} -> {self.role}"
+
+
+class ActivityLog(models.Model):
+    """
+    A workspace-wide audit trail entry, written by
+    RAG.services.activity_log_service.log_activity() for events that
+    aren't already captured by an existing model (Document.uploaded_at
+    already records uploads; this covers deletions, suspensions, role
+    changes, and logins). Backs Admin > Activity Logs
+    (RAG.views.admin_activity_logs_view).
+    """
+
+    actor = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="activity_logs"
+    )
+
+    action = models.CharField(
+        max_length=50,
+        db_index=True,
+        help_text='Namespaced event, e.g. "document.deleted", "user.suspended".',
+    )
+
+    description = models.CharField(
+        max_length=255
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.action}: {self.description}"
+
+
+class SystemConfiguration(models.Model):
+    """
+    Singleton row (always pk=1) holding the live-editable subset of RAG
+    pipeline configuration - see RAG/services/system_config_service.py,
+    which is the only code that should read/write this model directly.
+    Everything here is applied on top of settings.py at runtime
+    (apply_config_to_settings()), so every existing consumer of
+    settings.TOP_K / settings.ENABLE_HYDE / etc. keeps working
+    unchanged - this model never replaces settings.py, it overrides it.
+
+    Deliberately NOT included: embedding model (changing it needs a
+    migration + re-embedding every existing chunk, not a config flip),
+    database connection (editing it live is operationally circular -
+    you'd be writing the new value through the connection you're about
+    to replace), and raw API keys (secrets belong in environment
+    variables, not a database row editable from a browser).
+    """
+
+    LLM_PROVIDER_CHOICES = [
+        ("gemini", "Gemini"),
+        ("openrouter", "OpenRouter"),
+    ]
+
+    llm_provider = models.CharField(max_length=20, choices=LLM_PROVIDER_CHOICES, default="openrouter")
+
+    top_k = models.PositiveSmallIntegerField(default=3)
+    answer_temperature = models.FloatField(default=0.2)
+
+    chunk_size = models.PositiveIntegerField(
+        default=800,
+        help_text="Applies to newly-uploaded documents only - existing chunks aren't retroactively resized.",
+    )
+    chunk_overlap = models.PositiveIntegerField(default=150)
+
+    enable_query_expansion = models.BooleanField(default=False)
+    enable_hyde = models.BooleanField(default=False)
+    enable_multi_query = models.BooleanField(default=False)
+    multi_query_variants = models.PositiveSmallIntegerField(default=3)
+
+    enable_dynamic_top_k = models.BooleanField(default=True)
+    dynamic_top_k_max = models.PositiveSmallIntegerField(default=10)
+
+    enable_reranker = models.BooleanField(default=False)
+    reranker_candidate_multiplier = models.PositiveSmallIntegerField(default=3)
+
+    enable_context_compression = models.BooleanField(default=False)
+    context_compression_threshold = models.FloatField(default=0.92)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    updated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+"
+    )
+
+    class Meta:
+        verbose_name = "System Configuration"
+
+    def __str__(self):
+        return "System Configuration"

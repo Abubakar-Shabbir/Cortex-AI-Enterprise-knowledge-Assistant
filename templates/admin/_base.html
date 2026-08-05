@@ -1,0 +1,127 @@
+{% comment %}
+Shared shell for the new Admin namespace pages (Users, Settings,
+Queries, Activity Logs) - reuses the exact same
+dashboard/_sidebar.html and dashboard/_topbar.html partials the Admin
+Dashboard itself uses, so chrome matches without touching
+templates/dashboard.html (left exactly as-is, per instructions not to
+redesign it). Pages extend this with {% block content %}.
+{% endcomment %}
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light dark">
+<title>{% block title %}Admin{% endblock %} · DocIntelligence Admin Panel</title>
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%238B1E2D'/%3E%3Cg stroke='white' stroke-width='1.6' stroke-linecap='round'%3E%3Cline x1='16' y1='7' x2='8' y2='22'/%3E%3Cline x1='16' y1='7' x2='24' y2='22'/%3E%3Cline x1='8' y1='22' x2='24' y2='22'/%3E%3C/g%3E%3Ccircle cx='16' cy='7' r='3' fill='white'/%3E%3Ccircle cx='8' cy='22' r='3' fill='white'/%3E%3Ccircle cx='24' cy='22' r='3' fill='white'/%3E%3C/svg%3E">
+
+<script>
+  if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark');
+  }
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  {# Same design tokens as templates/base.html and dashboard.html. #}
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
+        borderRadius: { xl: '12px', '2xl': '14px' },
+        colors: {
+          primary:  { DEFAULT: '#8B1E2D', dark: '#6D1B27', soft: '#E7C8CC', light: '#A6333F' },
+          ink:      { DEFAULT: '#1F1B1B', dark: '#F1E9E8' },
+          muted:    { DEFAULT: '#6D6665', dark: '#A9989A' },
+          surface:  { DEFAULT: '#FAF8F7', dark: '#14100F' },
+          card:     { DEFAULT: '#FFFFFF', dark: '#1D1615' },
+          line:     { DEFAULT: '#ECE3E2', dark: '#2C2221' },
+          success:  { DEFAULT: '#1F7A4D', dark: '#3EAE78' },
+          warning:  { DEFAULT: '#C77700', dark: '#E0972B' },
+          danger:   { DEFAULT: '#C62828', dark: '#E35B5B' },
+          info:     { DEFAULT: '#2A78D6', dark: '#5B9BE8' },
+          accent:   { DEFAULT: '#4A3AA7', dark: '#7C6BD9' },
+          sidebar:  { DEFAULT: '#14100F', soft: '#1D1615' },
+        },
+        boxShadow: {
+          soft: '0 1px 2px rgba(31,27,27,0.04), 0 6px 20px rgba(31,27,27,0.05)',
+          softer: '0 1px 2px rgba(31,27,27,0.03)',
+        },
+      },
+    },
+  };
+</script>
+
+<script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+<style>
+  [x-cloak] { display: none !important; }
+  * { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #ECE3E2; border-radius: 8px; }
+  .dark ::-webkit-scrollbar-thumb { background: #2C2221; }
+  html { scrollbar-width: thin; scrollbar-color: #ECE3E2 transparent; }
+  html.dark { scrollbar-color: #2C2221 transparent; }
+</style>
+
+{% block extra_head %}{% endblock %}
+</head>
+
+<body class="bg-surface dark:bg-surface-dark text-ink dark:text-ink-dark antialiased" x-data="{ sidebarOpen: false }">
+
+<div class="min-h-screen flex">
+
+  {% include "dashboard/_sidebar.html" %}
+
+  <div
+    x-show="sidebarOpen"
+    x-cloak
+    x-transition.opacity
+    @click="sidebarOpen = false"
+    class="fixed inset-0 z-30 bg-black/40 lg:hidden"
+  ></div>
+
+  <div class="flex-1 min-w-0 flex flex-col lg:pl-64">
+
+    {% include "dashboard/_topbar.html" %}
+
+    <main class="flex-1 px-4 sm:px-6 lg:px-8 py-6 lg:py-8 w-full max-w-[1600px] mx-auto">
+
+      {% if messages %}
+        <div class="mb-6 space-y-2">
+          {% for message in messages %}
+            <div class="rounded-xl border px-4 py-3 text-sm font-medium
+              {% if message.tags == 'success' %} bg-success/10 border-success/20 text-success
+              {% elif message.tags == 'error' %} bg-danger/10 border-danger/20 text-danger
+              {% else %} bg-primary-soft/40 border-primary-soft text-primary {% endif %}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+
+    </main>
+
+  </div>
+
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => lucide.createIcons());
+  document.addEventListener('alpine:initialized', () => lucide.createIcons());
+</script>
+
+{% block extra_scripts %}{% endblock %}
+
+</body>
+</html>

@@ -1,0 +1,119 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}Users{% endblock %}
+
+{% block content %}
+
+<div class="mb-6 flex flex-col gap-1">
+  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Users</h1>
+  <p class="text-sm text-muted dark:text-muted-dark">Account status and role assignment. Metadata only — document content and Q&A answers stay private to their owner.</p>
+</div>
+
+<div class="rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+  {% if users_list %}
+    <div class="overflow-auto">
+      <table class="w-full min-w-[760px] text-left text-sm">
+        <thead class="sticky top-0 z-10 bg-card dark:bg-card-dark">
+          <tr class="border-b border-line text-xs font-semibold uppercase tracking-wide text-muted dark:border-line-dark dark:text-muted-dark">
+            <th class="px-5 py-3">User</th>
+            <th class="px-3 py-3">Role</th>
+            <th class="px-3 py-3">Status</th>
+            <th class="px-3 py-3">Joined</th>
+            <th class="px-5 py-3 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-line dark:divide-line-dark">
+          {% for member in users_list %}
+            <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
+              <td class="px-5 py-3">
+                <div class="flex items-center gap-2.5">
+                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                    {{ member.first_name|first|default:member.username|first|upper }}
+                  </div>
+                  <div class="min-w-0">
+                    <p class="truncate font-medium text-ink dark:text-ink-dark">{{ member.get_full_name|default:member.username }}</p>
+                    <p class="truncate text-xs text-muted dark:text-muted-dark">{{ member.email|default:"—" }}</p>
+                  </div>
+                </div>
+              </td>
+              <td class="px-3 py-3">
+                <span
+                  class="inline-flex items-center rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent"
+                  {% if member.role_assignment.assigned_at %}
+                    title="Set to {{ member.role_assignment.role.name }} by {{ member.role_assignment.assigned_by.username|default:"the system" }}, {{ member.role_assignment.assigned_at|timesince }} ago"
+                  {% endif %}
+                >
+                  {{ member.role_assignment.role.name|default:"Unassigned" }}
+                </span>
+              </td>
+              <td class="px-3 py-3">
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium {% if member.is_active %}text-success dark:text-success-dark{% else %}text-danger dark:text-danger-dark{% endif %}">
+                  <span class="h-1.5 w-1.5 rounded-full {% if member.is_active %}bg-success dark:bg-success-dark{% else %}bg-danger dark:bg-danger-dark{% endif %}"></span>
+                  {% if member.is_active %}Active{% else %}Suspended{% endif %}
+                </span>
+              </td>
+              <td class="px-3 py-3 text-muted dark:text-muted-dark">{{ member.date_joined|date:"M d, Y" }}</td>
+              <td class="px-5 py-3 text-right">
+                <div class="relative inline-block text-left" x-data="{ open: false }" @click.outside="open = false">
+                  <button @click="open = !open" class="rounded-lg p-1.5 text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5" aria-label="User actions">
+                    <i data-lucide="more-horizontal" class="h-4 w-4"></i>
+                  </button>
+                  <div x-show="open" x-cloak x-transition class="absolute right-0 z-20 mt-1 w-64 rounded-xl border border-line bg-card p-3 shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+                    <form method="POST" class="mb-2 flex items-center gap-2">
+                      {% csrf_token %}
+                      <input type="hidden" name="user_id" value="{{ member.id }}">
+                      <input type="hidden" name="action" value="assign_role">
+                      <select name="role" class="flex-1 rounded-lg border border-line bg-surface px-2 py-1.5 text-xs text-ink dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+                        {% for role in roles %}
+                          <option value="{{ role.slug }}" {% if member.role_assignment.role_id == role.id %}selected{% endif %}>{{ role.name }}</option>
+                        {% endfor %}
+                      </select>
+                      <button type="submit" class="rounded-lg bg-primary/10 px-2 py-1.5 text-xs font-semibold text-primary hover:bg-primary/15">Set</button>
+                    </form>
+
+                    <div class="my-2 border-t border-line dark:border-line-dark"></div>
+
+                    <form method="POST">
+                      {% csrf_token %}
+                      <input type="hidden" name="user_id" value="{{ member.id }}">
+                      {% if member.is_active %}
+                        <input type="hidden" name="action" value="suspend">
+                        <button type="submit" class="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-warning hover:bg-warning/10 dark:text-warning-dark">
+                          <i data-lucide="user-x" class="h-3.5 w-3.5"></i> Suspend
+                        </button>
+                      {% else %}
+                        <input type="hidden" name="action" value="activate">
+                        <button type="submit" class="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-success hover:bg-success/10 dark:text-success-dark">
+                          <i data-lucide="user-check" class="h-3.5 w-3.5"></i> Reactivate
+                        </button>
+                      {% endif %}
+                    </form>
+
+                    {% if member != request.user %}
+                      <form method="POST" onsubmit="return confirm('Delete this user permanently? This cannot be undone.');">
+                        {% csrf_token %}
+                        <input type="hidden" name="user_id" value="{{ member.id }}">
+                        <input type="hidden" name="action" value="delete">
+                        <button type="submit" class="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-danger hover:bg-danger/10 dark:text-danger-dark">
+                          <i data-lucide="trash-2" class="h-3.5 w-3.5"></i> Delete
+                        </button>
+                      </form>
+                    {% endif %}
+
+                  </div>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    {% include "partials/_empty_state.html" with icon="users" title="No users yet" %}
+  {% endif %}
+
+</div>
+
+{% endblock %}

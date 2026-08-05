@@ -1,0 +1,62 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}Queries{% endblock %}
+
+{% block content %}
+
+<div class="mb-6 flex flex-col gap-1">
+  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Queries</h1>
+  <p class="text-sm text-muted dark:text-muted-dark">Every question asked across the workspace. Metadata only — generated answers stay private to their owner.</p>
+</div>
+
+<div class="rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+  {% if page_obj %}
+    <div class="overflow-auto">
+      <table class="w-full min-w-[760px] text-left text-sm">
+        <thead class="sticky top-0 z-10 bg-card dark:bg-card-dark">
+          <tr class="border-b border-line text-xs font-semibold uppercase tracking-wide text-muted dark:border-line-dark dark:text-muted-dark">
+            <th class="px-5 py-3">Question</th>
+            <th class="px-3 py-3">Owner</th>
+            <th class="px-3 py-3">Method</th>
+            <th class="px-3 py-3 text-right">Confidence</th>
+            <th class="px-3 py-3 text-right">Response Time</th>
+            <th class="px-5 py-3">Asked</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-line dark:divide-line-dark">
+          {% for log in page_obj %}
+            <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
+              <td class="max-w-[360px] truncate px-5 py-3 font-medium text-ink dark:text-ink-dark" title="{{ log.question }}">{{ log.question }}</td>
+              <td class="px-3 py-3 text-muted dark:text-muted-dark">{{ log.user.username }}</td>
+              <td class="px-3 py-3 text-muted dark:text-muted-dark">{{ log.search_method }}</td>
+              <td class="px-3 py-3 text-right text-muted dark:text-muted-dark">{{ log.confidence }}%</td>
+              <td class="px-3 py-3 text-right text-muted dark:text-muted-dark">{{ log.response_time_ms }} ms</td>
+              <td class="px-5 py-3 text-muted dark:text-muted-dark">{{ log.created_at|timesince }} ago</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+      <div class="flex items-center justify-between border-t border-line px-5 py-3 dark:border-line-dark">
+        <p class="text-xs text-muted dark:text-muted-dark">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</p>
+        <div class="flex gap-2">
+          {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Previous</a>
+          {% endif %}
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Next</a>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+
+  {% else %}
+    {% include "partials/_empty_state.html" with icon="search" title="No queries yet" %}
+  {% endif %}
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,161 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+
+<div class="mb-6 flex flex-col gap-1">
+  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Settings</h1>
+  <p class="text-sm text-muted dark:text-muted-dark">Live RAG pipeline configuration — changes here take effect immediately, no redeploy.</p>
+</div>
+
+<form method="POST">
+  {% csrf_token %}
+
+  <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
+
+    <div class="rounded-2xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="bot" class="h-4 w-4 text-primary dark:text-primary-soft"></i> LLM Configuration
+      </h2>
+
+      <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Provider</label>
+      <select name="llm_provider" class="mb-3 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+        <option value="openrouter" {% if config.llm_provider == "openrouter" %}selected{% endif %}>OpenRouter</option>
+        <option value="gemini" {% if config.llm_provider == "gemini" %}selected{% endif %}>Gemini</option>
+      </select>
+
+      <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Answer temperature ({{ config.answer_temperature }})</label>
+      <input type="number" step="0.05" min="0" max="1" name="answer_temperature" value="{{ config.answer_temperature }}" class="mb-3 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+
+      <div class="flex items-center justify-between text-sm">
+        <span class="flex items-center gap-1.5 font-medium {% if system_status.llm_configured %}text-success dark:text-success-dark{% else %}text-warning dark:text-warning-dark{% endif %}">
+          <span class="h-1.5 w-1.5 rounded-full {% if system_status.llm_configured %}bg-success dark:bg-success-dark{% else %}bg-warning dark:bg-warning-dark{% endif %}"></span>
+          {% if system_status.llm_configured %}API key configured{% else %}API key not configured{% endif %}
+        </span>
+      </div>
+      {# API key rotation is intentionally not exposed here - see settings.manage_api_keys note below. #}
+    </div>
+
+    <div class="rounded-2xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="cpu" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Embedding Model
+      </h2>
+      <dl class="space-y-3 text-sm">
+        <div class="flex items-center justify-between"><dt class="text-muted dark:text-muted-dark">Model</dt><dd class="font-medium text-ink dark:text-ink-dark">{{ system_status.embedding_model|default:"—" }}</dd></div>
+        <div class="flex items-center justify-between"><dt class="text-muted dark:text-muted-dark">Dimensions</dt><dd class="font-medium text-ink dark:text-ink-dark">{{ system_status.embedding_dimension|default:"—" }}</dd></div>
+      </dl>
+      <p class="mt-3 flex items-start gap-2 text-xs text-muted dark:text-muted-dark">
+        <i data-lucide="lock" class="mt-0.5 h-3.5 w-3.5 shrink-0"></i>
+        Not editable here — changing it requires re-embedding every existing chunk and a dimension migration, not just a config flip.
+      </p>
+    </div>
+
+    <div class="rounded-2xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="scissors" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Retrieval &amp; Chunking
+      </h2>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Chunk size</label>
+          <input type="number" min="100" name="chunk_size" value="{{ config.chunk_size }}" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Chunk overlap</label>
+          <input type="number" min="0" name="chunk_overlap" value="{{ config.chunk_overlap }}" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+        </div>
+      </div>
+      <p class="mb-3 mt-1.5 text-xs text-muted dark:text-muted-dark">Applies to newly-uploaded documents only — existing chunks aren't retroactively resized.</p>
+
+      <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Retrieval top-K</label>
+      <input type="number" min="1" max="20" name="top_k" value="{{ config.top_k }}" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+    </div>
+
+    <div class="rounded-2xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="database" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Database
+      </h2>
+      <dl class="space-y-3 text-sm">
+        <div class="flex items-center justify-between"><dt class="text-muted dark:text-muted-dark">Database</dt><dd class="font-medium text-ink dark:text-ink-dark">{{ db_name }}</dd></div>
+        <div class="flex items-center justify-between"><dt class="text-muted dark:text-muted-dark">Host</dt><dd class="font-medium text-ink dark:text-ink-dark">{{ db_host }}</dd></div>
+        <div class="flex items-center justify-between"><dt class="text-muted dark:text-muted-dark">pgvector</dt>
+          <dd class="flex items-center gap-1.5 font-medium {% if system_status.pgvector_enabled %}text-success dark:text-success-dark{% else %}text-danger dark:text-danger-dark{% endif %}">
+            <span class="h-1.5 w-1.5 rounded-full {% if system_status.pgvector_enabled %}bg-success dark:bg-success-dark{% else %}bg-danger dark:bg-danger-dark{% endif %}"></span>
+            {% if system_status.pgvector_enabled %}Enabled{% else %}Not enabled{% endif %}
+          </dd>
+        </div>
+      </dl>
+      <p class="mt-3 flex items-start gap-2 text-xs text-muted dark:text-muted-dark">
+        <i data-lucide="lock" class="mt-0.5 h-3.5 w-3.5 shrink-0"></i>
+        Not editable here — changing it live would mean writing the new connection through the very connection being replaced.
+      </p>
+    </div>
+
+  </div>
+
+  <div class="mt-5 rounded-2xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+      <i data-lucide="sliders-horizontal" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Advanced Retrieval
+    </h2>
+    <p class="mb-4 text-xs text-muted dark:text-muted-dark">Sprint 6-8 retrieval enhancements — each reuses the existing hybrid search pipeline, no restart required to flip one on or off.</p>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+
+      <label class="flex items-start gap-2 text-sm text-ink dark:text-ink-dark">
+        <input type="checkbox" name="enable_query_expansion" {% if config.enable_query_expansion %}checked{% endif %} class="mt-0.5 rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark">
+        <span>Query Expansion <span class="block text-xs text-muted dark:text-muted-dark">Enriches BM25 with LLM-generated phrasings.</span></span>
+      </label>
+
+      <label class="flex items-start gap-2 text-sm text-ink dark:text-ink-dark">
+        <input type="checkbox" name="enable_hyde" {% if config.enable_hyde %}checked{% endif %} class="mt-0.5 rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark">
+        <span>HyDE <span class="block text-xs text-muted dark:text-muted-dark">Embeds a hypothetical answer instead of the question.</span></span>
+      </label>
+
+      <div>
+        <label class="flex items-start gap-2 text-sm text-ink dark:text-ink-dark">
+          <input type="checkbox" name="enable_multi_query" {% if config.enable_multi_query %}checked{% endif %} class="mt-0.5 rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark">
+          <span>Multi-Query (RAG-Fusion) <span class="block text-xs text-muted dark:text-muted-dark">Fuses results across rephrased variants.</span></span>
+        </label>
+        <input type="number" min="1" max="10" name="multi_query_variants" value="{{ config.multi_query_variants }}" class="mt-2 w-24 rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark" title="Number of variants">
+      </div>
+
+      <div>
+        <label class="flex items-start gap-2 text-sm text-ink dark:text-ink-dark">
+          <input type="checkbox" name="enable_dynamic_top_k" {% if config.enable_dynamic_top_k %}checked{% endif %} class="mt-0.5 rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark">
+          <span>Dynamic Top-K <span class="block text-xs text-muted dark:text-muted-dark">Widens retrieval depth for complex questions.</span></span>
+        </label>
+        <input type="number" min="1" max="50" name="dynamic_top_k_max" value="{{ config.dynamic_top_k_max }}" class="mt-2 w-24 rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark" title="Max top-K">
+      </div>
+
+      <div>
+        <label class="flex items-start gap-2 text-sm text-ink dark:text-ink-dark">
+          <input type="checkbox" name="enable_reranker" {% if config.enable_reranker %}checked{% endif %} class="mt-0.5 rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark">
+          <span>Cross-Encoder Reranker <span class="block text-xs text-muted dark:text-muted-dark">Re-scores candidates with BAAI/bge-reranker-base.</span></span>
+        </label>
+        <input type="number" min="1" max="10" name="reranker_candidate_multiplier" value="{{ config.reranker_candidate_multiplier }}" class="mt-2 w-24 rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark" title="Candidate multiplier">
+      </div>
+
+      <div>
+        <label class="flex items-start gap-2 text-sm text-ink dark:text-ink-dark">
+          <input type="checkbox" name="enable_context_compression" {% if config.enable_context_compression %}checked{% endif %} class="mt-0.5 rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark">
+          <span>Context Compression <span class="block text-xs text-muted dark:text-muted-dark">Drops redundant chunks before the LLM sees them.</span></span>
+        </label>
+        <input type="number" step="0.01" min="0" max="1" name="context_compression_threshold" value="{{ config.context_compression_threshold }}" class="mt-2 w-24 rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark" title="Similarity threshold">
+      </div>
+
+    </div>
+  </div>
+
+  <div class="mt-5 flex items-center justify-between">
+    <p class="text-xs text-muted dark:text-muted-dark">
+      {% if config.updated_by %}Last updated by {{ config.updated_by.username }}, {{ config.updated_at|timesince }} ago.{% else %}Not yet edited — showing settings.py defaults.{% endif %}
+    </p>
+    <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+      <i data-lucide="save" class="h-4 w-4"></i> Save Settings
+    </button>
+  </div>
+
+</form>
+
+{% endblock %}

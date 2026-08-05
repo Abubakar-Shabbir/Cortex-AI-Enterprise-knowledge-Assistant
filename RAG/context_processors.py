@@ -1,6 +1,7 @@
 from django.core.cache import cache
 
 from .models import Document, QueryLog
+from .services.permission_service import is_admin
 from .services.stats_service import get_system_status
 
 # Maps a URL name to its breadcrumb trail: a list of (label, url_name)
@@ -100,4 +101,6 @@ def sidebar_status(request):
             30,
         ),
         "activity_feed": events[:5],
+        # RBAC: whether the current viewer's role may see admin-only
+        "is_admin": is_admin(request.user),
     }

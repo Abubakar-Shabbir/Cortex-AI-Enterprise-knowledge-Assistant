@@ -1,0 +1,95 @@
+{% extends "admin/_base.html" %}
+
+{% block title %}Roles{% endblock %}
+
+{% block content %}
+
+<div class="mb-6 flex flex-col gap-1">
+  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Roles</h1>
+  <p class="text-sm text-muted dark:text-muted-dark">What each role can do. Add a role for a future need (Manager, HR, Auditor…) without any code change — just create it and choose its permissions below.</p>
+</div>
+
+<div class="mb-6 rounded-2xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <h2 class="mb-4 text-sm font-semibold text-ink dark:text-ink-dark">Create a Role</h2>
+  <form method="POST" class="flex flex-col gap-3 sm:flex-row sm:items-end">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="create_role">
+    <div class="flex-1">
+      <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Name</label>
+      <input type="text" name="name" required placeholder="e.g. Auditor" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+    </div>
+    <div class="flex-[2]">
+      <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Description</label>
+      <input type="text" name="description" placeholder="Read-only access for compliance review" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+    </div>
+    <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+      <i data-lucide="plus" class="h-4 w-4"></i> Create Role
+    </button>
+  </form>
+</div>
+
+<div class="space-y-5">
+  {% for role in roles %}
+    <div class="rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-4 dark:border-line-dark">
+        <div>
+          <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+            {{ role.name }}
+            {% if role.is_system %}
+              <span class="inline-flex items-center rounded-full bg-line/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted dark:bg-white/5 dark:text-muted-dark">Built-in</span>
+            {% endif %}
+          </h2>
+          {% if role.description %}<p class="mt-0.5 text-xs text-muted dark:text-muted-dark">{{ role.description }}</p>{% endif %}
+        </div>
+
+        {% if not role.is_system %}
+          <form method="POST" onsubmit="return confirm('Delete the \'{{ role.name }}\' role? Users must be reassigned first.');">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="delete_role">
+            <input type="hidden" name="role_id" value="{{ role.id }}">
+            <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-danger hover:bg-danger/10 dark:text-danger-dark">
+              <i data-lucide="trash-2" class="h-3.5 w-3.5"></i> Delete
+            </button>
+          </form>
+        {% endif %}
+      </div>
+
+      <form method="POST" class="px-5 py-4">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="update_permissions">
+        <input type="hidden" name="role_id" value="{{ role.id }}">
+
+        {% regroup permissions by namespace as grouped_permissions %}
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {% for group in grouped_permissions %}
+            <div>
+              <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">{{ group.grouper }}</p>
+              <div class="space-y-1.5">
+                {% for permission in group.list %}
+                  <label class="flex items-start gap-2 text-sm text-ink dark:text-ink-dark">
+                    <input
+                      type="checkbox"
+                      name="permissions"
+                      value="{{ permission.codename }}"
+                      {% if permission in role.permissions.all %}checked{% endif %}
+                      class="mt-0.5 rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark"
+                    >
+                    <span title="{{ permission.description }}">{{ permission.name }}</span>
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+
+        <button type="submit" class="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary/10 px-4 py-2 text-sm font-semibold text-primary hover:bg-primary/15">
+          <i data-lucide="save" class="h-4 w-4"></i> Save Permissions
+        </button>
+      </form>
+
+    </div>
+  {% endfor %}
+</div>
+
+{% endblock %}

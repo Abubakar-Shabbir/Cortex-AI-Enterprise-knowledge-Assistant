@@ -20,7 +20,10 @@ from django.conf import settings
 from django.conf.urls.static import static
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    # Django's built-in admin site moved off /admin/ so that path is
+    # free for this project's own role-based /admin/ dashboard
+    # namespace (RAG/urls.py) - see CLAUDE.md's RBAC section.
+    path('django-admin/', admin.site.urls),
     path('', include('RAG.urls')),
 ]
 if settings.DEBUG:

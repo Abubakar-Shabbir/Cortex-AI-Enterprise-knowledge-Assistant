@@ -191,3 +191,18 @@ def get_llm() -> LLMClient:
         _client = LLMClient()
 
     return _client
+
+
+def reset_llm_client():
+    """
+    Clear the cached LLMClient singleton. Needed because LLMClient
+    reads settings.LLM_PROVIDER once, at construction - unlike every
+    other RAG service, which re-reads its settings.X value fresh on
+    every call, so a live SystemConfiguration change is invisible to
+    it until this is called. Called by
+    system_config_service.save_config() whenever an admin saves the
+    Settings page.
+    """
+
+    global _client
+    _client = None

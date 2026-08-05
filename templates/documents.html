@@ -29,16 +29,8 @@
       </div>
     {% endif %}
 
-    <form method="POST" enctype="multipart/form-data" class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <form method="POST" enctype="multipart/form-data" class="flex flex-col gap-4">
       {% csrf_token %}
-
-      <div>
-        <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Document Title</label>
-        <input
-          type="text" name="title" required placeholder="e.g. Q3 Financial Report"
-          class="w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
-        >
-      </div>
 
       <div>
         <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">File (PDF, DOCX, TXT — max 20 MB)</label>
@@ -46,9 +38,10 @@
           type="file" name="document" accept=".pdf,.docx,.txt" required
           class="w-full rounded-lg border border-line bg-surface px-3.5 py-2 text-sm text-ink file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white dark:border-line-dark dark:bg-white/5 dark:text-ink-dark"
         >
+        <p class="mt-1.5 text-xs text-muted dark:text-muted-dark">The document's title is taken from the file name — upload just saves the file; click <strong>Embed</strong> on its row below when you're ready to process it.</p>
       </div>
 
-      <div class="sm:col-span-2">
+      <div>
         <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
           <i data-lucide="upload" class="h-4 w-4"></i> Upload
         </button>
@@ -80,7 +73,11 @@
       </thead>
       <tbody class="divide-y divide-line dark:divide-line-dark">
         {% for item in documents_data %}
-          <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
+          <tr
+            class="transition-colors hover:bg-surface dark:hover:bg-white/5"
+            x-data="documentRow('{{ item.status }}', {{ item.percent }}, {{ item.doc.chunk_count }}, '{% url 'document_status' item.doc.id %}', '{% url 'document_embed' item.doc.id %}')"
+            x-init="if (status === 'Processing') startPolling()"
+          >
             <td class="px-5 py-3.5">
               <div class="flex items-center gap-2.5">
                 <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
@@ -91,18 +88,51 @@
             </td>
             <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.doc.file_type|upper }}</td>
             <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.doc.uploaded_at|date:"M d, Y" }}</td>
-            <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.doc.chunk_count }}</td>
+            <td class="px-5 py-3.5 text-muted dark:text-muted-dark" x-text="chunkCount"></td>
             <td class="px-5 py-3.5">
-              <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium
-                {% if item.status == 'Embedded' %} bg-success/10 text-success dark:text-success-dark
-                {% elif item.status == 'Partial' %} bg-warning/10 text-warning dark:text-warning-dark
-                {% else %} bg-line text-muted dark:bg-white/5 dark:text-muted-dark {% endif %}">
-                <span class="h-1.5 w-1.5 rounded-full
-                  {% if item.status == 'Embedded' %} bg-success
-                  {% elif item.status == 'Partial' %} bg-warning
-                  {% else %} bg-muted {% endif %}"></span>
-                {{ item.status }}
-              </span>
+
+              <template x-if="status === 'Pending'">
+                <button
+                  @click="embed()"
+                  class="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/15 dark:text-primary-soft"
+                >
+                  <i data-lucide="zap" class="h-3.5 w-3.5"></i> Embed
+                </button>
+              </template>
+
+              <template x-if="status === 'Processing'">
+                <div class="w-32">
+                  <div class="mb-1 flex items-center justify-between text-[11px] font-medium text-muted dark:text-muted-dark">
+                    <span>Processing…</span>
+                    <span x-text="percent + '%'"></span>
+                  </div>
+                  <div class="h-1.5 w-full overflow-hidden rounded-full bg-line dark:bg-white/10">
+                    <div class="h-full rounded-full bg-primary transition-all duration-500" :style="'width: ' + percent + '%'"></div>
+                  </div>
+                </div>
+              </template>
+
+              <template x-if="status === 'Embedded'">
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 text-xs font-medium text-success dark:text-success-dark">
+                  <span class="h-1.5 w-1.5 rounded-full bg-success"></span> Embedded
+                </span>
+              </template>
+
+              <template x-if="status === 'Partial'">
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning dark:text-warning-dark">
+                  <span class="h-1.5 w-1.5 rounded-full bg-warning"></span> Partial
+                </span>
+              </template>
+
+              <template x-if="status === 'Failed'">
+                <div class="flex items-center gap-2">
+                  <span class="inline-flex items-center gap-1.5 rounded-full bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger dark:text-danger-dark">
+                    <span class="h-1.5 w-1.5 rounded-full bg-danger"></span> Failed
+                  </span>
+                  <button @click="embed()" class="text-xs font-semibold text-primary hover:underline dark:text-primary-soft">Retry</button>
+                </div>
+              </template>
+
             </td>
             <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.file_size }}</td>
             <td class="px-5 py-3.5">
@@ -154,4 +184,71 @@
   {% include "partials/_coming_soon.html" with icon="folder-plus" title="Collections, Tags &amp; Favorites" description="Organize documents into custom collections, tag them, and pin favorites for quick access — planned for a future release." %}
 </div>
 
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // Standard Django pattern for reading the CSRF cookie for a fetch()
+  // POST - see https://docs.djangoproject.com/en/stable/howto/csrf/
+  function getCsrfCookie() {
+    const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    return match ? match[1] : '';
+  }
+
+  // One Alpine component per document row (documents.html) - Embed a
+  // still-PENDING/FAILED document without a page reload, then poll
+  // document_status while it's PROCESSING so the progress bar/percent
+  // update live in that row only. Stops polling as soon as the status
+  // stops being "processing", whichever way it resolves.
+  function documentRow(initialStatus, initialPercent, initialChunkCount, statusUrl, embedUrl) {
+    return {
+      status: initialStatus,
+      percent: initialPercent,
+      chunkCount: initialChunkCount,
+      polling: null,
+
+      startPolling() {
+        if (this.polling) return;
+
+        this.polling = setInterval(() => {
+          fetch(statusUrl)
+            .then((response) => response.json())
+            .then((data) => {
+              this.percent = data.percent;
+              this.chunkCount = data.chunk_count;
+
+              if (data.status === 'processing') {
+                return;
+              }
+
+              clearInterval(this.polling);
+              this.polling = null;
+
+              if (data.status === 'failed') {
+                this.status = 'Failed';
+              } else if (data.status === 'completed') {
+                this.status = data.percent >= 100 ? 'Embedded' : 'Partial';
+              } else {
+                this.status = 'Pending';
+              }
+            })
+            .catch(() => {
+              clearInterval(this.polling);
+              this.polling = null;
+            });
+        }, 2000);
+      },
+
+      embed() {
+        this.status = 'Processing';
+        this.percent = 0;
+
+        fetch(embedUrl, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': getCsrfCookie() },
+        }).then(() => this.startPolling());
+      },
+    };
+  }
+</script>
 {% endblock %}

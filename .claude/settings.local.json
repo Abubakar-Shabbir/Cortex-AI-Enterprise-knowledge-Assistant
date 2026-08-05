@@ -5,7 +5,16 @@
       "Bash(node scripts/validate_palette.js \"#8B1E2D,#2E7D5B,#C77700,#3B5BA5,#8B4CA6\" --mode light)",
       "Bash(node scripts/validate_palette.js \"#A6333F,#3EAE78,#E0972B,#5B82D9,#A66BC4\" --mode dark --surface \"#1D1615\")",
       "Bash(pip install *)",
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(DB_NAME=x DB_USER=x DB_PASSWORD=x DB_HOST=x DB_PORT=5432 SECRET_KEY=x OPENROUTER_API_KEY=test python manage.py check)",
+      "Bash(DB_NAME=x DB_USER=x DB_PASSWORD=x DB_HOST=x DB_PORT=5432 SECRET_KEY=x OPENROUTER_API_KEY=test python -c ' *)",
+      "Bash(DB_NAME=x DB_USER=x DB_PASSWORD=x DB_HOST=x DB_PORT=5432 SECRET_KEY=x OPENROUTER_API_KEY=test python manage.py makemigrations RAG)",
+      "Bash(git rm *)",
+      "Bash(DB_NAME=x DB_USER=x DB_PASSWORD=x DB_HOST=x DB_PORT=5432 SECRET_KEY=x OPENROUTER_API_KEY=test python manage.py makemigrations RAG --check --dry-run)",
+      "Bash(DB_NAME=x DB_USER=x DB_PASSWORD=x DB_HOST=x DB_PORT=5432 SECRET_KEY=x OPENROUTER_API_KEY=test HF_HUB_OFFLINE=1 python manage.py makemigrations RAG)",
+      "Bash(DB_NAME=x DB_USER=x DB_PASSWORD=x DB_HOST=x DB_PORT=5432 SECRET_KEY=x OPENROUTER_API_KEY=test HF_HUB_OFFLINE=1 python -c ' *)",
+      "Bash(DB_NAME=x DB_USER=x DB_PASSWORD=x DB_HOST=x DB_PORT=5432 SECRET_KEY=x OPENROUTER_API_KEY=test HF_HUB_OFFLINE=1 python manage.py check)",
+      "Bash(DB_NAME=x DB_USER=x DB_PASSWORD=x DB_HOST=x DB_PORT=5432 SECRET_KEY=x OPENROUTER_API_KEY=test HF_HUB_OFFLINE=1 python manage.py makemigrations RAG --check --dry-run)"
     ]
   }
 }
