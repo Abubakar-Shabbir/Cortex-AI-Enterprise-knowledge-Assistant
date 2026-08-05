@@ -1,17 +1,30 @@
 {% comment %}
-Admin Dashboard sidebar — used by dashboard.html (rendered only via
-admin_dashboard_view, @admin_required) and every page under
-admin/_base.html. Distinct from the User Dashboard's own sidebar
-(templates/user/_sidebar.html), which has its own, shorter nav list.
-Since this sidebar is now only ever reached by an admin/super_admin,
-its items are unconditional - no {% if is_admin %} needed here (that
-pattern was an interim step before the User Dashboard had its own
-template; see CLAUDE.md's RBAC section).
+Admin sidebar — the one dark sidebar used everywhere an admin/
+super_admin lands: dashboard.html (admin_dashboard_view), every page
+under admin/_base.html, AND (via base.html's is_admin check) every
+shared page a regular user also uses - Documents, Analytics,
+Knowledge Base, History, Profile, Reports, Monitoring - so an admin
+never sees the UI switch to a different sidebar while navigating.
+Distinct from the User Dashboard's own, shorter sidebar
+(templates/user/_sidebar.html).
+
+Active-item highlighting reuses active_nav, the same context var
+partials/_nav_item.html already uses for the light sidebar - both are
+populated by context_processors.breadcrumbs() on every authenticated
+page render, admin or not, extending base.html or not.
 {% endcomment %}
+
+<div
+  x-show="sidebarOpen"
+  x-cloak
+  x-transition.opacity
+  @click="sidebarOpen = false"
+  class="fixed inset-0 z-30 bg-black/40 lg:hidden"
+></div>
 
 <aside class="fixed inset-y-0 left-0 z-40 flex w-64 -translate-x-full flex-col bg-sidebar text-ink-dark transition-transform duration-200 lg:translate-x-0" :class="sidebarOpen && '!translate-x-0'">
 
-  <a href="{% url 'home' %}" class="flex h-16 shrink-0 items-center gap-2.5 border-b border-white/10 px-5">
+  <a href="{% url 'admin_dashboard' %}" class="flex h-16 shrink-0 items-center gap-2.5 border-b border-white/10 px-5">
     <div class="text-primary-soft">{% include "partials/_logo.html" with size="h-8 w-8" %}</div>
     <div class="leading-tight">
       <div class="text-sm font-semibold text-white">DocIntelligence</div>
@@ -21,53 +34,18 @@ template; see CLAUDE.md's RBAC section).
 
   <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4 text-sm">
 
-    <a href="{% url 'home' %}" class="flex items-center gap-3 rounded-lg bg-primary px-3 py-2.5 font-medium text-white shadow-soft">
-      <i data-lucide="home" class="h-4 w-4"></i> Overview
-    </a>
-
-    <a href="{% url 'ask_ai' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="message-square" class="h-4 w-4"></i> Ask AI
-    </a>
-
-    <a href="{% url 'documents' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="file-text" class="h-4 w-4"></i> Documents
-    </a>
-
-    <a href="{% url 'admin_users' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="users" class="h-4 w-4"></i> Users
-    </a>
-
-    <a href="{% url 'admin_roles' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="shield" class="h-4 w-4"></i> Roles
-    </a>
-
-    <a href="{% url 'analytics' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="bar-chart-3" class="h-4 w-4"></i> Analytics
-    </a>
-
-    <a href="{% url 'admin_queries' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="search" class="h-4 w-4"></i> Queries
-    </a>
-
-    <a href="{% url 'knowledge_base' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="share-2" class="h-4 w-4"></i> Knowledge Base
-    </a>
-
-    <a href="{% url 'monitoring' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="heart-pulse" class="h-4 w-4"></i> System Health
-    </a>
-
-    <a href="{% url 'admin_activity_logs' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="scroll-text" class="h-4 w-4"></i> Activity Logs
-    </a>
-
-    <a href="{% url 'profile' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="user-round" class="h-4 w-4"></i> Profile
-    </a>
-
-    <a href="{% url 'admin_settings' %}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium text-muted-dark transition-colors hover:bg-white/5 hover:text-white">
-      <i data-lucide="settings" class="h-4 w-4"></i> Settings
-    </a>
+    {% include "dashboard/_nav_item.html" with url_name="admin_dashboard" label="Overview" icon="home" %}
+    {% include "dashboard/_nav_item.html" with url_name="ask_ai" label="Ask AI" icon="message-square" %}
+    {% include "dashboard/_nav_item.html" with url_name="documents" label="Documents" icon="file-text" %}
+    {% include "dashboard/_nav_item.html" with url_name="admin_users" label="Users" icon="users" %}
+    {% include "dashboard/_nav_item.html" with url_name="admin_roles" label="Roles" icon="shield" %}
+    {% include "dashboard/_nav_item.html" with url_name="analytics" label="Analytics" icon="bar-chart-3" %}
+    {% include "dashboard/_nav_item.html" with url_name="admin_queries" label="Queries" icon="search" %}
+    {% include "dashboard/_nav_item.html" with url_name="knowledge_base" label="Knowledge Base" icon="share-2" %}
+    {% include "dashboard/_nav_item.html" with url_name="monitoring" label="System Health" icon="heart-pulse" %}
+    {% include "dashboard/_nav_item.html" with url_name="admin_activity_logs" label="Activity Logs" icon="scroll-text" %}
+    {% include "dashboard/_nav_item.html" with url_name="profile" label="Profile" icon="user-round" %}
+    {% include "dashboard/_nav_item.html" with url_name="admin_settings" label="Settings" icon="settings" %}
 
   </nav>
 

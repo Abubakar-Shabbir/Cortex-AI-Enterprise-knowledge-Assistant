@@ -28,7 +28,26 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "True") == "True"
 
-ALLOWED_HOSTS = []
+
+# Both default to plain localhost so `manage.py runserver` keeps
+# working out of the box; set ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS in
+# .env (comma-separated) to whatever host you actually browse the app
+# from - a LAN IP, a custom port, a devcontainer/tunnel URL, a real
+# domain - or Django will reject login (DisallowedHost / a CSRF
+# "Referer checking failed" error) for anything not listed here.
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+    if host.strip()
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CSRF_TRUSTED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000"
+    ).split(",")
+    if origin.strip()
+]
 
 
 # Application definition

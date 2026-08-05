@@ -76,14 +76,6 @@
 
   {% include "dashboard/_sidebar.html" %}
 
-  <div
-    x-show="sidebarOpen"
-    x-cloak
-    x-transition.opacity
-    @click="sidebarOpen = false"
-    class="fixed inset-0 z-30 bg-black/40 lg:hidden"
-  ></div>
-
   <div class="flex-1 min-w-0 flex flex-col lg:pl-64">
 
     {% include "dashboard/_topbar.html" %}

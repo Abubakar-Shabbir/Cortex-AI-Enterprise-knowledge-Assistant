@@ -15,10 +15,16 @@ just reachable without touching the mouse.
       { label: 'Knowledge Base', icon: 'share-2', href: '{% url 'knowledge_base' %}', hint: 'Entities & relationships' },
       { label: 'AI Search', icon: 'message-square', href: '{% url 'ask_ai' %}', hint: 'Ask a question' },
       { label: 'Search History', icon: 'history', href: '{% url 'search_history' %}', hint: 'Past questions' },
-      { label: 'Analytics', icon: 'bar-chart-3', href: '{% url 'analytics' %}', hint: 'Usage trends' },
+      { label: 'Profile', icon: 'user-round', href: '{% url 'profile' %}', hint: 'Account settings' }{% if is_admin %},
+      { label: 'Analytics', icon: 'bar-chart-3', href: '{% url 'analytics' %}', hint: 'Usage trends (admin)' },
       { label: 'Reports', icon: 'file-down', href: '{% url 'reports' %}', hint: 'Export data' },
-      { label: 'Profile', icon: 'user-round', href: '{% url 'profile' %}', hint: 'Account settings' }{% if request.user.is_staff %},
-      { label: 'Monitoring', icon: 'activity', href: '{% url 'monitoring' %}', hint: 'System health (admin)' }{% endif %}
+      { label: 'Users', icon: 'users', href: '{% url 'admin_users' %}', hint: 'Roles & access (admin)' },
+      { label: 'Roles', icon: 'shield', href: '{% url 'admin_roles' %}', hint: 'Define permissions (admin)' },
+      { label: 'Queries', icon: 'search', href: '{% url 'admin_queries' %}', hint: 'Workspace-wide log (admin)' },
+      { label: 'Activity Logs', icon: 'scroll-text', href: '{% url 'admin_activity_logs' %}', hint: 'Workspace-wide feed (admin)' },
+      { label: 'Settings', icon: 'settings', href: '{% url 'admin_settings' %}', hint: 'RAG pipeline config (admin)' },
+      { label: 'Monitoring', icon: 'activity', href: '{% url 'monitoring' %}', hint: 'System health (admin)' }{% else %},
+      { label: 'Reports', icon: 'file-down', href: '{% url 'reports' %}', hint: 'Export data' }{% endif %}
     ],
     get filtered() {
       const q = this.query.trim().toLowerCase();

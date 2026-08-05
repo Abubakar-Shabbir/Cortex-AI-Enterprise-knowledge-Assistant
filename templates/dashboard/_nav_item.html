@@ -1,0 +1,16 @@
+{% comment %}
+Dark-sidebar equivalent of partials/_nav_item.html - same active_nav
+comparison, dark palette instead of light. Usage:
+  {% include "dashboard/_nav_item.html" with url_name="documents" label="Documents" icon="file-text" %}
+{% endcomment %}
+<a
+  href="{% url url_name %}"
+  class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium transition-colors
+    {% if active_nav == url_name %}
+      bg-primary text-white shadow-soft
+    {% else %}
+      text-muted-dark hover:bg-white/5 hover:text-white
+    {% endif %}"
+>
+  <i data-lucide="{{ icon }}" class="h-4 w-4 shrink-0"></i> {{ label }}
+</a>
