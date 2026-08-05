@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python \"C:\\\\Users\\\\LAPTOPEXPERT\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-LAPTOPEXPERT-Document-Intelligence-RAG-Assistant-Document-Intelligence-RAG-Assistant\\\\310f4f54-8bb3-4e06-9553-5c11532694db\\\\scratchpad\\\\render_check.py\")",
+      "Bash(node scripts/validate_palette.js \"#8B1E2D,#2E7D5B,#C77700,#3B5BA5,#8B4CA6\" --mode light)",
+      "Bash(node scripts/validate_palette.js \"#A6333F,#3EAE78,#E0972B,#5B82D9,#A66BC4\" --mode dark --surface \"#1D1615\")",
+      "Bash(pip install *)",
+      "Bash(python -c ' *)"
+    ]
+  }
+}

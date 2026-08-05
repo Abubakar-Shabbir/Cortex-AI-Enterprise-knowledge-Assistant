@@ -1,51 +1,72 @@
+"""
+LLM Service
+
+Handles answer generation using the configured LLM provider.
+
+This module is provider-agnostic and communicates only with the
+central LLM client. The client is responsible for:
+
+- Selecting the configured provider
+- Automatic Gemini -> OpenRouter fallback
+- Future provider support (OpenAI, Claude, DeepSeek, etc.)
+
+Responsibilities
+----------------
+- Build the grounded RAG prompt
+- Send it to the configured LLM
+- Return the generated answer
+- Handle failures gracefully
+"""
+
 import logging
 
-from django.conf import settings
-
-from .gemini_client import get_model
-from .prompt_templates import NOT_FOUND_ANSWER, build_answer_prompt
+from .llm_client import get_llm
+from .prompt_templates import (
+    build_answer_prompt,
+    NOT_FOUND_ANSWER,
+)
 
 logger = logging.getLogger(__name__)
 
+# Singleton client
+llm = get_llm()
 
-def generate_answer(context, question):
+
+def generate_answer(context: str, question: str) -> str:
     """
-    Generate a grounded, cited answer to `question` from `context`.
+    Generate a grounded answer using retrieved context.
 
-    `context` is expected to already be
-    citation_service.build_cited_context() output - numbered source
-    blocks the prompt (prompt_templates.build_answer_prompt()) asks
-    Gemini to cite by number, e.g. "[1]". Uses
-    gemini_client.get_model() (settings.LLM_MODEL) rather than
-    configuring genai directly, so this module no longer duplicates
-    that configuration logic - see gemini_client.py.
+    Parameters
+    ----------
+    context : str
+        Context produced by the retrieval pipeline.
+        Usually output from citation_service.build_cited_context().
 
-    settings.ANSWER_TEMPERATURE runs generation at a low sampling
-    temperature by default, so the model favors sticking to the cited
-    sources over improvising - a hallucination-reduction lever
-    alongside the prompt's grounding rules.
+    question : str
+        User's question.
+
+    Returns
+    -------
+    str
+        Grounded answer with citations.
     """
 
     try:
 
-        model = get_model()
-
-        prompt = build_answer_prompt(context, question)
-
-        response = model.generate_content(
-            prompt,
-            generation_config={"temperature": settings.ANSWER_TEMPERATURE},
+        prompt = build_answer_prompt(
+            context=context,
+            question=question,
         )
 
-        if response.text:
+        answer = llm.generate(prompt)
 
-            return response.text.strip()
-
-        else:
-
+        if not answer:
             return NOT_FOUND_ANSWER
 
-    except Exception as e:
-        logger.exception("Gemini answer generation failed")
+        return answer.strip()
 
-        return f"Gemini Error: {e}"
+    except Exception:
+
+        logger.exception("LLM answer generation failed.")
+
+        return NOT_FOUND_ANSWER

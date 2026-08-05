@@ -1,124 +1,211 @@
 """
-Shared LLM-backed query rewriting primitive.
+Shared LLM-backed query rewriting service.
 
-generate_query_variants() is the single place that asks Gemini for
-alternate phrasings of a question. It's reused by two different
-Sprint 6 features rather than each having its own prompt/parsing
-logic:
+This module generates multiple semantically equivalent versions of a
+user query to improve retrieval quality.
 
-- query_expansion_service.expand_query() folds the variants' distinct
-  wording into one enriched query string for a single lexical search.
-- multi_query_service.multi_query_search() runs a separate retrieval
-  pass per variant and fuses the ranked results (RAG-Fusion style).
+The generated query variants are reused by:
 
-Never raises - any failure (missing API key, network error, malformed
-JSON) falls back to [question], so callers always get at least the
-original question back.
+- Query Expansion
+- Multi Query Retrieval (RAG Fusion)
+
+The service is provider-independent and works with any configured LLM
+through llm_client.py (Gemini/OpenRouter).
+
+It never raises exceptions.
+If generation fails, the original question is returned.
 """
 
 import json
 import logging
 import re
 
-from .gemini_client import get_model
+from .llm_client import get_llm
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# Configuration
+# ============================================================
 
 DEFAULT_NUM_VARIANTS = 3
 MIN_QUESTION_LENGTH = 6
 
-VARIANT_PROMPT = """You are a search query rewriting engine for a document
-retrieval system.
 
-Given the user's question, write {num_variants} alternate ways to ask it -
-using different wording, synonyms, or phrasing - so a keyword and semantic
-search over document text is more likely to find relevant passages.
+# ============================================================
+# Prompt
+# ============================================================
 
-Rules:
-- Preserve the original meaning and intent exactly. Do not answer the
-  question, and do not introduce new facts or assumptions.
-- Each variant should be a full, standalone question or search phrase.
-- Make the variants genuinely different from each other, not trivial
-  rewordings.
-- Respond with JSON only, matching this shape exactly:
-{{"variants": ["...", "...", "..."]}}
+VARIANT_PROMPT = """
+You are an enterprise search query rewriting engine.
 
-Question:
-----------------
+Your task is to generate alternate versions of a user's search query.
+
+Requirements
+
+- Preserve the original meaning exactly.
+- Do NOT answer the question.
+- Use different wording, synonyms and phrasing.
+- Produce diverse search-friendly variations.
+- Return JSON only.
+
+JSON Format
+
+{
+    "variants": [
+        "...",
+        "...",
+        "..."
+    ]
+}
+
+Generate {num_variants} alternate queries.
+
+Question
+
 {question}
-----------------
 """
 
 
-def _normalize_variant(text: str) -> str:
+# ============================================================
+# Helpers
+# ============================================================
+
+def _normalize(text: str) -> str:
+    """Normalize whitespace."""
     return re.sub(r"\s+", " ", (text or "")).strip()
 
 
-def _parse_variants(raw_text: str, question: str) -> list[str]:
+def _extract_json(text: str) -> str:
+    """
+    Extract JSON block from LLM response.
+    Handles markdown code blocks automatically.
+    """
+
+    if not text:
+        return ""
+
+    text = text.strip()
+
+    if text.startswith("```"):
+
+        text = re.sub(r"^```(?:json)?", "", text)
+        text = re.sub(r"```$", "", text)
+
+    return text.strip()
+
+
+def _parse_response(
+    raw_text: str,
+    question: str,
+) -> list[str]:
+    """
+    Parse LLM JSON response.
+
+    Always returns at least the original question.
+    """
+
+    raw_text = _extract_json(raw_text)
 
     try:
         payload = json.loads(raw_text)
-    except (json.JSONDecodeError, TypeError) as exc:
-        logger.warning("Query transform: could not parse LLM JSON output: %s", exc)
+
+    except Exception:
+
+        logger.warning("Unable to parse query variants JSON.")
+
         return [question]
 
-    if not isinstance(payload, dict):
-        return [question]
+    variants = []
 
-    variants = [
-        _normalize_variant(item)
-        for item in (payload.get("variants") or [])
-        if isinstance(item, str) and _normalize_variant(item)
-    ]
+    if isinstance(payload, dict):
+
+        for item in payload.get("variants", []):
+
+            if not isinstance(item, str):
+                continue
+
+            item = _normalize(item)
+
+            if item:
+                variants.append(item)
 
     if not variants:
         return [question]
 
-    # De-duplicate case-insensitively while preserving order, and make
-    # sure the original question is always included as the first entry
-    # so downstream callers can rely on variants[0] == question.
-    seen = {question.lower().strip()}
-    deduped = [question]
+    seen = set()
 
-    for variant in variants:
-        key = variant.lower()
-        if key not in seen:
-            seen.add(key)
-            deduped.append(variant)
+    results = []
 
-    return deduped
+    for item in [question] + variants:
 
+        key = item.lower()
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        results.append(item)
+
+    return results
+
+
+# ============================================================
+# Public API
+# ============================================================
 
 def generate_query_variants(
     question: str,
     num_variants: int = DEFAULT_NUM_VARIANTS,
 ) -> list[str]:
     """
-    Return [question, variant_1, variant_2, ...] - the original
-    question first, followed by up to `num_variants` LLM-generated
-    alternate phrasings. Falls back to [question] on any failure.
+    Generate multiple search query variants.
+
+    Returns
+
+        [
+            original_query,
+            variant_1,
+            variant_2,
+            ...
+        ]
+
+    Never raises.
     """
 
-    question = (question or "").strip()
+    question = _normalize(question)
+
+    if not question:
+        return []
 
     if len(question) < MIN_QUESTION_LENGTH:
-        return [question] if question else []
+        return [question]
+
+    prompt = VARIANT_PROMPT.format(
+        question=question,
+        num_variants=num_variants,
+    )
 
     try:
-        model = get_model()
 
-        response = model.generate_content(
-            VARIANT_PROMPT.format(num_variants=num_variants, question=question),
-            generation_config={"response_mime_type": "application/json"},
+        llm = get_llm()
+
+        response = llm.generate(prompt)
+
+        if not response:
+            return [question]
+
+        return _parse_response(
+            response,
+            question,
         )
 
-        raw_text = response.text
-
     except Exception:
-        logger.exception("Query transform: Gemini call failed")
-        return [question]
 
-    if not raw_text:
-        return [question]
+        logger.exception(
+            "Query variant generation failed."
+        )
 
-    return _parse_variants(raw_text, question)
+        return [question]

@@ -14,8 +14,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 import environ
 import os
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
@@ -147,12 +145,20 @@ EMBEDDING_MODEL = os.getenv(
     "EMBEDDING_MODEL",
     "all-MiniLM-L6-v2"
 )
-EMBEDDING_DIMENSION = 1024
+EMBEDDING_DIMENSION = 384
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")
 
-LLM_MODEL = os.getenv(
-    "LLM_MODEL",
-    "gemini-2.0-flash"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+OPENROUTER_MODEL = os.getenv(
+    "OPENROUTER_MODEL",
+    "google/gemini-2.5-flash"
 )
+
+SITE_URL = os.getenv("SITE_URL")
+SITE_NAME = os.getenv("SITE_NAME")
+
+
 # ==========================================
 # Document Validation
 # ==========================================
@@ -342,3 +348,20 @@ LOGGING = {
         "urllib3": {"level": "WARNING", "propagate": True},
     },
 }
+
+
+GEMINI_API_KEY = env(
+    "GEMINI_API_KEY",
+    default=""
+)
+
+
+LLM_PROVIDER = "openrouter"
+
+OPENROUTER_API_KEY = env("OPENROUTER_API_KEY")
+
+OPENROUTER_MODEL = env(
+    "OPENROUTER_MODEL",
+    default="deepseek/deepseek-chat-v3.1:free"
+)
+LLM_MODEL = OPENROUTER_MODEL
