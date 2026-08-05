@@ -129,14 +129,14 @@ class LLMClient:
     """
     Enterprise wrapper.
 
-    Uses configured provider.
-
-    Automatically falls back to OpenRouter
-    if Gemini fails.
+    Uses the configured primary provider and automatically falls back
+    to the other supported provider if the primary call fails (e.g.
+    Gemini quota exhaustion, or an OpenRouter outage).
     """
 
     def __init__(self):
 
+        self.primary_provider = settings.LLM_PROVIDER.lower()
         self.client = _get_primary_client()
 
     def generate(self, prompt: str) -> str:
@@ -147,17 +147,32 @@ class LLMClient:
 
         except Exception as exc:
 
-            logger.exception("Primary LLM failed.")
+            logger.exception(
+                "Primary LLM (%s) failed.", self.primary_provider
+            )
 
-            if settings.LLM_PROVIDER.lower() == "gemini":
+            fallback_provider = (
+                "openrouter" if self.primary_provider == "gemini" else "gemini"
+            )
 
-                logger.info(
-                    "Switching to OpenRouter fallback..."
-                )
+            logger.info(
+                "Switching to %s fallback...", fallback_provider
+            )
+
+            try:
+
+                if fallback_provider == "gemini":
+                    return GeminiClient().generate(prompt)
 
                 return OpenRouterClient().generate(prompt)
 
-            raise exc
+            except Exception:
+
+                logger.exception(
+                    "Fallback LLM (%s) also failed.", fallback_provider
+                )
+
+                raise exc
 
 
 # ============================================================

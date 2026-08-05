@@ -146,17 +146,6 @@ EMBEDDING_MODEL = os.getenv(
     "all-MiniLM-L6-v2"
 )
 EMBEDDING_DIMENSION = 384
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")
-
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-
-OPENROUTER_MODEL = os.getenv(
-    "OPENROUTER_MODEL",
-    "google/gemini-2.5-flash"
-)
-
-SITE_URL = os.getenv("SITE_URL")
-SITE_NAME = os.getenv("SITE_NAME")
 
 
 # ==========================================
@@ -355,13 +344,26 @@ GEMINI_API_KEY = env(
     default=""
 )
 
+# LLM provider selection.
+#
+# OpenRouter is the default primary provider (a free-tier model) so
+# everyday usage doesn't run into Gemini's free-tier quota limits.
+# Gemini stays configured as the automatic fallback in llm_client.py
+# if the primary provider's call fails - set LLM_PROVIDER=gemini in
+# .env to flip which one is primary.
+LLM_PROVIDER = env("LLM_PROVIDER", default="openrouter")
 
-LLM_PROVIDER = "openrouter"
+# Gemini's own model name - kept independent from OPENROUTER_MODEL so
+# the Gemini fallback client never gets handed an OpenRouter-style
+# model string (e.g. "deepseek/deepseek-chat-v3.1:free").
+LLM_MODEL = env("LLM_MODEL", default="gemini-2.0-flash")
 
-OPENROUTER_API_KEY = env("OPENROUTER_API_KEY")
+OPENROUTER_API_KEY = env("OPENROUTER_API_KEY", default="")
 
 OPENROUTER_MODEL = env(
     "OPENROUTER_MODEL",
     default="deepseek/deepseek-chat-v3.1:free"
 )
-LLM_MODEL = OPENROUTER_MODEL
+
+SITE_URL = env("SITE_URL", default="")
+SITE_NAME = env("SITE_NAME", default="RAG Assistant")
