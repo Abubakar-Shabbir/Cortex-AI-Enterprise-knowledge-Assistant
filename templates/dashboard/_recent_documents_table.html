@@ -7,13 +7,13 @@ existing document_delete view.
 
 <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
 
-  <div class="flex items-center justify-between border-b border-line px-3.5 py-2.5 dark:border-line-dark">
+  <div class="flex items-center justify-between border-b border-line px-3.5 py-2 dark:border-line-dark">
     <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Documents</h2>
     <a href="{% url 'documents' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
   </div>
 
   {% if recent_documents_table %}
-    <div class="max-h-[300px] overflow-auto">
+    <div class="max-h-[260px] overflow-auto">
       <table id="recentDocsTable" class="w-full min-w-[720px] text-left text-sm">
         <thead class="sticky top-0 z-10 bg-card dark:bg-card-dark">
           <tr class="border-b border-line text-xs font-semibold uppercase tracking-wide text-muted dark:border-line-dark dark:text-muted-dark">

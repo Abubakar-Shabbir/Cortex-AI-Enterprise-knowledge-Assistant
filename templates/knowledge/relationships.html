@@ -8,7 +8,9 @@
 
 {% include "partials/_kb_tabs.html" with active="relationships" %}
 
-<div class="mb-6 rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+<p class="mb-4 max-w-2xl text-sm text-muted dark:text-muted-dark">Relationships show how pieces of knowledge are connected — a source topic, a directed connection, and a target topic, reinforced each time it's found again across your documents.</p>
+
+<div class="mb-4 rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
   <form method="GET" class="flex flex-wrap items-center gap-3">
     <select name="type" onchange="this.form.submit()" class="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
       <option value="">All relationship types</option>
@@ -37,13 +39,21 @@
       <tbody class="divide-y divide-line dark:divide-line-dark">
         {% for rel in relationships_page %}
           <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
-            <td class="px-5 py-3.5"><a href="{% url 'entity_detail' rel.source.id %}" class="font-medium text-ink hover:text-primary dark:text-ink-dark dark:hover:text-primary-soft">{{ rel.source.display_name }}</a></td>
+            <td class="px-5 py-3.5">
+              <a href="{% url 'entity_detail' rel.source.id %}" class="inline-flex items-center gap-1.5 font-medium text-ink hover:text-primary dark:text-ink-dark dark:hover:text-primary-soft">
+                <span class="h-2 w-2 shrink-0 rounded-full" style="background-color: {{ rel.source.color }}"></span> {{ rel.source.display_name }}
+              </a>
+            </td>
             <td class="px-5 py-3.5">
               <span class="inline-flex items-center gap-1.5 rounded-full bg-primary-soft/40 px-2.5 py-1 text-xs font-medium text-primary dark:bg-primary/15 dark:text-primary-soft">
                 <i data-lucide="arrow-right" class="h-3 w-3"></i> {{ rel.relation_type|lower }}
               </span>
             </td>
-            <td class="px-5 py-3.5"><a href="{% url 'entity_detail' rel.target.id %}" class="font-medium text-ink hover:text-primary dark:text-ink-dark dark:hover:text-primary-soft">{{ rel.target.display_name }}</a></td>
+            <td class="px-5 py-3.5">
+              <a href="{% url 'entity_detail' rel.target.id %}" class="inline-flex items-center gap-1.5 font-medium text-ink hover:text-primary dark:text-ink-dark dark:hover:text-primary-soft">
+                <span class="h-2 w-2 shrink-0 rounded-full" style="background-color: {{ rel.target.color }}"></span> {{ rel.target.display_name }}
+              </a>
+            </td>
             <td class="px-5 py-3.5 text-muted dark:text-muted-dark">×{{ rel.weight }}</td>
             <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ rel.updated_at|timesince }} ago</td>
           </tr>

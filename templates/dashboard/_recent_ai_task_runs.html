@@ -6,14 +6,14 @@ view's context), same structural pattern as _recent_uploads.html.
 
 <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
 
-  <div class="flex items-center justify-between border-b border-line px-3.5 py-2.5 dark:border-line-dark">
+  <div class="flex items-center justify-between border-b border-line px-3.5 py-2 dark:border-line-dark">
     <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent AI Task Runs</h2>
     <a href="{% url 'ai_task_history' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
   </div>
 
   <div class="divide-y divide-line dark:divide-line-dark">
     {% for run in recent_ai_task_runs %}
-      <a href="{% url 'ai_task_results' run.id %}" class="flex items-center gap-2.5 px-3.5 py-2 hover:bg-surface dark:hover:bg-white/5">
+      <a href="{% url 'ai_task_results' run.id %}" class="flex items-center gap-2.5 px-3.5 py-1.5 hover:bg-surface dark:hover:bg-white/5">
         <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <i data-lucide="sparkles" class="h-4 w-4"></i>
         </div>
@@ -30,7 +30,7 @@ view's context), same structural pattern as _recent_uploads.html.
         </span>
       </a>
     {% empty %}
-      <div class="px-3.5 py-5 text-center">
+      <div class="px-3.5 py-4 text-center">
         <p class="text-sm text-muted dark:text-muted-dark">No AI Tasks run yet.</p>
         <a href="{% url 'ai_tasks' %}" class="mt-2 inline-block text-sm font-medium text-primary hover:underline dark:text-primary-soft">Run your first AI Task</a>
       </div>

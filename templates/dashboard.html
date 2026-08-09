@@ -13,12 +13,14 @@
 {% comment %}
 Overview shows only the widgets the viewer's own permissions cover -
 document-related tiles/charts/tables need "pages.documents", the
-queries tile needs "pages.ask_ai". A role with admin-area access but
-neither (e.g. granted only "system.view_health") still gets a real
-Overview: System Status, Activity Feed, and whatever Quick Actions
-apply, just not the document/query widgets it has no other access to.
+queries tile needs "pages.ask_ai". This page is only ever reached by
+the Admin role (see permission_service.has_admin_area_access), which
+always holds every permission, so in practice every widget below
+renders - the per-permission checks exist so this template keeps
+degrading correctly if that ever changes, not because any real Admin
+account is missing a "pages.*" permission today.
 {% endcomment %}
-<div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(auto-fit,minmax(200px,1fr))] fade-in-up">
+<div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(auto-fit,minmax(200px,1fr))] fade-in-up">
   {% if "pages.documents" in user_permissions %}
     {% include "dashboard/_kpi_card.html" with icon="file-text" icon_bg="bg-primary/10" icon_color="text-primary" label="Total Documents" value=stats.total_documents numeric=True trend=kpi_trends.documents trend_label="vs last 7 days" chart_id="kpi-documents" chart_color="#8B1E2D" chart_data=kpi_trends.documents.sparkline %}
     {% include "dashboard/_kpi_card.html" with icon="box" icon_bg="bg-warning/10" icon_color="text-warning" label="Total Chunks" value=stats.total_chunks numeric=True trend=kpi_trends.chunks trend_label="vs last 7 days" chart_id="kpi-chunks" chart_color="#C77700" chart_data=kpi_trends.chunks.sparkline %}
@@ -32,37 +34,46 @@ apply, just not the document/query widgets it has no other access to.
   {% endif %}
 </div>
 
-<div class="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
+{% comment %}
+No fixed main/rail column split below this point - a side-by-side
+split whose two sides have genuinely different content length always
+leaves blank space beside whichever side is shorter (that's just how
+CSS columns work; there's no amount of stretch/alignment tuning that
+fixes it). Instead, everything from here down is full-width sections
+in reading order, and the small cards at the bottom flow together in
+one grid (items-start, capped at 2 columns) so a leftover card lands
+at the bottom of the page - normal - instead of leaving a tall empty
+stripe mid-page. User Overview (user_dashboard.html) follows the same
+pattern for consistency between the two dashboards.
+{% endcomment %}
 
-  <div class="min-w-0 space-y-3">
-
-    {% if "pages.documents" in user_permissions %}
-      <div class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(240px,340px)]">
-        {% include "dashboard/_main_chart.html" %}
-        {% include "dashboard/_donut_chart.html" %}
-      </div>
-
-      {% include "dashboard/_recent_documents_table.html" %}
-    {% endif %}
-
-    {% include "dashboard/_quick_actions.html" %}
-
+{% if "pages.documents" in user_permissions %}
+  <div class="mt-2 grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_minmax(240px,340px)]">
+    {% include "dashboard/_main_chart.html" %}
+    {% include "dashboard/_donut_chart.html" %}
   </div>
 
-  <div class="space-y-3">
-    {% include "dashboard/_system_status.html" %}
-    {% if "pages.knowledge_base" in user_permissions %}
-      {% include "dashboard/_knowledge_snapshot.html" %}
-    {% endif %}
-    {% if "pages.documents" in user_permissions %}
-      {% include "dashboard/_recent_uploads.html" %}
-    {% endif %}
-    {% if "pages.ai_tasks" in user_permissions %}
-      {% include "dashboard/_recent_ai_task_runs.html" %}
-    {% endif %}
-    {% include "dashboard/_activity_feed.html" %}
+  <div class="mt-2">
+    {% include "dashboard/_recent_documents_table.html" %}
   </div>
+{% endif %}
 
+<div class="mt-2">
+  {% include "dashboard/_quick_actions.html" %}
+</div>
+
+<div class="mt-2 grid grid-cols-1 items-start gap-2 sm:grid-cols-2 sm:[&>*:last-child:nth-child(odd)]:col-span-2">
+  {% include "dashboard/_system_status.html" %}
+  {% if "pages.knowledge_base" in user_permissions %}
+    {% include "dashboard/_knowledge_snapshot.html" %}
+  {% endif %}
+  {% if "pages.documents" in user_permissions %}
+    {% include "dashboard/_recent_uploads.html" %}
+  {% endif %}
+  {% if "pages.ai_tasks" in user_permissions %}
+    {% include "dashboard/_recent_ai_task_runs.html" %}
+  {% endif %}
+  {% include "dashboard/_activity_feed.html" %}
 </div>
 
 {% endblock %}
@@ -81,38 +92,88 @@ apply, just not the document/query widgets it has no other access to.
   const gridColor = 'rgba(109, 102, 101, 0.12)';
   const primary = '#8B1E2D';
 
-  // ---- Documents Over Time (main chart) ----
+  // ---- Documents Over Time (main chart): a combo chart, not a plain
+  // line - daily new-upload bars (their own right-hand axis, headroom
+  // padded so they stay a compact backdrop) plus the cumulative total
+  // as the gradient-filled line on top, so day-to-day activity and
+  // overall growth read together in one chart. interaction: 'index'
+  // shows both series in one tooltip wherever the cursor lands on the
+  // x-axis, not just when it's exactly over a point/bar.
   const dotLabels = read('documents-over-time-labels');
   const dotSeries = read('documents-over-time-series');
+  const dotDaily = read('documents-over-time-daily');
   const dotCanvas = document.getElementById('documentsOverTimeChart');
 
   if (dotCanvas && dotLabels) {
     const ctx = dotCanvas.getContext('2d');
     const fill = ctx.createLinearGradient(0, 0, 0, 260);
-    fill.addColorStop(0, 'rgba(139, 30, 45, 0.18)');
+    fill.addColorStop(0, 'rgba(139, 30, 45, 0.22)');
     fill.addColorStop(1, 'rgba(139, 30, 45, 0)');
 
+    const dailyMax = Math.max(1, ...(dotDaily || [0]));
+
     new Chart(dotCanvas, {
-      type: 'line',
+      type: 'bar',
       data: {
         labels: dotLabels,
-        datasets: [{
-          data: dotSeries,
-          borderColor: primary,
-          backgroundColor: fill,
-          fill: true,
-          tension: 0.4,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          borderWidth: 2.5,
-        }],
+        datasets: [
+          {
+            type: 'bar',
+            label: 'New that day',
+            data: dotDaily,
+            yAxisID: 'yDaily',
+            backgroundColor: 'rgba(139, 30, 45, 0.25)',
+            hoverBackgroundColor: 'rgba(139, 30, 45, 0.4)',
+            borderRadius: 3,
+            maxBarThickness: 22,
+          },
+          {
+            type: 'line',
+            label: 'Total documents',
+            data: dotSeries,
+            yAxisID: 'yTotal',
+            borderColor: primary,
+            backgroundColor: fill,
+            fill: true,
+            tension: 0.35,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            pointHoverBackgroundColor: primary,
+            pointHoverBorderColor: '#fff',
+            pointHoverBorderWidth: 2,
+            borderWidth: 2.5,
+          },
+        ],
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label(item) {
+                const suffix = item.dataset.yAxisID === 'yDaily' ? ' new' : ' total';
+                return ` ${item.dataset.label}: ${item.formattedValue}${suffix}`;
+              },
+            },
+          },
+        },
         scales: {
           x: { grid: { display: false } },
-          y: { grid: { color: gridColor }, beginAtZero: true, ticks: { precision: 0 } },
+          yTotal: {
+            position: 'left',
+            grid: { color: gridColor },
+            beginAtZero: true,
+            ticks: { precision: 0 },
+          },
+          yDaily: {
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            beginAtZero: true,
+            suggestedMax: dailyMax * 3,
+            ticks: { precision: 0, maxTicksLimit: 3 },
+          },
         },
       },
     });
@@ -130,17 +191,32 @@ apply, just not the document/query widgets it has no other access to.
         datasets: [{
           data: typeData.map((item) => item.count),
           backgroundColor: typeData.map((item) => item.color),
-          borderWidth: 0,
+          hoverOffset: 6,
+          borderWidth: 2,
+          borderColor: document.documentElement.classList.contains('dark') ? '#1c1414' : '#fff',
         }],
       },
       options: {
         responsive: true, maintainAspectRatio: false, cutout: '72%',
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label(item) {
+                const entry = typeData[item.dataIndex];
+                return ` ${entry.type}: ${entry.count} (${entry.percent}%)`;
+              },
+            },
+          },
+        },
       },
     });
   }
 
-  // ---- KPI sparklines ----
+  // ---- KPI sparklines: a thin gradient-filled area, not a bare line -
+  // matches the main chart's fill treatment at a much smaller scale,
+  // and a lightweight tooltip so a specific day's value is one hover
+  // away instead of having to open the full chart to check it.
   const sparklines = [
     { id: 'kpi-documents', color: '#8B1E2D' },
     { id: 'kpi-chunks', color: '#C77700' },
@@ -154,6 +230,11 @@ apply, just not the document/query widgets it has no other access to.
     const data = read(id + '-data');
     if (!canvas || !data) return;
 
+    const ctx = canvas.getContext('2d');
+    const fill = ctx.createLinearGradient(0, 0, 0, 24);
+    fill.addColorStop(0, color + '33');
+    fill.addColorStop(1, color + '00');
+
     new Chart(canvas, {
       type: 'line',
       data: {
@@ -161,16 +242,27 @@ apply, just not the document/query widgets it has no other access to.
         datasets: [{
           data,
           borderColor: color,
-          backgroundColor: color,
+          backgroundColor: fill,
           tension: 0.4,
           pointRadius: 0,
+          pointHoverRadius: 3,
+          pointHoverBackgroundColor: color,
           borderWidth: 2,
-          fill: false,
+          fill: true,
         }],
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        interaction: { intersect: false, mode: 'index' },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            displayColors: false,
+            bodyFont: { size: 10 },
+            padding: 6,
+            callbacks: { title: () => '' },
+          },
+        },
         scales: { x: { display: false }, y: { display: false } },
         elements: { line: { capBezierPoints: true } },
       },

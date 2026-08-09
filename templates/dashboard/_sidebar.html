@@ -3,15 +3,14 @@ THE sidebar — the single reusable nav shell for every authenticated
 page in the app (base.html includes this unconditionally; see that
 file's comment for why). There is no second sidebar variant to keep in
 sync and no visual/layout change when navigating between "workspace"
-and "admin" pages - only which items render changes, driven entirely
-by user_permissions (context_processors.sidebar_status), never which
-component is shown.
+and "admin" pages - only which items render changes.
 
-Every item below is individually gated - a role with admin-area access
-but only, say, "system.view_health" sees just Overview + System Health
-here, not the full list; a plain workspace role sees Overview +
-whatever pages.* permissions it holds and none of the Administration
-group.
+Workspace/Insights items are gated per pages.* permission the viewer's
+role holds. The whole Administration group is gated on
+can_view_admin_area alone (RAG.services.permission_service.
+has_admin_area_access - strictly the Admin role, never unlocked by an
+individual permission grant); a plain workspace role never sees it,
+regardless of which specific permissions it's been granted.
 
 Active-item highlighting reuses active_nav
 (context_processors.breadcrumbs()), populated on every authenticated
@@ -64,7 +63,7 @@ page render.
       {% endif %}
     {% endif %}
 
-    {% if "pages.analytics" in user_permissions or "pages.reports" in user_permissions or "queries.view_all_logs" in user_permissions %}
+    {% if "pages.analytics" in user_permissions or "pages.reports" in user_permissions or can_view_admin_area %}
       <div class="mb-1.5 mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-dark">Insights</div>
       {% if "pages.analytics" in user_permissions %}
         {% include "dashboard/_nav_item.html" with url_name="analytics" label="Analytics" icon="bar-chart-3" %}
@@ -72,12 +71,22 @@ page render.
       {% if "pages.reports" in user_permissions %}
         {% include "dashboard/_nav_item.html" with url_name="reports" label="Reports" icon="file-down" %}
       {% endif %}
-      {% if "queries.view_all_logs" in user_permissions %}
+      {% if can_view_admin_area %}
         {% include "dashboard/_nav_item.html" with url_name="admin_queries" label="Queries" icon="search" %}
       {% endif %}
     {% endif %}
 
-    {% if "users.view_all" in user_permissions or "roles.manage" in user_permissions or "settings.manage_llm" in user_permissions or "settings.manage_chunking" in user_permissions or "settings.manage_retrieval" in user_permissions or "settings.manage_embedding" in user_permissions or "settings.manage_database" in user_permissions or "system.view_health" in user_permissions or "system.view_ai_logs" in user_permissions or "activity.view_all_logs" in user_permissions %}
+    {% if can_view_admin_area %}
+      {% comment %}
+      /admin/* is Admin-role-only (RAG.middleware.RoleBasedAccessMiddleware
+      via permission_service.has_admin_area_access) - gated here on
+      can_view_admin_area alone, not on the individual permission
+      codenames below, so this group never shows a link the backend
+      would 403. The per-item permission checks still narrow which
+      admin pages appear even for Admin (harmless today since Admin
+      holds every permission, but keeps this list correct if that ever
+      changes).
+      {% endcomment %}
       <div class="mb-1.5 mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-dark">Administration</div>
       {% if "users.view_all" in user_permissions %}
         {% include "dashboard/_nav_item.html" with url_name="admin_users" label="Users" icon="users" %}

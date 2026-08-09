@@ -26,31 +26,6 @@ logger = logging.getLogger(__name__)
 ADMIN = ADMIN_ROLE_SLUG
 USER = USER_ROLE_SLUG
 
-# Permission codenames that gate a page somewhere under /admin/. Holding
-# at least one of these is what earns a role the admin sidebar shell
-# (see context_processors.sidebar_status -> can_view_admin_area) and
-# passes RoleBasedAccessMiddleware's coarse backstop over the whole
-# /admin/ prefix; each individual admin page still re-checks its own
-# specific codename via @permission_required, so a role granted only
-# "system.view_health" sees the admin shell but only the Monitoring
-# page actually opens - Admin Overview itself is the one exception:
-# see get_dashboard_url_for_user's docstring for why it's never gated
-# by its own separate codename the way every other admin page is.
-ADMIN_AREA_PERMISSIONS = (
-    "users.view_all",
-    "roles.manage",
-    "settings.manage_llm",
-    "settings.manage_chunking",
-    "settings.manage_retrieval",
-    "settings.manage_embedding",
-    "settings.manage_database",
-    "settings.manage_api_keys",
-    "queries.view_all_logs",
-    "activity.view_all_logs",
-    "system.view_health",
-    "system.view_ai_logs",
-)
-
 # (slug, label, icon, codenames) - groups permissions into the feature
 # module a person actually thinks in (e.g. "Documents" covers both
 # "pages.documents" and the cross-user "documents.view_all"/
@@ -98,9 +73,20 @@ PERMISSION_MODULES = (
         "system.view_embeddings", "system.view_api_status",
     )),
     ("activity", "Activity Logs", "scroll-text", (
-        "activity.view_all_logs",
+        "activity.view_all_logs", "activity.view_ip_location",
     )),
 )
+
+# Permissions that expose personally-identifiable data (raw question/
+# answer text, precise IP/geolocation) rather than metadata about an
+# event - flagged with a "Sensitive" badge in Admin > Roles
+# (templates/admin/roles.html) so a non-Admin "roles.manage" holder
+# doesn't grant one of these to a custom role without realizing what
+# it actually exposes.
+SENSITIVE_PERMISSIONS = frozenset({
+    "queries.view_content",
+    "activity.view_ip_location",
+})
 
 
 def get_permission_modules():
@@ -224,15 +210,22 @@ def get_user_permission_codenames(user):
 
 def has_admin_area_access(user):
     """
-    True if this role grants at least one admin-area permission - the
-    coarse check that decides which sidebar shell renders
-    (context_processors.sidebar_status) and whether
-    RoleBasedAccessMiddleware lets the request into /admin/ at all.
-    Real per-page access is still enforced by each view's own
-    @permission_required.
+    True only for the Admin role - the single check that decides which
+    sidebar shell renders (context_processors.sidebar_status) and
+    whether RoleBasedAccessMiddleware lets the request into /admin/ at
+    all. Deliberately role-based, not permission-based: a role/account
+    granted an individual admin-area permission (e.g.
+    "system.view_health") must never thereby gain the Admin dashboard,
+    admin sidebar, or any /admin/* page - roles and permissions are
+    separate concepts, and a permission grant must never change what
+    dashboard a user lands on or silently promote them into the
+    Administrator nav. Real per-page access is still enforced by each
+    view's own @permission_required, which stays as a secondary check
+    Admin always satisfies (Role.has_permission's bypass) - the actual
+    boundary for the whole /admin/ namespace is this function.
     """
 
-    return any(user_has_permission(user, code) for code in ADMIN_AREA_PERMISSIONS)
+    return is_admin(user)
 
 
 def has_any_settings_permission(user):
@@ -274,15 +267,13 @@ def get_dashboard_url_for_user(user):
     never permission-gated as a whole, the same way Profile never is
     (see RAG.views.profile_view / user_dashboard / admin_dashboard_view) -
     every authenticated account gets *an* Overview, just scoped to a
-    different shell: Admin Overview for any role with admin-area
-    access (has_admin_area_access), User Overview for everyone else.
-    The page itself then shows only the modules/widgets the viewer's
-    permissions actually cover (see dashboard.html / user_dashboard.html),
-    rather than the page disappearing outright - that's the deliberate
-    fix over the old design, which gated the whole page behind its own
-    "pages.dashboard_admin"/"pages.dashboard_user" permission and could
-    leave a role with real admin-area access (e.g. only
-    "system.view_health") with no Overview link at all.
+    different shell: Admin Overview for the Admin role
+    (has_admin_area_access - strictly role-based, see that function's
+    docstring), User Overview for everyone else, regardless of which
+    individual permissions their role holds. The page itself then shows
+    only the modules/widgets the viewer's permissions actually cover
+    (see dashboard.html / user_dashboard.html), rather than the page
+    disappearing outright.
     """
 
     return reverse("admin_dashboard") if has_admin_area_access(user) else reverse("user_dashboard")

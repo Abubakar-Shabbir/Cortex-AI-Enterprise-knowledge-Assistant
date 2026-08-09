@@ -45,9 +45,10 @@ from collections import Counter, defaultdict
 
 from django.core.paginator import Paginator
 from django.db.models import Count
+from django.urls import reverse
 
 from ..models import Document, Entity, EntityMention, QueryLog, Relationship
-from .ai_tasks_similarity_service import build_document_embedding, cluster_documents
+from .ai_tasks_similarity_service import build_document_embedding, cluster_documents, cosine_similarity_matrix
 from .document_access_service import get_accessible_document_ids
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,37 @@ OTHER_DOCUMENTS_BUCKET = "Other Related Documents"
 # free-form/LLM-provided framing CLAUDE.md already documents for
 # entity_type generally.
 TEAM_ENTITY_TYPE = "ORGANIZATION"
+
+# One color per graph_extraction_service.SUPPORTED_ENTITY_TYPES, reusing
+# the exact hex values analytics.html's chart palette already
+# established (same primary/info/success/warning/accent/rose set) so an
+# entity-type color means the same thing everywhere in the app, not a
+# second palette invented just for the graph. entity_type is free-form
+# (not a DB-enforced choice - see Entity's docstring), so a type outside
+# this dict (a custom LLM-provided one) falls back to
+# ENTITY_TYPE_FALLBACK_COLOR rather than erroring.
+ENTITY_TYPE_COLORS = {
+    "PERSON": "#8B1E2D",
+    "ORGANIZATION": "#2A78D6",
+    "LOCATION": "#1F7A4D",
+    "DATE": "#C77700",
+    "PRODUCT": "#4A3AA7",
+    "EVENT": "#D6336C",
+    "MISC": "#6D1B27",
+}
+ENTITY_TYPE_FALLBACK_COLOR = "#8a7d7d"
+
+
+def get_entity_type_color(entity_type):
+    return ENTITY_TYPE_COLORS.get(entity_type, ENTITY_TYPE_FALLBACK_COLOR)
+
+
+# Related-documents tuning for get_document_knowledge() - looser than
+# DUPLICATE_SIMILARITY_THRESHOLD above ("related content" is a lower bar
+# than "flag as possibly the same document").
+DOCUMENT_SIMILAR_CANDIDATE_LIMIT = 200
+DOCUMENT_SIMILARITY_THRESHOLD = 0.80
+RELATED_DOCUMENTS_LIMIT = 8
 
 
 # ==========================================================================
@@ -149,6 +181,7 @@ def _group_into_topics(entities, doc_map):
             "id": top.id,
             "display_name": top.display_name,
             "entity_type": top.entity_type,
+            "color": get_entity_type_color(top.entity_type),
             "mention_count": sum(e.mention_count for e in members),
             "entity_ids": [e.id for e in members],
             "member_count": len(members),
@@ -275,22 +308,37 @@ def _bucket_documents(documents):
 # ==========================================================================
 
 def get_knowledge_overview(user):
-    """Summary counts + category breakdown for Explore Topics."""
+    """
+    Summary counts + category breakdown for Explore Topics.
+
+    total_accessible_documents/indexed_documents are real, untruncated
+    counts (a plain .count() query) - deliberately NOT derived from
+    get_knowledge_insights()'s `not_processed` list, which is capped at
+    8 rows for display and would silently under-report past that.
+    """
 
     dataset = _build_topic_dataset(user)
     topics = dataset["topics"]
+    accessible_document_ids = dataset["accessible_document_ids"]
 
     total_sources = 0
-    if dataset["accessible_document_ids"]:
+    if accessible_document_ids:
         total_sources = (
             EntityMention.objects.filter(
                 entity_id__in=dataset["visible_entity_ids"],
-                chunk__document_id__in=dataset["accessible_document_ids"],
+                chunk__document_id__in=accessible_document_ids,
             )
             .values("chunk__document_id")
             .distinct()
             .count()
         )
+
+    total_accessible_documents = len(accessible_document_ids)
+    indexed_documents = 0
+    if accessible_document_ids:
+        indexed_documents = Document.objects.filter(
+            id__in=accessible_document_ids, processing_status=Document.ProcessingStatus.COMPLETED
+        ).count()
 
     categories = Counter(t["entity_type"] for t in topics)
 
@@ -298,6 +346,9 @@ def get_knowledge_overview(user):
         "total_entities": len(topics),
         "total_relationships": len(dataset["relationships"]),
         "total_sources": total_sources,
+        "total_accessible_documents": total_accessible_documents,
+        "indexed_documents": indexed_documents,
+        "indexed_documents_label": f"of {total_accessible_documents} document{'' if total_accessible_documents == 1 else 's'}",
         "categories": [{"entity_type": k, "count": v} for k, v in categories.most_common()],
     }
 
@@ -618,6 +669,92 @@ def get_graph_insights(user):
     }
 
 
+def get_topic_node_detail(user, entity_id):
+    """
+    Trimmed, JSON-serializable subset of get_topic_detail() for the
+    Knowledge Graph's click-a-node side panel - reuses that function
+    rather than re-querying, just shapes/caps the result for an inline
+    preview instead of the full Topic Detail page (which stays one
+    click away via "detail_url").
+    """
+
+    detail = get_topic_detail(user, entity_id)
+    if detail is None:
+        return None
+
+    entity = detail["entity"]
+    documents = [doc for _, docs in detail["document_buckets"] for doc in docs][:6]
+
+    return {
+        "id": entity.id,
+        "display_name": entity.display_name,
+        "entity_type": entity.entity_type,
+        "color": get_entity_type_color(entity.entity_type),
+        "mention_count": detail["mention_count"],
+        "document_count": detail["document_count"],
+        "documents": [{"id": d.id, "title": d.title} for d in documents],
+        "related_teams": [{"id": t.id, "display_name": t.display_name} for t in detail["related_teams"][:5]],
+        "outgoing": [
+            {"relation_type": r.relation_type, "target": r.target.display_name, "target_id": r.target_id, "weight": r.weight}
+            for r in detail["outgoing"][:6]
+        ],
+        "incoming": [
+            {"relation_type": r.relation_type, "source": r.source.display_name, "source_id": r.source_id, "weight": r.weight}
+            for r in detail["incoming"][:6]
+        ],
+        "detail_url": reverse("entity_detail", args=[entity.id]),
+    }
+
+
+def get_topic_pair_relationship_detail(user, topic_a_id, topic_b_id):
+    """
+    The underlying Relationship rows between two Topics' member
+    entities (either direction) - for the Knowledge Graph's
+    click-an-edge side panel. Reuses _build_topic_dataset's already-
+    computed topic membership and visible-relationship set rather than
+    re-querying; returns None if either topic id doesn't resolve to a
+    visible Topic.
+    """
+
+    dataset = _build_topic_dataset(user)
+
+    entity_a = Entity.objects.filter(id=topic_a_id).first()
+    entity_b = Entity.objects.filter(id=topic_b_id).first()
+    if entity_a is None or entity_b is None:
+        return None
+
+    topic_a = dataset["topics_by_key"].get((entity_a.name, entity_a.entity_type))
+    topic_b = dataset["topics_by_key"].get((entity_b.name, entity_b.entity_type))
+    if topic_a is None or topic_b is None:
+        return None
+
+    a_ids = set(topic_a["entity_ids"])
+    b_ids = set(topic_b["entity_ids"])
+
+    rows = [
+        rel for rel in dataset["relationships"]
+        if (rel.source_id in a_ids and rel.target_id in b_ids)
+        or (rel.source_id in b_ids and rel.target_id in a_ids)
+    ]
+    rows.sort(key=lambda r: -r.weight)
+
+    return {
+        "topic_a": {"id": topic_a["id"], "display_name": topic_a["display_name"]},
+        "topic_b": {"id": topic_b["id"], "display_name": topic_b["display_name"]},
+        "relationships": [
+            {
+                "source": r.source.display_name,
+                "relation_type": r.relation_type,
+                "target": r.target.display_name,
+                "weight": r.weight,
+                "context": r.context[:280],
+            }
+            for r in rows[:15]
+        ],
+        "total": len(rows),
+    }
+
+
 # ==========================================================================
 # Citation Viewer
 # ==========================================================================
@@ -889,3 +1026,170 @@ def _duplicate_document_clusters(accessible_document_ids, limit=KNOWLEDGE_INSIGH
         {"documents": [documents_by_id[i] for i in cluster["document_ids"] if i in documents_by_id]}
         for cluster in clusters
     ]
+
+
+# ==========================================================================
+# Document Relationship View
+# ==========================================================================
+
+def get_document_knowledge(user, document):
+    """
+    Everything the Document Relationship View needs for one document:
+    the topics/entities extracted from it, relationships among them,
+    related documents via shared topics (entity-graph-based) and via
+    semantic similarity (embedding-based - reuses
+    ai_tasks_similarity_service's exact math, the same functions
+    _duplicate_document_clusters above already uses, just scored
+    pairwise against one document instead of clustered wholesale), and
+    citations from the viewer's own Ask AI history that referenced it.
+
+    Returns None if `document` isn't in `user`'s accessible scope -
+    callers should already have checked
+    document_access_service.can_view_document() before calling this,
+    this is a defense-in-depth second check on the same rule.
+    """
+
+    dataset = _build_topic_dataset(user)
+    accessible_document_ids = dataset["accessible_document_ids"]
+
+    if document.id not in accessible_document_ids:
+        return None
+
+    entity_to_topic_key = dataset["entity_to_topic_key"]
+    topics_by_key = dataset["topics_by_key"]
+
+    doc_entity_ids = set(
+        EntityMention.objects.filter(chunk__document=document, entity_id__in=dataset["visible_entity_ids"])
+        .values_list("entity_id", flat=True).distinct()
+    )
+
+    doc_topic_keys = {entity_to_topic_key[eid] for eid in doc_entity_ids if eid in entity_to_topic_key}
+    topics = sorted(
+        (topics_by_key[key] for key in doc_topic_keys if key in topics_by_key),
+        key=lambda t: -t["mention_count"],
+    )
+
+    topic_entity_ids = set()
+    for key in doc_topic_keys:
+        topic = topics_by_key.get(key)
+        if topic:
+            topic_entity_ids.update(topic["entity_ids"])
+
+    relationships = _dedupe_topic_pair_relationships(
+        [
+            rel for rel in dataset["relationships"]
+            if rel.source_id in topic_entity_ids and rel.target_id in topic_entity_ids and rel.source_id != rel.target_id
+        ],
+        entity_to_topic_key,
+    )
+
+    related_by_topic = _related_documents_by_shared_topic(
+        topic_entity_ids, accessible_document_ids, exclude_document_id=document.id
+    )
+    similar_documents = _similar_documents_by_embedding(document, accessible_document_ids)
+
+    citations = [c for c in get_citation_explorer(user) if c["document"] == document.title][:20]
+
+    return {
+        "document": document,
+        "topics": topics,
+        "relationships": relationships[:20],
+        "related_by_topic": related_by_topic,
+        "similar_documents": similar_documents,
+        "citations": citations,
+    }
+
+
+def _dedupe_topic_pair_relationships(relationships, entity_to_topic_key):
+    """Collapses relationship rows that resolve to the same (topic, topic, relation_type) triple down to the highest-weight one - Relationship's default ordering is already -weight, so first-seen-per-key wins, same pattern as _dedupe_relationship_rows."""
+
+    seen = set()
+    rows = []
+
+    for rel in relationships:
+        key = (entity_to_topic_key.get(rel.source_id), entity_to_topic_key.get(rel.target_id), rel.relation_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(rel)
+
+    return rows
+
+
+def _related_documents_by_shared_topic(topic_entity_ids, accessible_document_ids, exclude_document_id, limit=RELATED_DOCUMENTS_LIMIT):
+    """Other accessible documents mentioning the same topics as this one, ranked by how many topics they share - reuses _entity_document_map rather than a new query shape."""
+
+    if not topic_entity_ids:
+        return []
+
+    doc_map = _entity_document_map(list(topic_entity_ids), accessible_document_ids)
+
+    shared_counts = Counter()
+    for document_ids in doc_map.values():
+        for document_id in document_ids:
+            if document_id != exclude_document_id:
+                shared_counts[document_id] += 1
+
+    ranked_ids = [doc_id for doc_id, _ in shared_counts.most_common(limit)]
+    if not ranked_ids:
+        return []
+
+    documents_by_id = {d.id: d for d in Document.objects.filter(id__in=ranked_ids)}
+    order = {doc_id: i for i, doc_id in enumerate(ranked_ids)}
+
+    return sorted(
+        (
+            {"document": documents_by_id[doc_id], "shared_topics": shared_counts[doc_id]}
+            for doc_id in ranked_ids if doc_id in documents_by_id
+        ),
+        key=lambda row: order[row["document"].id],
+    )
+
+
+def _similar_documents_by_embedding(document, accessible_document_ids, limit=RELATED_DOCUMENTS_LIMIT, threshold=DOCUMENT_SIMILARITY_THRESHOLD):
+    """
+    Cosine similarity between `document`'s mean-pooled chunk embedding
+    and other accessible, processed documents' - reuses
+    ai_tasks_similarity_service.build_document_embedding/
+    cosine_similarity_matrix exactly, the same functions
+    _duplicate_document_clusters above already calls, just scored
+    pairwise against one anchor document instead of clustered wholesale.
+    Never raises: a missing embedding (document still processing) or a
+    scoring failure returns [], never breaks the page.
+    """
+
+    anchor_vector = build_document_embedding(document)
+    if anchor_vector is None:
+        return []
+
+    candidates = list(
+        Document.objects.filter(id__in=accessible_document_ids, processing_status=Document.ProcessingStatus.COMPLETED)
+        .exclude(id=document.id)
+        .order_by("-uploaded_at")[:DOCUMENT_SIMILAR_CANDIDATE_LIMIT]
+    )
+
+    valid_candidates = []
+    candidate_vectors = []
+    for candidate in candidates:
+        vector = build_document_embedding(candidate)
+        if vector is not None:
+            valid_candidates.append(candidate)
+            candidate_vectors.append(vector)
+
+    if not valid_candidates:
+        return []
+
+    try:
+        matrix = cosine_similarity_matrix([anchor_vector] + candidate_vectors)
+    except Exception:
+        logger.exception("Similar-document scoring failed for document %s", document.id)
+        return []
+
+    scored = [
+        (float(matrix[0][i + 1]), candidate)
+        for i, candidate in enumerate(valid_candidates)
+        if matrix[0][i + 1] >= threshold
+    ]
+    scored.sort(key=lambda pair: -pair[0])
+
+    return [{"document": doc, "similarity": round(sim * 100)} for sim, doc in scored[:limit]]

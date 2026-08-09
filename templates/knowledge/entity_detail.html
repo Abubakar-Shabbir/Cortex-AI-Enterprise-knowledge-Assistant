@@ -6,7 +6,7 @@
 
 <div class="mb-6 flex flex-wrap items-start justify-between gap-3">
   <div class="flex items-start gap-3">
-    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
+    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg" style="background-color: {{ entity_color }}22; color: {{ entity_color }}">
       <i data-lucide="compass" class="h-5 w-5"></i>
     </div>
     <div>
@@ -47,9 +47,14 @@
               {% for document in bucket_documents %}
                 <div class="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 hover:bg-surface dark:hover:bg-white/5">
                   <span class="min-w-0 truncate text-sm text-ink dark:text-ink-dark">{{ document.title }}</span>
-                  <a href="{% url 'document_download' document.id %}" class="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline dark:text-primary-soft">
-                    <i data-lucide="external-link" class="h-3 w-3"></i> View Source
-                  </a>
+                  <span class="flex shrink-0 items-center gap-3">
+                    <a href="{% url 'document_knowledge' document.id %}" class="inline-flex items-center gap-1 text-xs font-medium text-ink hover:text-primary dark:text-ink-dark dark:hover:text-primary-soft">
+                      <i data-lucide="network" class="h-3 w-3"></i> Knowledge
+                    </a>
+                    <a href="{% url 'document_download' document.id %}" class="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline dark:text-primary-soft">
+                      <i data-lucide="external-link" class="h-3 w-3"></i> View Source
+                    </a>
+                  </span>
                 </div>
               {% endfor %}
             </div>
@@ -152,6 +157,7 @@
         <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
           <i data-lucide="arrow-up-right" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Connected Concepts
         </h2>
+        <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">What this topic points to.</p>
       </div>
       <div class="divide-y divide-line dark:divide-line-dark">
         {% for rel in outgoing %}
@@ -172,6 +178,7 @@
         <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
           <i data-lucide="arrow-down-left" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Referenced By
         </h2>
+        <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">What points to this topic.</p>
       </div>
       <div class="divide-y divide-line dark:divide-line-dark">
         {% for rel in incoming %}

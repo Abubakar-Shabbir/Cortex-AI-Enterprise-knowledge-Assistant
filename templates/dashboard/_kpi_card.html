@@ -18,15 +18,15 @@ Optional:
   numeric      - True to animate the value counting up from 0 (only for real integers)
 {% endcomment %}
 
-<div class="min-w-0 rounded-xl border border-line bg-card p-3.5 shadow-soft transition-transform hover:-translate-y-0.5 dark:border-line-dark dark:bg-card-dark">
+<div class="min-w-0 rounded-xl border border-line bg-card p-3 shadow-soft transition-transform hover:-translate-y-0.5 dark:border-line-dark dark:bg-card-dark">
 
   <div class="flex items-center justify-between">
-    <div class="flex h-8 w-8 items-center justify-center rounded-lg {{ icon_bg }} {{ icon_color }}">
+    <div class="flex h-7 w-7 items-center justify-center rounded-lg {{ icon_bg }} {{ icon_color }}">
       <i data-lucide="{{ icon }}" class="h-4 w-4"></i>
     </div>
   </div>
 
-  <div class="mt-2.5 text-xs font-medium leading-snug text-muted dark:text-muted-dark">{{ label }}</div>
+  <div class="mt-2 text-xs font-medium leading-snug text-muted dark:text-muted-dark">{{ label }}</div>
 
   {% if numeric %}
     <div
@@ -39,7 +39,7 @@ Optional:
     <div class="mt-0.5 text-xl font-bold leading-tight tracking-tight text-ink dark:text-ink-dark">{{ value }}</div>
   {% endif %}
 
-  <div class="mt-2.5 flex items-end justify-between gap-2">
+  <div class="mt-2 flex items-end justify-between gap-2">
     <div class="flex items-center gap-1 text-xs font-medium">
       {% if trend.direction == "up" %}
         <i data-lucide="trending-up" class="h-3.5 w-3.5 text-success dark:text-success-dark"></i>
@@ -54,13 +54,26 @@ Optional:
       <span class="text-muted dark:text-muted-dark">{{ trend_label }}</span>
     </div>
 
-    {% comment %}
-    "relative" required - see dashboard/_main_chart.html's comment for
-    why (Chart.js responsive:true canvas containment in flex/grid).
-    {% endcomment %}
-    <div class="relative h-6 w-14 shrink-0">
-      <canvas id="{{ chart_id }}"></canvas>
-    </div>
+    {% if trend.has_activity %}
+      {% comment %}
+      "relative" required - see dashboard/_main_chart.html's comment
+      for why (Chart.js responsive:true canvas containment in
+      flex/grid).
+      {% endcomment %}
+      <div class="relative h-6 w-14 shrink-0">
+        <canvas id="{{ chart_id }}"></canvas>
+      </div>
+    {% else %}
+      {% comment %}
+      No real trend to plot yet (every day in the window is 0) - an
+      all-zero series still renders *a* Chart.js line, but it reads as
+      a rendering glitch, not "nothing happened here yet". A flat
+      muted dash reads as the latter and needs no canvas at all.
+      {% endcomment %}
+      <div class="flex h-6 w-14 shrink-0 items-center" title="No activity in this period yet">
+        <div class="h-px w-full rounded-full bg-line dark:bg-line-dark"></div>
+      </div>
+    {% endif %}
   </div>
 
 </div>

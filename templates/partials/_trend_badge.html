@@ -1,0 +1,21 @@
+{% comment %}
+Usage: {% include "partials/_trend_badge.html" with trend=kpi_trends.documents %}
+`trend` is one entry from stats_service.get_kpi_trends() - {change_pct, direction, sparkline}.
+Optional `label` overrides the default "vs last 7 days" (e.g. "vs yesterday" for the daily queries KPI).
+{% endcomment %}
+{% if trend %}
+  <span class="inline-flex items-center gap-1 text-xs font-semibold
+    {% if trend.direction == 'up' %} text-success dark:text-success-dark
+    {% elif trend.direction == 'down' %} text-danger dark:text-danger-dark
+    {% else %} text-muted dark:text-muted-dark {% endif %}">
+    {% if trend.direction == 'up' %}
+      <i data-lucide="trending-up" class="h-3.5 w-3.5"></i>
+    {% elif trend.direction == 'down' %}
+      <i data-lucide="trending-down" class="h-3.5 w-3.5"></i>
+    {% else %}
+      <i data-lucide="minus" class="h-3.5 w-3.5"></i>
+    {% endif %}
+    {{ trend.change_pct }}%
+    <span class="font-normal text-muted dark:text-muted-dark">{{ label|default:"vs last 7 days" }}</span>
+  </span>
+{% endif %}

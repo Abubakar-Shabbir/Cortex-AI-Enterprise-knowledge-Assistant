@@ -13,7 +13,7 @@ from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.http import (
     FileResponse, Http404, HttpResponse, HttpResponseBadRequest, JsonResponse, StreamingHttpResponse,
 )
@@ -26,9 +26,11 @@ from .decorators import admin_area_required, permission_required, settings_acces
 from .models import (
     ADMIN_ROLE_SLUG, ActivityLog, AIRequestTrace, AITaskRun, AITaskRunDocument, Category, Collection,
     Document, DocumentAccessLog, DocumentChunk, DocumentShare, DocumentVersion, Entity, ErrorGroup, Favorite,
-    Permission, QueryLog, Role, Tag, UserRole,
+    Permission, QueryLog, Role, Tag, UserProfile, UserRole,
 )
 from .services.activity_log_service import log_activity
+from .services import device_intelligence_service
+from .services.profile_completion_service import get_completion
 from .services.categories_service import create_category, delete_category, list_categories, set_document_category
 from .services.collections_service import (
     add_document_to_collection,
@@ -54,7 +56,10 @@ from .services.sharing_service import (
 )
 from .services.tags_service import create_tag, delete_tag, list_tags, tag_document, untag_document
 from .services.knowledge_service import (
+    ENTITY_TYPE_COLORS,
     get_citation_explorer,
+    get_document_knowledge,
+    get_entity_type_color,
     get_graph_data,
     get_graph_insights,
     get_knowledge_insights,
@@ -62,6 +67,8 @@ from .services.knowledge_service import (
     get_relation_types,
     get_relationships,
     get_topic_detail,
+    get_topic_node_detail,
+    get_topic_pair_relationship_detail,
     resolve_topics_for_citations,
     search_topics,
 )
@@ -92,6 +99,7 @@ from .services.reports_service import (
     get_usage_report_rows,
 )
 from .services.permission_service import (
+    SENSITIVE_PERMISSIONS,
     USER,
     can_actor_assign_role,
     can_actor_manage_target_user,
@@ -108,6 +116,7 @@ from .services.permission_service import (
 from .services.retrieval_filters import RetrievalFilters
 from .services.trace import bind_trace_id
 from .services.stats_service import (
+    get_activity_summary,
     get_analytics_data,
     get_comparison_report_data,
     get_dashboard_stats,
@@ -215,6 +224,7 @@ def login_user(request):
                 actor=user,
                 action="user.login",
                 description=f"{user.username} logged in",
+                request=request,
             )
 
             return redirect(get_dashboard_url_for_user(user))
@@ -287,6 +297,9 @@ def user_dashboard(request):
     )
 
 
+DASHBOARD_CHART_RANGES = (7, 14, 30)
+
+
 @admin_area_required
 def admin_dashboard_view(request):
     """
@@ -303,7 +316,20 @@ def admin_dashboard_view(request):
     down which widgets actually render based on the viewer's other
     permissions (pages.documents, pages.ask_ai, ...) rather than
     blocking the page outright for a narrower role.
+
+    "Documents Over Time" is the one widget with a real, working
+    control - a `?range=` query param picks how many days it covers
+    (DASHBOARD_CHART_RANGES), degrading to the 7-day default on
+    anything missing/invalid rather than raising, the same
+    tolerant-input pattern RetrievalFilters.from_request() uses.
     """
+
+    try:
+        chart_range = int(request.GET.get("range", 7))
+    except (TypeError, ValueError):
+        chart_range = 7
+    if chart_range not in DASHBOARD_CHART_RANGES:
+        chart_range = 7
 
     stats = get_dashboard_stats(request.user)
     activity = get_recent_activity(request.user)
@@ -316,7 +342,9 @@ def admin_dashboard_view(request):
             "stats": stats,
             "trends": trends,
             "kpi_trends": get_kpi_trends(request.user),
-            "documents_over_time": get_documents_over_time(request.user, days=7),
+            "documents_over_time": get_documents_over_time(request.user, days=chart_range),
+            "documents_over_time_range": chart_range,
+            "documents_over_time_ranges": DASHBOARD_CHART_RANGES,
             "document_types": get_document_type_breakdown(request.user),
             "recent_documents_table": get_recent_documents_table(request.user),
             "knowledge_overview": get_knowledge_overview(request.user),
@@ -706,6 +734,7 @@ def documents_view(request):
                     actor=request.user,
                     action="document.org_library_added",
                     description=f'"{document.title}" added to the Organization Library by {request.user.username}',
+                    request=request,
                 )
 
             return redirect("documents")
@@ -782,6 +811,7 @@ def document_delete(request, doc_id):
             actor=request.user,
             action="document.deleted",
             description=f'"{title}" deleted by {request.user.username}',
+            request=request,
         )
 
         messages.success(request, "Document deleted.")
@@ -806,6 +836,7 @@ def document_archive_toggle(request, doc_id):
         actor=request.user,
         action="document.archived" if document.is_archived else "document.unarchived",
         description=f'"{document.title}" {"archived" if document.is_archived else "unarchived"} by {request.user.username}',
+        request=request,
     )
 
     return JsonResponse({"id": document.id, "is_archived": document.is_archived})
@@ -933,6 +964,7 @@ def documents_bulk_action(request):
             actor=request.user,
             action="document.bulk_action",
             description=f'{request.user.username} applied bulk action "{action}" to {len(succeeded)} document(s)',
+            request=request,
         )
 
     return JsonResponse({"action": action, "succeeded": succeeded, "skipped": skipped})
@@ -1167,6 +1199,7 @@ def org_library_toggle(request, doc_id):
             f'"{document.title}" {"added to" if document.is_org_library else "removed from"} '
             f"the Organization Library by {request.user.username}"
         ),
+        request=request,
     )
 
     return JsonResponse({"id": document.id, "is_org_library": document.is_org_library})
@@ -1210,6 +1243,7 @@ def document_share(request, doc_id):
             actor=request.user,
             action="document.shared",
             description=f'"{document.title}" shared by {request.user.username}',
+            request=request,
         )
 
     shares = list_shares_for_document(document)
@@ -1405,6 +1439,14 @@ def document_download(request, doc_id):
     as_attachment = request.GET.get("download") == "1"
     filename = os.path.basename(document.file.name)
 
+    if as_attachment:
+        log_activity(
+            actor=request.user,
+            action="document.downloaded",
+            description=f'"{document.title}" downloaded by {request.user.username}',
+            request=request,
+        )
+
     return FileResponse(
         document.file.open("rb"),
         as_attachment=as_attachment,
@@ -1557,18 +1599,82 @@ def analytics_view(request):
         {
             "data": data,
             "ai_performance": ai_performance,
+            "document_types": get_document_type_breakdown(request.user),
         },
     )
+
+
+def _save_extended_profile_fields(profile, target_user, post):
+    """
+    Shared by profile_view (self-service) and admin_user_profile_view
+    (Admin-edit) so the two forms can never drift into saving different
+    subsets of UserProfile - one implementation, two callers, same
+    pattern profile_completion_service.get_completion() already follows.
+    """
+
+    profile.headline = post.get("headline", "").strip()[:150]
+    profile.phone = post.get("phone", "").strip()
+    profile.department = post.get("department", "").strip()
+    profile.job_title = post.get("job_title", "").strip()
+    profile.employee_id = post.get("employee_id", "").strip()
+    profile.team = post.get("team", "").strip()
+    profile.location = post.get("location", "").strip()
+    profile.timezone = post.get("timezone", "").strip()
+    profile.language = post.get("language", "en").strip() or "en"
+    profile.linkedin_url = post.get("linkedin_url", "").strip()
+    profile.github_url = post.get("github_url", "").strip()
+    profile.portfolio_url = post.get("portfolio_url", "").strip()
+    profile.profile_visibility = post.get("profile_visibility") or UserProfile.Visibility.PRIVATE
+
+    manager_id = post.get("manager_id", "").strip()
+    if manager_id.isdigit() and int(manager_id) != target_user.id:
+        profile.manager_id = int(manager_id)
+    else:
+        profile.manager_id = None
+
+    profile.skills = [s.strip() for s in post.getlist("skills") if s.strip()][:30]
+    profile.certifications = [c.strip() for c in post.getlist("certifications") if c.strip()][:30]
+
+    profile.save()
+
+
+def _profile_context(user, current_session_key=None):
+    """
+    Real, freshly-computed data for one profile page - shared shape
+    between the self-service Profile page and the Admin User Management
+    profile view, so both render from the exact same backend facts.
+    """
+
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+
+    return {
+        "profile_user": user,
+        "profile": profile,
+        "completion": get_completion(user, profile),
+        "activity_summary": get_activity_summary(user),
+        "login_history": device_intelligence_service.get_login_history(user),
+        "active_sessions": device_intelligence_service.get_active_sessions(user, current_session_key),
+        "is_online": device_intelligence_service.is_online(user),
+        "account_health": device_intelligence_service.get_account_health(user),
+        "last_active": device_intelligence_service.get_last_active(user),
+        "manager_options": User.objects.exclude(id=user.id).order_by("username"),
+        "timezone_choices": UserProfile.COMMON_TIMEZONES,
+        "language_choices": UserProfile.LANGUAGE_CHOICES,
+        "visibility_choices": UserProfile.Visibility.choices,
+    }
 
 
 @login_required
 def profile_view(request):
 
     password_form = PasswordChangeForm(request.user)
+    profile, _ = UserProfile.objects.get_or_create(user=request.user)
 
     if request.method == "POST":
 
-        if request.POST.get("form") == "profile":
+        form_name = request.POST.get("form")
+
+        if form_name == "profile":
 
             user = request.user
 
@@ -1577,11 +1683,35 @@ def profile_view(request):
             user.email = request.POST.get("email", "").strip()
             user.save()
 
+            log_activity(actor=user, action="profile.updated", description=f"{user.username} updated their personal information", request=request)
+
             messages.success(request, "Profile updated.")
 
             return redirect("profile")
 
-        elif request.POST.get("form") == "password":
+        elif form_name == "extended":
+
+            _save_extended_profile_fields(profile, request.user, request.POST)
+
+            log_activity(actor=request.user, action="profile.updated", description=f"{request.user.username} updated their profile details", request=request)
+
+            messages.success(request, "Profile details updated.")
+
+            return redirect("profile")
+
+        elif form_name == "avatar":
+
+            if "avatar" in request.FILES:
+                profile.avatar = request.FILES["avatar"]
+                profile.save(update_fields=["avatar", "updated_at"])
+
+                log_activity(actor=request.user, action="profile.updated", description=f"{request.user.username} updated their profile photo", request=request)
+
+                messages.success(request, "Profile photo updated.")
+
+            return redirect("profile")
+
+        elif form_name == "password":
 
             password_form = PasswordChangeForm(request.user, request.POST)
 
@@ -1599,14 +1729,11 @@ def profile_view(request):
 
                 messages.error(request, "Please correct the errors below.")
 
-    return render(
-        request,
-        "profile.html",
-        {
-            "password_form": password_form,
-            "current_user_agent": request.META.get("HTTP_USER_AGENT", "Unknown device"),
-        },
-    )
+    context = _profile_context(request.user, request.session.session_key)
+    context["password_form"] = password_form
+    context["current_device"] = device_intelligence_service.parse_device(request.META.get("HTTP_USER_AGENT", ""))
+
+    return render(request, "profile.html", context)
 
 
 @permission_required("system.view_health")
@@ -1661,11 +1788,13 @@ def monitoring_view(request):
 _ACTIVITY_ICONS = {
     "document.uploaded": "file-up",
     "document.deleted": "trash-2",
+    "document.downloaded": "download",
     "user.suspended": "user-x",
     "user.reactivated": "user-check",
     "user.deleted": "user-minus",
     "user.role_changed": "shield",
     "user.login": "log-in",
+    "user.logout": "log-out",
 }
 
 # Visual category per action codename - drives the Activity tab's badge
@@ -1674,8 +1803,10 @@ _ACTIVITY_ICONS = {
 # than erroring, so a new action codename needs no template change.
 _ACTIVITY_CATEGORY = {
     "document.uploaded": "success",
+    "document.downloaded": "neutral",
     "user.reactivated": "success",
     "user.login": "success",
+    "user.logout": "neutral",
     "document.deleted": "danger",
     "user.suspended": "danger",
     "user.deleted": "danger",
@@ -1683,13 +1814,29 @@ _ACTIVITY_CATEGORY = {
 }
 
 
-def _build_activity_events(filters: dict):
+def _format_location(city, region, country):
+    """Renders whatever subset of city/region/country is known as one display string, e.g. "San Francisco, CA, United States" - never raises on missing parts."""
+
+    parts = [p for p in (city, region, country) if p]
+    return ", ".join(parts) if parts else ""
+
+
+def _build_activity_events(filters: dict, include_location: bool = True):
     """
     Merges Document uploads + ActivityLog rows into one workspace-wide
     feed (same two-source merge admin_system_logs_view's predecessor,
     admin_activity_logs_view, always did), now filtered by type/actor/
-    text/date range before capping - see the docstring on the caller
-    for why each source is capped independently rather than a DB UNION.
+    text/date range/location before capping - see the docstring on the
+    caller for why each source is capped independently rather than a DB
+    UNION. Document uploads have no IP/location captured (upload_service
+    isn't request-scoped), so those events always show "—" for it.
+
+    include_location=False (the caller's request lacks
+    "activity.view_ip_location") scrubs ip_address/location from every
+    event and ignores any submitted location filter server-side, rather
+    than trusting the template to just not render the column - the same
+    "scrub the data, don't just hide it" rule queries.view_content
+    already applies to question/answer text.
     """
 
     events = []
@@ -1705,15 +1852,21 @@ def _build_activity_events(filters: dict):
         if filters.get("date_to"):
             doc_qs = doc_qs.filter(uploaded_at__date__lte=filters["date_to"])
 
-        for doc in doc_qs[:300]:
-            events.append({
-                "icon": "file-up",
-                "category": "success",
-                "type": "document.uploaded",
-                "actor": doc.user.username,
-                "text": f'"{doc.title}" uploaded',
-                "at": doc.uploaded_at,
-            })
+        # Location has no meaning for a document upload row (no
+        # IP is captured for that source) - a location filter should
+        # exclude these rows rather than silently ignore the filter.
+        if not (include_location and filters.get("location")):
+            for doc in doc_qs[:300]:
+                events.append({
+                    "icon": "file-up",
+                    "category": "success",
+                    "type": "document.uploaded",
+                    "actor": doc.user.username,
+                    "text": f'"{doc.title}" uploaded',
+                    "at": doc.uploaded_at,
+                    "ip_address": None,
+                    "location": "",
+                })
 
     if filters.get("type", "") != "document.uploaded":
         log_qs = ActivityLog.objects.select_related("actor").order_by("-created_at")
@@ -1727,6 +1880,15 @@ def _build_activity_events(filters: dict):
             log_qs = log_qs.filter(created_at__date__gte=filters["date_from"])
         if filters.get("date_to"):
             log_qs = log_qs.filter(created_at__date__lte=filters["date_to"])
+        if include_location and filters.get("location"):
+            loc = filters["location"]
+            log_qs = log_qs.filter(
+                Q(ip_address__icontains=loc)
+                | Q(city__icontains=loc)
+                | Q(region__icontains=loc)
+                | Q(country__icontains=loc)
+                | Q(country_code__iexact=loc)
+            )
 
         for log in log_qs[:300]:
             events.append({
@@ -1736,6 +1898,8 @@ def _build_activity_events(filters: dict):
                 "actor": log.actor.username if log.actor else "system",
                 "text": log.description,
                 "at": log.created_at,
+                "ip_address": log.ip_address if include_location else None,
+                "location": _format_location(log.city, log.region, log.country) if include_location else "",
             })
 
     events.sort(key=lambda event: event["at"], reverse=True)
@@ -1771,10 +1935,12 @@ def admin_system_logs_view(request):
 
     can_view_traces = user_has_permission(request.user, "system.view_ai_logs")
     can_view_activity = user_has_permission(request.user, "activity.view_all_logs")
+    can_view_activity_location = can_view_activity and user_has_permission(request.user, "activity.view_ip_location")
 
     context = {
         "can_view_traces": can_view_traces,
         "can_view_activity": can_view_activity,
+        "can_view_activity_location": can_view_activity_location,
     }
 
     if can_view_traces:
@@ -1838,6 +2004,7 @@ def admin_system_logs_view(request):
             "type": request.GET.get("act_type", ""),
             "actor": request.GET.get("act_actor", ""),
             "q": request.GET.get("act_q", ""),
+            "location": request.GET.get("act_location", ""),
             "date_from": request.GET.get("act_date_from", ""),
             "date_to": request.GET.get("act_date_to", ""),
         }
@@ -1847,7 +2014,10 @@ def admin_system_logs_view(request):
         except ValueError:
             act_page = 1
 
-        activity_events = _build_activity_events(act_filters)
+        if not can_view_activity_location:
+            act_filters["location"] = ""
+
+        activity_events = _build_activity_events(act_filters, include_location=can_view_activity_location)
         act_paginator = Paginator(activity_events, 25)
         act_page_obj = act_paginator.get_page(act_page)
 
@@ -1855,11 +2025,20 @@ def admin_system_logs_view(request):
             ActivityLog.objects.order_by().values_list("action", flat=True).distinct()
         )
 
+        act_summary = {
+            "total_events": ActivityLog.objects.count(),
+        }
+        if can_view_activity_location:
+            act_summary["tracked_ips"] = ActivityLog.objects.exclude(ip_address__isnull=True).values("ip_address").distinct().count()
+            act_summary["countries"] = ActivityLog.objects.exclude(country="").values("country").distinct().count()
+        act_summary["security_alerts"] = ActivityLog.objects.filter(action="security.privilege_escalation_blocked").count()
+
         context.update({
             "act_page_obj": act_page_obj,
             "act_filters": act_filters,
             "act_total": len(activity_events),
             "activity_types": sorted(set(activity_types)),
+            "act_summary": act_summary,
         })
 
     # Explicit ?tab= wins; otherwise land wherever the request's own
@@ -2018,6 +2197,7 @@ def admin_users_view(request):
                 actor=request.user,
                 action="security.privilege_escalation_blocked",
                 description=f'{request.user.username} tried to {action} "{target_user.username}" (more privileged account) - blocked',
+                request=request,
             )
             messages.error(request, "You don't have permission to manage this account.")
 
@@ -2033,6 +2213,7 @@ def admin_users_view(request):
                     actor=request.user,
                     action="user.suspended",
                     description=f'"{target_user.username}" suspended by {request.user.username}',
+                    request=request,
                 )
                 messages.success(request, f'"{target_user.username}" suspended.')
 
@@ -2043,6 +2224,7 @@ def admin_users_view(request):
                 actor=request.user,
                 action="user.reactivated",
                 description=f'"{target_user.username}" reactivated by {request.user.username}',
+                request=request,
             )
             messages.success(request, f'"{target_user.username}" reactivated.')
 
@@ -2058,6 +2240,7 @@ def admin_users_view(request):
                     actor=request.user,
                     action="user.deleted",
                     description=f'"{deleted_username}" deleted by {request.user.username}',
+                    request=request,
                 )
                 messages.success(request, "User deleted.")
 
@@ -2071,6 +2254,7 @@ def admin_users_view(request):
                     actor=request.user,
                     action="security.privilege_escalation_blocked",
                     description=f'{request.user.username} tried to assign "{role.name}" to "{target_user.username}" (exceeds their own permissions) - blocked',
+                    request=request,
                 )
                 messages.error(request, f'You don\'t have permission to assign the "{role.name}" role.')
             elif role.slug != ADMIN_ROLE_SLUG and is_last_admin(target_user):
@@ -2084,6 +2268,7 @@ def admin_users_view(request):
                     actor=request.user,
                     action="user.role_changed",
                     description=f'"{target_user.username}" set to {role.name} by {request.user.username}',
+                    request=request,
                 )
                 messages.success(request, f'"{target_user.username}" is now {role.name}.')
 
@@ -2107,6 +2292,74 @@ def admin_users_view(request):
             "admin_role_id": admin_role.id if admin_role else None,
         },
     )
+
+
+@permission_required("users.view_all")
+def admin_user_profile_view(request, user_id):
+    """
+    Admin > Users > (a user's) Profile - the full enterprise profile
+    (completion score, activity summary, login/device history,
+    role/permissions, account health) for any one user, editable by an
+    Admin per the confirmed scope (see PROFILE_MODULE plan). Gated by
+    the same "users.view_all" permission that already guards the Users
+    list, plus its own privilege-escalation guard on the mutating path
+    below - viewing an Admin's profile is fine for anyone who can reach
+    this page at all, but editing one is not, mirroring
+    can_actor_manage_target_user's use throughout admin_users_view.
+
+    Login history / device / IP-location are additionally gated inline
+    by the target's own "activity.view_all_logs" / "activity.view_ip_location"
+    permissions on the VIEWING admin's role - same coarse+fine pattern
+    admin_system_logs_view already uses, so a role holding only
+    "users.view_all" sees the profile but not another user's IP/location.
+    """
+
+    target_user = get_object_or_404(User, id=user_id)
+
+    can_view_activity = user_has_permission(request.user, "activity.view_all_logs")
+    can_view_location = can_view_activity and user_has_permission(request.user, "activity.view_ip_location")
+
+    if request.method == "POST":
+
+        if not can_actor_manage_target_user(request.user, target_user):
+            log_activity(
+                actor=request.user,
+                action="security.privilege_escalation_blocked",
+                description=f'{request.user.username} tried to edit "{target_user.username}"\'s profile (more privileged account) - blocked',
+                request=request,
+            )
+            messages.error(request, "You don't have permission to edit this account.")
+        else:
+            profile, _ = UserProfile.objects.get_or_create(user=target_user)
+            _save_extended_profile_fields(profile, target_user, request.POST)
+
+            log_activity(
+                actor=request.user,
+                action="user.profile_updated_by_admin",
+                description=f'{request.user.username} updated "{target_user.username}"\'s profile',
+                request=request,
+            )
+
+            messages.success(request, f'"{target_user.username}"\'s profile updated.')
+
+        return redirect("admin_user_profile", user_id=target_user.id)
+
+    context = _profile_context(target_user)
+    context.update({
+        "can_view_activity": can_view_activity,
+        "can_view_location": can_view_location,
+        "login_history": context["login_history"] if can_view_activity else [],
+        "assigned_role": getattr(target_user, "role_assignment", None),
+        "target_permission_set": sorted(get_user_permission_set(target_user)),
+        "can_edit": can_actor_manage_target_user(request.user, target_user),
+        "breadcrumb_leaf": target_user.get_full_name() or target_user.username,
+    })
+    if not can_view_location:
+        for entry in context["login_history"]:
+            entry["ip_address"] = None
+            entry["location"] = ""
+
+    return render(request, "admin/user_profile.html", context)
 
 
 @permission_required("roles.manage")
@@ -2146,6 +2399,7 @@ def admin_roles_view(request):
                     actor=request.user,
                     action="role.created",
                     description=f'Role "{name}" created by {request.user.username}',
+                    request=request,
                 )
                 messages.success(request, f'Role "{name}" created.')
 
@@ -2173,6 +2427,7 @@ def admin_roles_view(request):
                                 f'{request.user.username} tried to grant "{role.name}" permissions beyond their '
                                 f'own ({", ".join(sorted(attempted_escalation))}) - blocked'
                             ),
+                            request=request,
                         )
 
                 updated_codenames = compute_updated_role_permissions(request.user, role, selected_codenames)
@@ -2181,6 +2436,7 @@ def admin_roles_view(request):
                     actor=request.user,
                     action="role.permissions_updated",
                     description=f'Permissions updated for "{role.name}" by {request.user.username}',
+                    request=request,
                 )
                 messages.success(request, f'Permissions updated for "{role.name}".')
 
@@ -2201,6 +2457,7 @@ def admin_roles_view(request):
                     actor=request.user,
                     action="security.privilege_escalation_blocked",
                     description=f'{request.user.username} tried to delete "{role.name}" (grants access beyond their own) - blocked',
+                    request=request,
                 )
                 messages.error(request, f'You don\'t have permission to delete "{role.name}" - it grants access beyond your own.')
             else:
@@ -2210,6 +2467,7 @@ def admin_roles_view(request):
                     actor=request.user,
                     action="role.deleted",
                     description=f'Role "{role_name}" deleted by {request.user.username}',
+                    request=request,
                 )
                 messages.success(request, f'Role "{role_name}" deleted.')
 
@@ -2256,6 +2514,7 @@ def admin_roles_view(request):
             "roles_data": roles_data,
             "permission_modules": permission_modules,
             "total_permission_count": total_permission_count,
+            "sensitive_permissions": SENSITIVE_PERMISSIONS,
         },
     )
 
@@ -2327,6 +2586,7 @@ def admin_settings_view(request):
             actor=request.user,
             action="settings.updated",
             description=f"RAG pipeline configuration updated by {request.user.username}",
+            request=request,
         )
 
         messages.success(request, "Settings saved.")
@@ -2429,6 +2689,7 @@ def admin_query_detail_view(request, log_id):
         actor=request.user,
         action="admin.query_content_viewed",
         description=f'{request.user.username} viewed the content of a query log by "{log.user.username}" (log #{log.id}) via Admin > Queries',
+        request=request,
     )
 
     return JsonResponse({
@@ -2484,6 +2745,7 @@ def export_queries_report(request):
             actor=request.user,
             action="admin.query_content_exported",
             description=f'{request.user.username} exported {logs.count()} query log(s) including question/answer content via Admin > Queries',
+            request=request,
         )
 
     response = HttpResponse(content_type="text/csv")
@@ -2510,6 +2772,12 @@ def knowledge_base_view(request):
 
     overview = get_knowledge_overview(request.user)
 
+    # Reuses get_knowledge_insights() (already computed for the Insights
+    # tab) rather than a second aggregation - just surfaces a couple of
+    # its fields (processing status, recent activity) here too, as an
+    # at-a-glance preview with a link to the full Insights tab.
+    insights = get_knowledge_insights(request.user)
+
     query = request.GET.get("q", "").strip()
     entity_type = request.GET.get("type", "").strip()
 
@@ -2522,6 +2790,7 @@ def knowledge_base_view(request):
         "knowledge/browse.html",
         {
             "overview": overview,
+            "insights": insights,
             "topics_page": topics_page,
             "query": query,
             "selected_type": entity_type,
@@ -2544,6 +2813,7 @@ def entity_detail_view(request, entity_id):
         "knowledge/entity_detail.html",
         {
             **detail,
+            "entity_color": get_entity_type_color(detail["entity"].entity_type),
             "breadcrumb_leaf": detail["entity"].display_name,
         },
     )
@@ -2557,6 +2827,15 @@ def relationships_view(request):
     relationships_page = get_relationships(
         request.user, relation_type=relation_type, page=request.GET.get("page")
     )
+
+    # Annotated in Python (not a DB field) so the table's source/target
+    # color dots use the exact same ENTITY_TYPE_COLORS every other
+    # Knowledge Base page draws from - get_relationships() returns raw
+    # Relationship rows, not the color-carrying Topic dicts browse.html
+    # and the graph use.
+    for rel in relationships_page:
+        rel.source.color = get_entity_type_color(rel.source.entity_type)
+        rel.target.color = get_entity_type_color(rel.target.entity_type)
 
     return render(
         request,
@@ -2575,12 +2854,84 @@ def knowledge_graph_view(request):
     graph_data = get_graph_data(request.user)
     insights = get_graph_insights(request.user)
 
+    # Computed for exactly the entity_type values actually present in
+    # this viewer's graph (not the whole ENTITY_TYPE_COLORS dict) so a
+    # free-form/custom type the LLM produced still gets a real,
+    # deterministic color via get_entity_type_color()'s fallback,
+    # rather than relying on vis-network's own auto-palette client-side.
+    present_types = sorted({node["group"] for node in graph_data["nodes"]})
+    entity_type_colors = {t: get_entity_type_color(t) for t in present_types}
+
     return render(
         request,
         "knowledge/graph.html",
         {
             "graph_data": graph_data,
             "insights": insights,
+            "entity_type_colors": entity_type_colors,
+        },
+    )
+
+
+@permission_required("pages.knowledge_base")
+def graph_node_detail_json(request, entity_id):
+
+    detail = get_topic_node_detail(request.user, entity_id)
+
+    if detail is None:
+        return JsonResponse({"error": "Not found"}, status=404)
+
+    return JsonResponse(detail)
+
+
+@permission_required("pages.knowledge_base")
+def graph_edge_detail_json(request):
+
+    try:
+        topic_a_id = int(request.GET.get("a"))
+        topic_b_id = int(request.GET.get("b"))
+    except (TypeError, ValueError):
+        return HttpResponseBadRequest("Query params 'a' and 'b' must be entity ids.")
+
+    detail = get_topic_pair_relationship_detail(request.user, topic_a_id, topic_b_id)
+
+    if detail is None:
+        return JsonResponse({"error": "Not found"}, status=404)
+
+    return JsonResponse(detail)
+
+
+@permission_required("pages.knowledge_base")
+def document_knowledge_view(request, doc_id):
+    """
+    Document Relationship View - one document's extracted topics,
+    relationships, related documents (shared-topic and embedding-
+    similarity based), and citation history. Gated the same way every
+    other non-owner-only document view is: accessible-scoped (owned +
+    Organization Library + shared-with-them), not owner-only, since
+    exploring a shared/org document's knowledge is exactly what a
+    sharee or org-library viewer needs to do (same rationale
+    document_preview/document_download already document).
+    """
+
+    document = get_object_or_404(Document, id=doc_id, id__in=get_accessible_document_ids(request.user))
+
+    knowledge = get_document_knowledge(request.user, document)
+    is_owner = document.user_id == request.user.id
+
+    return render(
+        request,
+        "knowledge/document_relationships.html",
+        {
+            **knowledge,
+            "file_size_display": format_bytes(document.file_size),
+            "is_owner": is_owner,
+            # Share recipients are only shown to the owner - viewing who
+            # else a document is shared with isn't something a sharee or
+            # org-library viewer needs, and it's the one piece of
+            # relationship data here that names other specific people.
+            "shares": document.shares.select_related("shared_with_user", "shared_with_role") if is_owner else None,
+            "breadcrumb_leaf": document.title,
         },
     )
 
@@ -2623,12 +2974,19 @@ def knowledge_insights_view(request):
 @permission_required("pages.reports")
 def reports_view(request):
     """
-    Reports - two real per-row CSV exports (documents, usage) plus a
-    live Comparative Report: this period vs. the one before it across
-    the headline usage metrics, computed on demand from real data (see
-    stats_service.get_comparison_report_data) - not a "coming soon"
-    placeholder, and not dependent on any scheduling/email
-    infrastructure this project doesn't have.
+    Reports - real per-row CSV exports (documents, usage, AI task runs,
+    knowledge topics) plus a live Comparative Report: this period vs.
+    the one before it across the headline usage metrics, computed on
+    demand from real data (see stats_service.get_comparison_report_data)
+    - not a "coming soon" placeholder, and not dependent on any
+    scheduling/email infrastructure this project doesn't have.
+
+    Each export card also shows a real trend badge (stats_service.
+    get_kpi_trends, already computed for the Dashboard's KPI cards -
+    reused here rather than recomputed) and, for documents, a live
+    type breakdown (get_document_type_breakdown, same source as the
+    Dashboard's Document Types donut) as a preview of what the export
+    actually contains - not a fabricated summary.
     """
 
     documents = Document.objects.filter(user=request.user)
@@ -2643,6 +3001,8 @@ def reports_view(request):
             "ai_task_run_count": AITaskRun.objects.filter(user=request.user).count(),
             "topic_count": get_knowledge_overview(request.user)["total_entities"],
             "comparison": get_comparison_report_data(request.user),
+            "kpi_trends": get_kpi_trends(request.user),
+            "document_types": get_document_type_breakdown(request.user),
         },
     )
 
@@ -2823,6 +3183,7 @@ def ai_task_create(request):
         actor=request.user,
         action="ai_task.created",
         description=f'{request.user.username} started an AI Task ({run.get_task_type_display()}) over {len(target_ids)} document(s)',
+        request=request,
     )
 
     from .tasks import run_ai_task
@@ -2923,6 +3284,13 @@ def health_check(request):
 
 def logout_user(request):
 
+    if request.user.is_authenticated:
+        log_activity(
+            actor=request.user,
+            action="user.logout",
+            description=f"{request.user.username} logged out",
+            request=request,
+        )
 
     logout(request)
 

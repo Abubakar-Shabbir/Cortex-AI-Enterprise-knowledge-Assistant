@@ -28,7 +28,11 @@
       "Bash(python manage.py shell -c \"exec\\(open\\(r'C:/Users/LAPTOPEXPERT/AppData/Local/Temp/claude/F--RAG-Project-Document-Intelligence-RAG-Assistant/983d3d63-fdd3-453d-b955-6fd1fd8fbea5/scratchpad/verify_cross_tenant_fix.py'\\).read\\(\\)\\)\")",
       "Bash(python manage.py shell -c \"exec\\(open\\(r'C:/Users/LAPTOPEXPERT/AppData/Local/Temp/claude/F--RAG-Project-Document-Intelligence-RAG-Assistant/983d3d63-fdd3-453d-b955-6fd1fd8fbea5/scratchpad/verify_queries_page.py'\\).read\\(\\)\\)\")",
       "Bash(python manage.py shell -c \"exec\\(open\\(r'C:/Users/LAPTOPEXPERT/AppData/Local/Temp/claude/F--RAG-Project-Document-Intelligence-RAG-Assistant/983d3d63-fdd3-453d-b955-6fd1fd8fbea5/scratchpad/verify_django_admin_lockdown.py'\\).read\\(\\)\\)\")",
-      "Bash(python manage.py shell -c \"exec\\(open\\(r'C:/Users/LAPTOPEXPERT/AppData/Local/Temp/claude/F--RAG-Project-Document-Intelligence-RAG-Assistant/983d3d63-fdd3-453d-b955-6fd1fd8fbea5/scratchpad/verify_scope_filter.py'\\).read\\(\\)\\)\")"
+      "Bash(python manage.py shell -c \"exec\\(open\\(r'C:/Users/LAPTOPEXPERT/AppData/Local/Temp/claude/F--RAG-Project-Document-Intelligence-RAG-Assistant/983d3d63-fdd3-453d-b955-6fd1fd8fbea5/scratchpad/verify_scope_filter.py'\\).read\\(\\)\\)\")",
+      "Bash(python manage.py test RAG)",
+      "Bash(python manage.py test RAG --keepdb)",
+      "Bash(python -c \"import PIL; print\\('Pillow', PIL.__version__\\)\")",
+      "Bash(python -c \"import user_agents; print\\('user_agents ok'\\)\")"
     ]
   }
 }

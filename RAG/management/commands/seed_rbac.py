@@ -54,7 +54,8 @@ DEFAULT_PERMISSIONS = [
 
     ("queries.view_all_logs", "View all query logs", "View every user's Ask AI query log metadata (owner, confidence, response time, timestamp) - not the question/answer content."),
     ("queries.view_content", "View query content", "View the actual question and answer text of other users' queries. A further-gated tier on top of queries.view_all_logs, intended for explicitly authorized auditing only."),
-    ("activity.view_all_logs", "View all activity logs", "View a workspace-wide activity log."),
+    ("activity.view_all_logs", "View all activity logs", "View a workspace-wide activity log - every page visit and business event (uploads, deletions, role changes, logins, ...), without IP address or geolocation."),
+    ("activity.view_ip_location", "View IP & location data", "View the IP address and geolocation (city/region/country) captured for each activity log event. A further-gated tier on top of activity.view_all_logs, for explicitly authorized auditing only."),
 
     ("settings.manage_llm", "Manage LLM configuration", "View/change the active LLM provider, model, and answer temperature."),
     ("settings.manage_embedding", "Manage embedding model", "View the embedding model configuration (read-only - changing it needs re-embedding + a migration, not just a config flip)."),

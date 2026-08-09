@@ -4,22 +4,20 @@
 
 {% block content %}
 
-<div class="mb-5">
-  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Analytics</h1>
-  <p class="text-sm text-muted dark:text-muted-dark">Usage trends across your document library and question activity, last 14 days.</p>
-</div>
+{% include "partials/_page_header.html" with title="Analytics" subtitle="Usage trends across your document library and question activity, last 14 days." %}
 
-<div class="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-  {% include "partials/_stat_card.html" with icon="message-square" label="Questions (14d)" value=data.total_questions numeric=True %}
-  {% include "partials/_stat_card.html" with icon="file-up" label="Uploads (14d)" value=data.total_uploads numeric=True %}
-  {% include "partials/_stat_card.html" with icon="timer" label="Average Response Time" value=data.avg_response_time %}
-  {% include "partials/_stat_card.html" with icon="hard-drive" label="Storage Used" value=data.total_storage %}
+{# flex-wrap, not a fixed grid-cols-4 - card count varies 4-7 by permission, so a rigid grid leaves a lopsided trailing row. Equal min-width flex items always fill evenly regardless of count. #}
+<div class="mb-4 flex flex-wrap gap-3">
+  <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="message-square" label="Questions (14d)" value=data.total_questions numeric=True %}</div>
+  <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="file-up" label="Uploads (14d)" value=data.total_uploads numeric=True %}</div>
+  <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="timer" label="Average Response Time" value=data.avg_response_time %}</div>
+  <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="hard-drive" label="Storage Used" value=data.total_storage %}</div>
   {% if "pages.ai_tasks" in user_permissions %}
-    {% include "partials/_stat_card.html" with icon="sparkles" label="AI Task Runs (14d)" value=data.total_ai_task_runs numeric=True %}
+    <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="sparkles" label="AI Task Runs (14d)" value=data.total_ai_task_runs numeric=True %}</div>
   {% endif %}
   {% if "pages.knowledge_base" in user_permissions %}
-    {% include "partials/_stat_card.html" with icon="compass" label="Topics" value=data.total_topics numeric=True %}
-    {% include "partials/_stat_card.html" with icon="git-branch" label="Relationships" value=data.total_relationships numeric=True %}
+    <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="compass" label="Topics" value=data.total_topics numeric=True %}</div>
+    <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="git-branch" label="Relationships" value=data.total_relationships numeric=True %}</div>
   {% endif %}
 </div>
 
@@ -61,13 +59,15 @@
     <div class="h-56"><canvas id="storageChart"></canvas></div>
   </div>
 
-  <div class="rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark xl:col-span-2">
+  <div class="rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
     <div class="mb-2 flex items-center justify-between">
       <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Weekday Activity</h2>
       <span class="text-[11px] text-muted dark:text-muted-dark">Questions asked per weekday, last 90 days</span>
     </div>
-    <div class="mx-auto h-64 max-w-md"><canvas id="weekdayChart"></canvas></div>
+    <div class="mx-auto h-56 max-w-xs"><canvas id="weekdayChart"></canvas></div>
   </div>
+
+  {% include "dashboard/_donut_chart.html" %}
 
   {% if "pages.ai_tasks" in user_permissions %}
     <div class="rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
@@ -93,14 +93,14 @@
   </div>
 
   {% if ai_performance.has_data %}
-    <div class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-      {% include "partials/_stat_card.html" with icon="activity" label="Total Requests" value=ai_performance.total_requests numeric=True %}
-      {% include "partials/_stat_card.html" with icon="check-circle-2" label="Success Rate" value=ai_performance.success_rate sublabel="percent" %}
-      {% include "partials/_stat_card.html" with icon="timer" label="Avg Latency" value=ai_performance.avg_latency_ms sublabel="ms" %}
-      {% include "partials/_stat_card.html" with icon="gauge" label="P95 Latency" value=ai_performance.p95_latency_ms sublabel="ms" %}
-      {% include "partials/_stat_card.html" with icon="git-branch" label="Fallback Rate" value=ai_performance.fallback_rate sublabel="percent" %}
+    <div class="mb-4 flex flex-wrap gap-3">
+      <div class="min-w-[150px] flex-1">{% include "partials/_stat_card.html" with icon="activity" label="Total Requests" value=ai_performance.total_requests numeric=True %}</div>
+      <div class="min-w-[150px] flex-1">{% include "partials/_stat_card.html" with icon="check-circle-2" label="Success Rate" value=ai_performance.success_rate sublabel="percent" %}</div>
+      <div class="min-w-[150px] flex-1">{% include "partials/_stat_card.html" with icon="timer" label="Avg Latency" value=ai_performance.avg_latency_ms sublabel="ms" %}</div>
+      <div class="min-w-[150px] flex-1">{% include "partials/_stat_card.html" with icon="gauge" label="P95 Latency" value=ai_performance.p95_latency_ms sublabel="ms" %}</div>
+      <div class="min-w-[150px] flex-1">{% include "partials/_stat_card.html" with icon="git-branch" label="Fallback Rate" value=ai_performance.fallback_rate sublabel="percent" %}</div>
       {% if ai_performance.cache_hit_rate is not None %}
-        {% include "partials/_stat_card.html" with icon="database" label="Cache Hit Rate" value=ai_performance.cache_hit_rate sublabel="percent" %}
+        <div class="min-w-[150px] flex-1">{% include "partials/_stat_card.html" with icon="database" label="Cache Hit Rate" value=ai_performance.cache_hit_rate sublabel="percent" %}</div>
       {% endif %}
     </div>
 
@@ -347,6 +347,22 @@
       scales: { r: { grid: { color: gridColor }, angleLines: { color: gridColor }, beginAtZero: true, ticks: { precision: 0, backdropColor: 'transparent' } } },
     },
   });
+
+  // ---- Document Types: donut (reuses dashboard/_donut_chart.html's own json_script tag) ----
+  const typeCanvas = document.getElementById('documentTypesChart');
+  if (typeCanvas) {
+    const typeData = read('document-types-data');
+    if (typeData && typeData.length) {
+      new Chart(typeCanvas, {
+        type: 'doughnut',
+        data: {
+          labels: typeData.map((item) => item.type),
+          datasets: [{ data: typeData.map((item) => item.count), backgroundColor: typeData.map((item) => item.color), borderWidth: 0 }],
+        },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '72%', plugins: { legend: { display: false } } },
+      });
+    }
+  }
 
   // ---- AI Tasks Activity: bar (only rendered when the section exists) ----
   const aiTasksCanvas = document.getElementById('aiTasksActivityChart');

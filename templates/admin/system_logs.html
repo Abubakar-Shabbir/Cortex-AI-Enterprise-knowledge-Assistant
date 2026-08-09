@@ -344,6 +344,22 @@
   {% if can_view_activity %}
   <div x-show="activeTab === 'activity'" x-cloak>
 
+  <div class="mb-3 grid grid-cols-2 gap-2.5 {% if can_view_activity_location %}sm:grid-cols-4{% else %}sm:grid-cols-2{% endif %}">
+    {% include "partials/_stat_card.html" with label="Total Events" icon="activity" value=act_summary.total_events numeric=True %}
+    {% if can_view_activity_location %}
+      {% include "partials/_stat_card.html" with label="Tracked IPs" icon="globe" value=act_summary.tracked_ips numeric=True %}
+      {% include "partials/_stat_card.html" with label="Countries" icon="map-pin" value=act_summary.countries numeric=True %}
+    {% endif %}
+    {% include "partials/_stat_card.html" with label="Security Alerts" icon="shield-alert" value=act_summary.security_alerts numeric=True %}
+  </div>
+
+  {% if not can_view_activity_location %}
+    <div class="mb-3 flex items-center gap-2 rounded-xl border border-line bg-card px-3.5 py-2.5 text-xs text-muted shadow-soft dark:border-line-dark dark:bg-card-dark dark:text-muted-dark">
+      <i data-lucide="lock" class="h-3.5 w-3.5 shrink-0"></i>
+      IP address and location are hidden - your role doesn't hold the "View IP & location data" permission.
+    </div>
+  {% endif %}
+
   <div class="mb-3 rounded-2xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
     <form method="GET" class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-6">
       <input type="hidden" name="act_page" value="1">
@@ -364,11 +380,19 @@
           class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
       </div>
 
-      <div class="sm:col-span-2">
+      <div>
         <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Description contains</label>
         <input type="text" name="act_q" value="{{ act_filters.q }}" placeholder="e.g. deleted"
           class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
       </div>
+
+      {% if can_view_activity_location %}
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">IP / Location</label>
+        <input type="text" name="act_location" value="{{ act_filters.location }}" placeholder="IP, city, country…"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+      {% endif %}
 
       <div>
         <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">From</label>
@@ -397,12 +421,13 @@
 
     {% if act_page_obj %}
       <div class="overflow-auto">
-        <table class="w-full min-w-[720px] text-left text-sm">
+        <table class="w-full {% if can_view_activity_location %}min-w-[860px]{% else %}min-w-[640px]{% endif %} text-left text-sm">
           <thead class="sticky top-0 z-10 bg-card dark:bg-card-dark">
             <tr class="border-b border-line text-xs font-semibold uppercase tracking-wide text-muted dark:border-line-dark dark:text-muted-dark">
               <th class="px-4 py-2.5">Event</th>
               <th class="px-3 py-2.5">Type</th>
               <th class="px-3 py-2.5">Actor</th>
+              {% if can_view_activity_location %}<th class="px-3 py-2.5">IP / Location</th>{% endif %}
               <th class="px-4 py-2.5 text-right">When</th>
             </tr>
           </thead>
@@ -431,6 +456,24 @@
                   </span>
                 </td>
                 <td class="px-3 py-2 text-muted dark:text-muted-dark">{{ event.actor }}</td>
+                {% if can_view_activity_location %}
+                <td class="px-3 py-2">
+                  {% if event.ip_address %}
+                    <div class="flex flex-col leading-tight">
+                      <span class="font-mono text-xs text-ink dark:text-ink-dark">{{ event.ip_address }}</span>
+                      {% if event.location %}
+                        <span class="flex items-center gap-1 text-xs text-muted dark:text-muted-dark">
+                          <i data-lucide="map-pin" class="h-3 w-3 shrink-0"></i> {{ event.location }}
+                        </span>
+                      {% else %}
+                        <span class="text-xs text-muted dark:text-muted-dark">Location unknown</span>
+                      {% endif %}
+                    </div>
+                  {% else %}
+                    <span class="text-xs text-muted dark:text-muted-dark">—</span>
+                  {% endif %}
+                </td>
+                {% endif %}
                 <td class="px-4 py-2 text-right text-muted dark:text-muted-dark">{{ event.at|timesince }} ago</td>
               </tr>
             {% endfor %}

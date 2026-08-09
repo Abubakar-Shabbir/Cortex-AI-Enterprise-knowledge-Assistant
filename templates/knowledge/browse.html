@@ -4,17 +4,46 @@
 
 {% block content %}
 
-{% include "partials/_page_header.html" with title="Knowledge Center" subtitle="Discover, explore, and navigate the topics connected across everything you can access — not just documents you uploaded yourself." %}
+{% include "partials/_page_header.html" with title="Knowledge Center" subtitle="Your organization's connected knowledge space — explore topics, entities, and relationships discovered across everything you can access." %}
 
 {% include "partials/_kb_tabs.html" with active="browse" %}
 
-<div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
-  {% include "partials/_stat_card.html" with icon="compass" label="Topics" value=overview.total_entities %}
-  {% include "partials/_stat_card.html" with icon="git-branch" label="Relationships" value=overview.total_relationships %}
-  {% include "partials/_stat_card.html" with icon="file-text" label="Connected Documents" value=overview.total_sources %}
+<p class="mb-4 max-w-3xl text-sm text-muted dark:text-muted-dark">
+  As documents are uploaded, AI extracts the people, organizations, and concepts they mention (<span title="A Topic groups the same real-world entity mentioned across multiple documents, even by different uploaders.">Topics</span>) and how those topics relate to each other (<span title="A Relationship is a directed connection between two topics, e.g. 'Company A' — acquired — 'Company B'.">Relationships</span>). Search below, or open the <a href="{% url 'knowledge_graph' %}" class="font-medium text-primary hover:underline dark:text-primary-soft">Graph</a> to see it all connected visually.
+</p>
+
+<div class="mb-4 flex flex-wrap gap-3">
+  <div class="min-w-[190px] flex-1" title="Distinct people, organizations, and concepts found across your accessible documents.">{% include "partials/_stat_card.html" with icon="compass" label="Topics" value=overview.total_entities %}</div>
+  <div class="min-w-[190px] flex-1" title="Directed connections discovered between topics.">{% include "partials/_stat_card.html" with icon="git-branch" label="Relationships" value=overview.total_relationships %}</div>
+  <div class="min-w-[190px] flex-1" title="Documents that contributed at least one topic to your knowledge base.">{% include "partials/_stat_card.html" with icon="file-text" label="Connected Documents" value=overview.total_sources %}</div>
+  <div class="min-w-[190px] flex-1" title="Documents fully processed and searched for topics, out of every document you can access.">{% include "partials/_stat_card.html" with icon="database-zap" label="Indexed Documents" value=overview.indexed_documents sublabel=overview.indexed_documents_label %}</div>
 </div>
 
-<div class="mb-6 rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+{% if insights.recently_updated %}
+  <div class="mb-4 rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <div class="mb-2.5 flex items-center justify-between">
+      <h2 class="flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="sparkles" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Recently Added Knowledge
+      </h2>
+      <a href="{% url 'knowledge_insights' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all insights</a>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      {% for event in insights.recently_updated|slice:":6" %}
+        <span class="inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-1 text-xs text-ink dark:border-line-dark dark:text-ink-dark">
+          <i data-lucide="{% if event.kind == 'mention' %}tag{% else %}git-branch{% endif %}" class="h-3 w-3 text-muted dark:text-muted-dark"></i>
+          {% if event.kind == 'mention' %}
+            {{ event.entity.display_name }}
+          {% else %}
+            {{ event.relationship.source.display_name }} → {{ event.relationship.target.display_name }}
+          {% endif %}
+          <span class="text-muted dark:text-muted-dark">· {{ event.at|timesince }} ago</span>
+        </span>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+<div class="mb-4 rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
   <form method="GET" class="flex flex-wrap items-center gap-3">
     <div class="relative min-w-[220px] flex-1">
       <i data-lucide="search" class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted dark:text-muted-dark"></i>
@@ -41,7 +70,7 @@
     {% for topic in topics_page %}
       <a href="{% url 'entity_detail' topic.id %}" class="group rounded-xl border border-line bg-card p-4 shadow-soft transition-colors hover:border-primary/40 dark:border-line-dark dark:bg-card-dark dark:hover:border-primary-soft/40">
         <div class="flex items-start justify-between gap-2">
-          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style="background-color: {{ topic.color }}22; color: {{ topic.color }}">
             <i data-lucide="compass" class="h-4 w-4"></i>
           </div>
           <span class="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium capitalize text-muted dark:border-line-dark dark:text-muted-dark">{{ topic.entity_type|lower }}</span>

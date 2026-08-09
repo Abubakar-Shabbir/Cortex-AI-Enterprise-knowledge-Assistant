@@ -3,14 +3,15 @@ RoleBasedAccessMiddleware
 
 Defense-in-depth backstop for the entire /admin/ namespace: even if a
 future admin view is added without an @admin_required /
-@permission_required decorator, this still blocks any role holding
-none of the admin-area permissions from anything under /admin/.
-Per-view decorators (RAG/decorators.py) remain the primary,
-fine-grained enforcement (e.g. gating one specific permission); this is
-the coarse net that guarantees the URL prefix itself is never exposed
-to a role with zero admin-area access - see
-RAG.services.permission_service.has_admin_area_access /
-ADMIN_AREA_PERMISSIONS for what counts.
+@permission_required decorator, this still blocks any non-Admin role
+from anything under /admin/. Per-view decorators (RAG/decorators.py)
+remain the primary, fine-grained enforcement (e.g. gating one specific
+permission); this is the coarse net that guarantees the URL prefix
+itself is never exposed to a role other than Admin - strictly
+role-based, not permission-based, so granting an individual
+admin-area permission (e.g. "system.view_health") to a non-Admin role
+can never unlock /admin/ access. See
+RAG.services.permission_service.has_admin_area_access.
 """
 
 from django.shortcuts import redirect, render
@@ -81,6 +82,67 @@ class RoleBasedAccessMiddleware:
                 return render(request, "403.html", status=403)
 
         return self.get_response(request)
+
+
+class RequestActivityMiddleware:
+    """
+    Writes one ActivityLog row per request - every page visit and
+    button click that reaches Django, not just the curated set of
+    business events log_activity() call sites already cover (document
+    deleted, role changed, login, ...). Those specific call sites still
+    win when present: activity_log_service.log_activity() flags the
+    request object (_activity_logged) once it writes its own row, so
+    this middleware only fills in the generic "page.<url_name>" row
+    for requests nothing more specific already logged - one click,
+    one row, not two.
+
+    Placed after AuthenticationMiddleware (needs request.user) and
+    wraps the full get_response() call so request.resolver_match and
+    the response status code are both available by the time it logs.
+    IP/geolocation resolution (RAG.services.geolocation_service) is
+    cached per-IP, so the added cost per request is one cache read for
+    all but a client's first request; the exception is the DB write
+    itself, which happens unconditionally - see the module docstring
+    on ActivityLog for the retention/volume tradeoff this implies.
+    """
+
+    EXCLUDED_PATH_PREFIXES = ("/static/", "/media/", "/health/")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+
+        response = self.get_response(request)
+
+        if request.path.startswith(self.EXCLUDED_PATH_PREFIXES):
+            return response
+
+        if request.method in ("OPTIONS", "HEAD"):
+            return response
+
+        if getattr(request, "_activity_logged", False):
+            return response
+
+        # Imported here, not at module level, for the same reason
+        # RoleBasedAccessMiddleware imports permission_service inline -
+        # this middleware loads before the app registry is ready.
+        from .services.activity_log_service import log_activity
+
+        url_name = request.resolver_match.url_name if request.resolver_match else None
+        action = f"page.{url_name}" if url_name else "page.unmatched"
+
+        actor = request.user if getattr(request, "user", None) and request.user.is_authenticated else None
+        actor_label = actor.username if actor else "anonymous"
+
+        log_activity(
+            actor=actor,
+            action=action[:50],
+            description=f"{actor_label} {request.method} {request.path} → {response.status_code}"[:255],
+            request=request,
+        )
+
+        return response
 
 
 class SystemConfigSyncMiddleware:

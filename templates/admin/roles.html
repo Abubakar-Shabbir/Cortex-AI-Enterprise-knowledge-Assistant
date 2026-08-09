@@ -141,7 +141,14 @@
                           x-model="selected"
                           class="mt-0.5 rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark"
                         >
-                        <span title="{{ permission.description }}">{{ permission.name }}</span>
+                        <span class="flex items-center gap-1.5" title="{{ permission.description }}">
+                          {{ permission.name }}
+                          {% if permission.codename in sensitive_permissions %}
+                            <span class="inline-flex items-center gap-0.5 rounded-full bg-warning/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning dark:text-warning-dark" title="Exposes personally-identifiable data - grant only to explicitly authorized roles.">
+                              <i data-lucide="eye" class="h-2.5 w-2.5"></i> Sensitive
+                            </span>
+                          {% endif %}
+                        </span>
                       </label>
                     {% endfor %}
                   </div>

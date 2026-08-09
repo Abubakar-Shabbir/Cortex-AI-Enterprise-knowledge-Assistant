@@ -89,6 +89,7 @@ class UserAdmin(DjangoUserAdmin):
                         f'{request.user.username} tried to set "{instance.user.username}" to '
                         f'{instance.role.name} via Django Admin - blocked'
                     ),
+                    request=request,
                 )
                 raise PermissionDenied(f'You don\'t have permission to assign "{instance.role.name}" to this user.')
 
@@ -100,6 +101,7 @@ class UserAdmin(DjangoUserAdmin):
                 actor=request.user,
                 action="user.role_changed",
                 description=f'"{instance.user.username}" set to {instance.role.name} by {request.user.username}',
+                request=request,
             )
         formset.save_m2m()
 
@@ -157,6 +159,7 @@ class RoleAdmin(admin.ModelAdmin):
                         f'{request.user.username} tried to grant "{role.name}" permissions beyond their own '
                         f"via Django Admin - blocked"
                     ),
+                    request=request,
                 )
                 role.permissions.set(Permission.objects.filter(codename__in=final))
 
@@ -188,6 +191,7 @@ class UserRoleAdmin(admin.ModelAdmin):
                 actor=request.user,
                 action="security.privilege_escalation_blocked",
                 description=f'{request.user.username} tried to set "{obj.user.username}" to {obj.role.name} via Django Admin - blocked',
+                request=request,
             )
             raise PermissionDenied(f'You don\'t have permission to assign "{obj.role.name}" to this user.')
 
@@ -198,6 +202,7 @@ class UserRoleAdmin(admin.ModelAdmin):
             actor=request.user,
             action="user.role_changed",
             description=f'"{obj.user.username}" set to {obj.role.name} by {request.user.username}',
+            request=request,
         )
 
 

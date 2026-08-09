@@ -25,10 +25,10 @@
     </div>
     <div class="divide-y divide-line dark:divide-line-dark">
       {% for document in insights.most_referenced_documents %}
-        <div class="flex items-center justify-between gap-3 px-5 py-3">
+        <a href="{% url 'document_knowledge' document.id %}" class="flex items-center justify-between gap-3 px-5 py-3 hover:bg-surface dark:hover:bg-white/5">
           <span class="min-w-0 truncate text-sm text-ink dark:text-ink-dark">{{ document.title }}</span>
           <span class="shrink-0 rounded-full border border-line px-2 py-0.5 text-[11px] text-muted dark:border-line-dark dark:text-muted-dark">{{ document.mention_total }} mention{{ document.mention_total|pluralize }}</span>
-        </div>
+        </a>
       {% empty %}
         <p class="px-5 py-6 text-center text-sm text-muted dark:text-muted-dark">Nothing to show yet.</p>
       {% endfor %}

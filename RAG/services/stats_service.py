@@ -6,7 +6,7 @@ from django.db import connection
 from django.db.models import Avg, Count, Sum
 from django.utils import timezone
 
-from ..models import AITaskRun, ChunkEmbedding, Document, DocumentChunk, QueryLog
+from ..models import ActivityLog, AITaskRun, ChunkEmbedding, Document, DocumentChunk, QueryLog
 from ..utils.formatting import format_bytes, format_ms
 from .knowledge_service import get_knowledge_overview, search_topics
 
@@ -43,6 +43,22 @@ def get_recent_activity(user, limit=5):
         "recent_documents": Document.objects.filter(user=user).order_by("-uploaded_at")[:limit],
         "recent_questions": QueryLog.objects.filter(user=user).order_by("-created_at")[:limit],
         "recent_ai_task_runs": AITaskRun.objects.filter(user=user).order_by("-created_at")[:limit],
+    }
+
+
+def get_activity_summary(user):
+    """
+    Real per-user activity totals for the Profile module (self and
+    Admin User Management views) - every number is a live count against
+    that user's own rows, nothing cached or estimated.
+    """
+
+    return {
+        "documents_owned": Document.objects.filter(user=user).count(),
+        "queries_asked": QueryLog.objects.filter(user=user).count(),
+        "ai_task_runs": AITaskRun.objects.filter(user=user).count(),
+        "activity_events": ActivityLog.objects.filter(actor=user).count(),
+        "account_age_days": (timezone.now() - user.date_joined).days,
     }
 
 
@@ -333,6 +349,10 @@ def get_comparison_report_data(user, days=14):
             "previous": formatter(previous),
             "change_pct": change_pct,
             "direction": direction,
+            # Clamped to 100 for the Reports page's delta bar - the bar
+            # visualizes magnitude, not the literal (possibly 4-digit)
+            # percent, which would otherwise overflow its track.
+            "bar_width": min(abs(change_pct), 100),
         }
 
     rows = [
@@ -471,9 +491,11 @@ def get_document_type_breakdown(user):
 
 def get_documents_over_time(user, days=7):
     """
-    Cumulative document count for each of the last `days` days, for
-    the "Documents Over Time" chart - a running total, not daily new
-    uploads, so the line reflects overall workspace growth.
+    Two aligned series for the "Documents Over Time" chart, over the
+    last `days` days: `series` is the cumulative running total
+    (workspace growth, the line) and `daily` is same-day new uploads
+    (the bar overlay) - both derived from one query (`daily_counts`),
+    so plotting both costs nothing extra over the line alone.
     """
 
     today = timezone.localdate()
@@ -488,15 +510,17 @@ def get_documents_over_time(user, days=7):
         ).values_list("uploaded_at", flat=True)
     )
 
-    labels, series = [], []
+    labels, series, daily = [], [], []
 
     for i in range(days):
         day = start_date + timedelta(days=i)
-        running_total += daily_counts.get(day, 0)
+        added = daily_counts.get(day, 0)
+        running_total += added
         labels.append(day.strftime("%b %d"))
         series.append(running_total)
+        daily.append(added)
 
-    return {"labels": labels, "series": series}
+    return {"labels": labels, "series": series, "daily": daily}
 
 
 def _period_change(current, previous):
@@ -574,26 +598,32 @@ def get_kpi_trends(user):
     query_pct, query_dir = _period_change(queries_today, queries_yesterday)
     ai_tasks_pct, ai_tasks_dir = _period_change(ai_tasks_current, ai_tasks_previous)
 
+    documents_sparkline = daily_counts(recent_documents, "uploaded_at")
+    chunks_sparkline = daily_counts(recent_chunks, "created_at")
+    storage_sparkline = daily_sum(recent_documents, "uploaded_at", "file_size")
+    ai_tasks_sparkline = daily_counts(recent_ai_tasks, "created_at")
+    queries_sparkline = daily_counts(recent_logs, "created_at")
+
     return {
         "documents": {
             "change_pct": doc_pct, "direction": doc_dir,
-            "sparkline": daily_counts(recent_documents, "uploaded_at"),
+            "sparkline": documents_sparkline, "has_activity": any(documents_sparkline),
         },
         "chunks": {
             "change_pct": chunk_pct, "direction": chunk_dir,
-            "sparkline": daily_counts(recent_chunks, "created_at"),
+            "sparkline": chunks_sparkline, "has_activity": any(chunks_sparkline),
         },
         "storage": {
             "change_pct": storage_pct, "direction": storage_dir,
-            "sparkline": daily_sum(recent_documents, "uploaded_at", "file_size"),
+            "sparkline": storage_sparkline, "has_activity": any(storage_sparkline),
         },
         "ai_tasks": {
             "change_pct": ai_tasks_pct, "direction": ai_tasks_dir,
-            "sparkline": daily_counts(recent_ai_tasks, "created_at"),
+            "sparkline": ai_tasks_sparkline, "has_activity": any(ai_tasks_sparkline),
         },
         "queries": {
             "change_pct": query_pct, "direction": query_dir,
-            "sparkline": daily_counts(recent_logs, "created_at"),
+            "sparkline": queries_sparkline, "has_activity": any(queries_sparkline),
         },
     }
 

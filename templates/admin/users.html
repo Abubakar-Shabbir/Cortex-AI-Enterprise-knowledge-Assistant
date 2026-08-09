@@ -27,15 +27,19 @@
           {% for member in users_list %}
             <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
               <td class="px-5 py-3">
-                <div class="flex items-center gap-2.5">
-                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                    {{ member.first_name|first|default:member.username|first|upper }}
-                  </div>
+                <a href="{% url 'admin_user_profile' member.id %}" class="flex items-center gap-2.5 group">
+                  {% if member.profile.avatar %}
+                    <img src="{{ member.profile.avatar.url }}" alt="" class="h-8 w-8 shrink-0 rounded-full object-cover">
+                  {% else %}
+                    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                      {{ member.first_name|first|default:member.username|first|upper }}
+                    </div>
+                  {% endif %}
                   <div class="min-w-0">
-                    <p class="truncate font-medium text-ink dark:text-ink-dark">{{ member.get_full_name|default:member.username }}</p>
-                    <p class="truncate text-xs text-muted dark:text-muted-dark">{{ member.email|default:"—" }}</p>
+                    <p class="truncate font-medium text-ink group-hover:text-primary dark:text-ink-dark dark:group-hover:text-primary-soft">{{ member.get_full_name|default:member.username }}</p>
+                    <p class="truncate text-xs text-muted dark:text-muted-dark">{{ member.profile.headline|default:member.email|default:"—" }}</p>
                   </div>
-                </div>
+                </a>
               </td>
               <td class="px-3 py-3">
                 <span
@@ -55,8 +59,7 @@
               </td>
               <td class="px-3 py-3 text-muted dark:text-muted-dark">{{ member.date_joined|date:"M d, Y" }}</td>
               <td class="px-5 py-3 text-right">
-                {% if "users.assign_role" in user_permissions or "users.suspend" in user_permissions or "users.delete" in user_permissions %}
-                  {% comment %}
+                {% comment %}
                   A single trigger per row, one dropdown, one modal
                   (opened from a menu item, not a second row-level
                   button) - deliberately not two separate buttons side
@@ -83,6 +86,17 @@
                       x-transition
                       class="absolute right-0 z-20 mt-2 w-56 max-w-[calc(100vw-2rem)] space-y-0.5 overflow-hidden rounded-xl border border-line bg-card p-1.5 shadow-soft dark:border-line-dark dark:bg-card-dark"
                     >
+                      <a
+                        href="{% url 'admin_user_profile' member.id %}"
+                        class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-ink transition-colors hover:bg-surface dark:text-ink-dark dark:hover:bg-white/5"
+                      >
+                        <i data-lucide="id-card" class="h-4 w-4 shrink-0"></i> View Profile
+                      </a>
+
+                      {% if "users.assign_role" in user_permissions or "users.suspend" in user_permissions or "users.delete" in user_permissions %}
+                        <div class="my-1 border-t border-line dark:border-line-dark"></div>
+                      {% endif %}
+
                       {% if "users.assign_role" in user_permissions %}
                         <button
                           type="button"
@@ -201,7 +215,6 @@
                     {% endif %}
 
                   </div>
-                {% endif %}
               </td>
             </tr>
           {% endfor %}

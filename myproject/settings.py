@@ -96,6 +96,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'RAG.middleware.RoleBasedAccessMiddleware',
     'RAG.middleware.SystemConfigSyncMiddleware',
+    'RAG.middleware.RequestActivityMiddleware',
 ]
 
 ROOT_URLCONF = 'myproject.urls'

@@ -68,16 +68,16 @@ def admin_required(view_func):
 
 def admin_area_required(view_func):
     """
-    Restrict a view to any role holding at least one admin-area
-    permission (see permission_service.has_admin_area_access /
-    ADMIN_AREA_PERMISSIONS) - broader than a single specific
-    permission on purpose. Used for Admin Overview
-    (RAG.views.admin_dashboard_view): the same population that already
-    gets the admin sidebar shell (context_processors.sidebar_status ->
+    Restrict a view to the Admin role (see
+    permission_service.has_admin_area_access - strictly role-based, not
+    gated by any individual permission). Used for Admin Overview
+    (RAG.views.admin_dashboard_view): the same population that gets the
+    admin sidebar shell (context_processors.sidebar_status ->
     can_view_admin_area) must always be able to reach its own Overview
-    page too, not just whichever specific admin page their permission
-    happens to gate - see get_dashboard_url_for_user for the full
-    rationale.
+    page too - see get_dashboard_url_for_user for the full rationale.
+    Equivalent to admin_required in practice; kept as its own decorator
+    so call sites read as "gates the admin area" rather than "gates the
+    Admin role" even though today those are the same check.
     """
 
     @wraps(view_func)

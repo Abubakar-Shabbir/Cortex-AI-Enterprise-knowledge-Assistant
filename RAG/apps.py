@@ -28,6 +28,25 @@ class RagConfig(AppConfig):
         """
 
         post_save.connect(_attach_new_permission_to_admin_role, sender="RAG.Permission")
+        post_save.connect(_create_profile_for_new_user, sender="auth.User")
+
+
+def _create_profile_for_new_user(sender, instance, created, **kwargs):
+    """
+    Guarantees every new account gets a UserProfile row immediately, so
+    request.user.profile never raises RelatedObjectDoesNotExist. Accounts
+    that existed before UserProfile did are backfilled lazily instead -
+    every view that touches a profile calls get_or_create() defensively,
+    the same "idempotent, safe to backfill lazily" approach seed_rbac.py
+    already uses for role assignment.
+    """
+
+    if not created:
+        return
+
+    from .models import UserProfile
+
+    UserProfile.objects.get_or_create(user=instance)
 
 
 def _attach_new_permission_to_admin_role(sender, instance, created, **kwargs):

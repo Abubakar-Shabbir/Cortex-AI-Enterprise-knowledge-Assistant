@@ -634,11 +634,15 @@ class UserRole(models.Model):
 class ActivityLog(models.Model):
     """
     A workspace-wide audit trail entry, written by
-    RAG.services.activity_log_service.log_activity() for events that
-    aren't already captured by an existing model (Document.uploaded_at
-    already records uploads; this covers deletions, suspensions, role
-    changes, and logins). Backs the Activity tab of Admin > System Logs
-    (RAG.views.admin_system_logs_view).
+    RAG.services.activity_log_service.log_activity() - either from a
+    specific call site (document deleted, role changed, login, ...) or
+    generically for every other request by
+    RAG.middleware.RequestActivityMiddleware (action="page.<url_name>"),
+    which only fires when nothing more specific already logged that
+    same click. Backs the Activity tab of Admin > System Logs
+    (RAG.views.admin_system_logs_view). Every row carries the
+    request's IP and geolocation (city/region/country/lat/lon) when a
+    request was in scope - see RAG.services.geolocation_service.
     """
 
     actor = models.ForeignKey(
@@ -658,6 +662,31 @@ class ActivityLog(models.Model):
     description = models.CharField(
         max_length=255
     )
+
+    ip_address = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        help_text="Client IP of the request that triggered this event, via "
+                   "activity_log_service.get_client_ip() - None for system-"
+                   "initiated events with no request in scope.",
+    )
+
+    user_agent = models.TextField(
+        blank=True,
+        default="",
+        help_text="Raw User-Agent header of the triggering request - parsed on "
+                   "read by RAG.services.device_intelligence_service.parse_device() "
+                   "into device type/browser/OS for login history, never parsed "
+                   "at write time so a parser change never needs a backfill.",
+    )
+
+    city = models.CharField(max_length=100, blank=True, default="")
+    region = models.CharField(max_length=100, blank=True, default="")
+    country = models.CharField(max_length=100, blank=True, default="", db_index=True)
+    country_code = models.CharField(max_length=8, blank=True, default="")
+
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
 
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -1103,3 +1132,123 @@ class ErrorGroup(models.Model):
             return "high"
 
         return "medium"
+
+
+class UserProfile(models.Model):
+    """
+    Extended, enterprise-style profile data on top of auth.User - first/
+    last name, username, email, date_joined, and last_login already live
+    on User itself and are read directly rather than duplicated here; Role
+    comes from the existing RBAC UserRole/Role models (see the "RBAC"
+    section above); Account Status is User.is_active.
+
+    Auto-created for every new User by the post_save signal in
+    RAG/apps.py (_create_profile_for_new_user); views also call
+    get_or_create() defensively for accounts that existed before this
+    model did, the same "idempotent, safe to backfill lazily" approach
+    RAG/management/commands/seed_rbac.py already uses for role
+    assignment.
+    """
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="profile",
+    )
+
+    avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
+
+    headline = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        help_text='One-line professional tagline, e.g. "AI Engineer | RAG Systems | Knowledge Intelligence".',
+    )
+
+    phone = models.CharField(max_length=30, blank=True, default="")
+
+    department = models.CharField(max_length=100, blank=True, default="")
+    job_title = models.CharField(max_length=150, blank=True, default="")
+
+    employee_id = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="Informational only - not DB-unique, since nothing else in "
+                   "this project validates or looks up users by it yet.",
+    )
+
+    manager = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="direct_reports",
+    )
+
+    team = models.CharField(max_length=100, blank=True, default="")
+    location = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        help_text="Self-reported office/city location - distinct from the "
+                   "IP-derived login location on ActivityLog.",
+    )
+
+    TIMEZONE_CHOICES_HELP = "IANA name (e.g. 'America/New_York') - free-form so any valid value saves even if the UI's curated <select> list doesn't cover it."
+    timezone = models.CharField(max_length=50, blank=True, default="", help_text=TIMEZONE_CHOICES_HELP)
+
+    # Curated IANA names for the profile form's <select> - not a Django
+    # `choices` constraint (the field itself stays free-form, see the
+    # help text above), just what the dropdown offers.
+    COMMON_TIMEZONES = [
+        "UTC",
+        "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
+        "America/Sao_Paulo", "America/Mexico_City", "America/Toronto",
+        "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Madrid", "Europe/Moscow",
+        "Africa/Cairo", "Africa/Lagos", "Africa/Johannesburg",
+        "Asia/Dubai", "Asia/Karachi", "Asia/Kolkata", "Asia/Dhaka", "Asia/Bangkok",
+        "Asia/Shanghai", "Asia/Tokyo", "Asia/Seoul", "Asia/Singapore",
+        "Australia/Sydney", "Australia/Perth",
+        "Pacific/Auckland",
+    ]
+
+    LANGUAGE_CHOICES = [
+        ("en", "English"),
+        ("es", "Spanish"),
+        ("fr", "French"),
+        ("de", "German"),
+        ("hi", "Hindi"),
+        ("zh", "Chinese"),
+        ("ja", "Japanese"),
+        ("pt", "Portuguese"),
+        ("ar", "Arabic"),
+    ]
+    language = models.CharField(max_length=10, choices=LANGUAGE_CHOICES, blank=True, default="en")
+
+    skills = models.JSONField(default=list, blank=True, help_text="List of plain strings.")
+    certifications = models.JSONField(default=list, blank=True, help_text="List of plain strings.")
+
+    linkedin_url = models.URLField(blank=True, default="")
+    github_url = models.URLField(blank=True, default="")
+    portfolio_url = models.URLField(blank=True, default="")
+
+    class Visibility(models.TextChoices):
+        PUBLIC = "public", "Public"
+        TEAM = "team", "Team"
+        PRIVATE = "private", "Private"
+
+    profile_visibility = models.CharField(
+        max_length=10,
+        choices=Visibility.choices,
+        default=Visibility.PRIVATE,
+        help_text="Stored preference only - there is no peer-facing profile "
+                   "viewing page yet to enforce it against; Admin views "
+                   "always see the full profile regardless (existing RBAC "
+                   "bypass pattern, e.g. Role.has_permission).",
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.username}'s profile"

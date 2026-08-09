@@ -288,6 +288,11 @@
                   <a href="{% url 'document_download' item.doc.id %}?download=1" title="Download" class="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
                     <i data-lucide="download" class="h-4 w-4"></i>
                   </a>
+                  {% if "pages.knowledge_base" in user_permissions %}
+                    <a href="{% url 'document_knowledge' item.doc.id %}" title="Knowledge" class="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+                      <i data-lucide="network" class="h-4 w-4"></i>
+                    </a>
+                  {% endif %}
                   <button type="button" @click="toggleArchive('{% url 'document_archive_toggle' item.doc.id %}')" title="Archive / Unarchive" class="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
                     <i data-lucide="archive" class="h-4 w-4"></i>
                   </button>

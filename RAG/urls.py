@@ -75,8 +75,11 @@ urlpatterns = [
     path("knowledge/entities/<int:entity_id>/", views.entity_detail_view, name="entity_detail"),
     path("knowledge/relationships/", views.relationships_view, name="relationships"),
     path("knowledge/graph/", views.knowledge_graph_view, name="knowledge_graph"),
+    path("knowledge/graph/nodes/<int:entity_id>.json", views.graph_node_detail_json, name="graph_node_detail"),
+    path("knowledge/graph/edge.json", views.graph_edge_detail_json, name="graph_edge_detail"),
     path("knowledge/citations/", views.citation_explorer_view, name="citation_explorer"),
     path("knowledge/insights/", views.knowledge_insights_view, name="knowledge_insights"),
+    path("knowledge/documents/<int:doc_id>/", views.document_knowledge_view, name="document_knowledge"),
 
     path("reports/", views.reports_view, name="reports"),
     path("reports/documents.csv", views.export_documents_report, name="export_documents_report"),
@@ -94,6 +97,7 @@ urlpatterns = [
     # ------------------------------------------------------------
     path("admin/", views.admin_dashboard_view, name="admin_dashboard"),
     path("admin/users/", views.admin_users_view, name="admin_users"),
+    path("admin/users/<int:user_id>/profile/", views.admin_user_profile_view, name="admin_user_profile"),
     path("admin/roles/", views.admin_roles_view, name="admin_roles"),
     path("admin/settings/", views.admin_settings_view, name="admin_settings"),
     path("admin/settings/llm/health-check/", views.llm_provider_health_check, name="llm_provider_health_check"),
