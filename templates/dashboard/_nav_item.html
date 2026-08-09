@@ -5,11 +5,11 @@ comparison, dark palette instead of light. Usage:
 {% endcomment %}
 <a
   href="{% url url_name %}"
-  class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium transition-colors
+  class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium transition-all duration-150 ease-out
     {% if active_nav == url_name %}
-      bg-primary text-white shadow-soft
+      bg-gradient-to-r from-primary to-primary-light text-white shadow-[0_4px_14px_-2px_rgba(166,51,63,0.45)]
     {% else %}
-      text-muted-dark hover:bg-white/5 hover:text-white
+      text-muted-dark hover:bg-primary/10 hover:text-white
     {% endif %}"
 >
   <i data-lucide="{{ icon }}" class="h-4 w-4 shrink-0"></i> {{ label }}

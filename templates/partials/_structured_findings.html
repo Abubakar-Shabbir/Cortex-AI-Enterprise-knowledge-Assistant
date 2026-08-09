@@ -1,0 +1,44 @@
+{% comment %}
+Usage: {% include "partials/_structured_findings.html" with key_points=result.key_points table=result.table %}
+
+Shared "key points" bullet-list + generic comparison-table rendering -
+key_points is the one structured-output shape Ask AI's answer card
+(_ask_ai_result.html) and AI Tasks' result cards (_result_row.html)
+both produce identically (a flat list of strings - see
+llm_service.generate_answer()'s JSON schema and
+ai_tasks_prompts.py's "key_points" fields), so it's rendered once here
+instead of twice. `table` is the newer generic {headers, rows} shape
+only Ask AI's comparison-table answers currently produce; AI Tasks'
+other structured widgets (fields/table/dimensions/sections - their own
+task-specific shapes, see ai_tasks_prompts.py) stay directly in
+_result_row.html rather than being forced through this generic shape.
+{% endcomment %}
+{% if key_points %}
+  <div class="mt-3">
+    <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Key Points</p>
+    <ul class="space-y-1 text-sm text-ink dark:text-ink-dark">
+      {% for point in key_points %}
+        <li class="flex items-start gap-1.5"><i data-lucide="check" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-success dark:text-success-dark"></i> {{ point }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+{% if table.headers and table.rows %}
+  <div class="mt-3 overflow-x-auto rounded-lg border border-line dark:border-line-dark">
+    <table class="w-full min-w-[420px] text-left text-xs">
+      <thead class="bg-surface dark:bg-white/5">
+        <tr>
+          {% for header in table.headers %}<th class="px-3 py-2 font-semibold text-muted dark:text-muted-dark">{{ header }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line dark:divide-line-dark">
+        {% for row in table.rows %}
+          <tr>
+            {% for cell in row %}<td class="px-3 py-2 text-ink dark:text-ink-dark">{{ cell }}</td>{% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}

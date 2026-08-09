@@ -31,8 +31,6 @@ from .llm_client import get_llm
 
 logger = logging.getLogger(__name__)
 
-llm = get_llm()
-
 DEFAULT_ENTITY_TYPE = "MISC"
 DEFAULT_RELATION_TYPE = "RELATED_TO"
 
@@ -68,22 +66,22 @@ Return ONLY valid JSON.
 
 Schema:
 
-{
+{{
   "entities":[
-      {
+      {{
           "name":"",
           "type":""
-      }
+      }}
   ],
 
   "relationships":[
-      {
+      {{
           "source":"",
           "relation":"",
           "target":""
-      }
+      }}
   ]
-}
+}}
 
 Supported entity types:
 
@@ -273,6 +271,11 @@ def extract_graph(text: str) -> GraphExtractionResult:
     )
 
     try:
+
+        # Fetched fresh on every call (not cached at module import) so
+        # a provider/model change saved from Admin > Settings takes
+        # effect immediately - see llm_client.py's module docstring.
+        llm = get_llm()
 
         raw_response = llm.generate(
 

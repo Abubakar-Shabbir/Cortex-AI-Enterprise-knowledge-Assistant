@@ -1,143 +1,73 @@
-{% load static %}<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="Admin dashboard — workspace overview for the Document Intelligence RAG Assistant.">
-<meta name="robots" content="noindex, nofollow">
-<meta name="color-scheme" content="light dark">
-<title>Overview · DocIntelligence Admin Panel</title>
+{% extends "base.html" %}
 
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%238B1E2D'/%3E%3Cg stroke='white' stroke-width='1.6' stroke-linecap='round'%3E%3Cline x1='16' y1='7' x2='8' y2='22'/%3E%3Cline x1='16' y1='7' x2='24' y2='22'/%3E%3Cline x1='8' y1='22' x2='24' y2='22'/%3E%3C/g%3E%3Ccircle cx='16' cy='7' r='3' fill='white'/%3E%3Ccircle cx='8' cy='22' r='3' fill='white'/%3E%3Ccircle cx='24' cy='22' r='3' fill='white'/%3E%3C/svg%3E">
+{% block title %}Overview{% endblock %}
 
-<script>
-  if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-    document.documentElement.classList.add('dark');
-  }
-</script>
-
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-  {# Same design tokens as base.html (see templates/base.html) so this page's                #}
-  {# palette matches the rest of the app even though its layout is self-contained.           #}
-  tailwind.config = {
-    darkMode: 'class',
-    theme: {
-      extend: {
-        fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
-        borderRadius: { xl: '12px', '2xl': '14px' },
-        colors: {
-          primary:  { DEFAULT: '#8B1E2D', dark: '#6D1B27', soft: '#E7C8CC', light: '#A6333F' },
-          ink:      { DEFAULT: '#1F1B1B', dark: '#F1E9E8' },
-          muted:    { DEFAULT: '#6D6665', dark: '#A9989A' },
-          surface:  { DEFAULT: '#FAF8F7', dark: '#14100F' },
-          card:     { DEFAULT: '#FFFFFF', dark: '#1D1615' },
-          line:     { DEFAULT: '#ECE3E2', dark: '#2C2221' },
-          success:  { DEFAULT: '#1F7A4D', dark: '#3EAE78' },
-          warning:  { DEFAULT: '#C77700', dark: '#E0972B' },
-          danger:   { DEFAULT: '#C62828', dark: '#E35B5B' },
-          info:     { DEFAULT: '#2A78D6', dark: '#5B9BE8' },
-          accent:   { DEFAULT: '#4A3AA7', dark: '#7C6BD9' },
-          sidebar:  { DEFAULT: '#14100F', soft: '#1D1615' },
-        },
-        boxShadow: {
-          soft: '0 1px 2px rgba(31,27,27,0.04), 0 6px 20px rgba(31,27,27,0.05)',
-          softer: '0 1px 2px rgba(31,27,27,0.03)',
-        },
-      },
-    },
-  };
-</script>
-
-<script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+{% block extra_head %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+{% endblock %}
 
-<style>
-  [x-cloak] { display: none !important; }
-  * { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-thumb { background: #ECE3E2; border-radius: 8px; }
-  .dark ::-webkit-scrollbar-thumb { background: #2C2221; }
-  html { scrollbar-width: thin; scrollbar-color: #ECE3E2 transparent; }
-  html.dark { scrollbar-color: #2C2221 transparent; }
-  @keyframes fade-in-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-  .fade-in-up { animation: fade-in-up .35s ease-out both; }
-</style>
-</head>
+{% block content %}
 
-<body class="bg-surface dark:bg-surface-dark text-ink dark:text-ink-dark antialiased" x-data="{ sidebarOpen: false }">
+{% include "dashboard/_welcome.html" %}
 
-<div class="min-h-screen flex">
+{% comment %}
+Overview shows only the widgets the viewer's own permissions cover -
+document-related tiles/charts/tables need "pages.documents", the
+queries tile needs "pages.ask_ai". A role with admin-area access but
+neither (e.g. granted only "system.view_health") still gets a real
+Overview: System Status, Activity Feed, and whatever Quick Actions
+apply, just not the document/query widgets it has no other access to.
+{% endcomment %}
+<div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(auto-fit,minmax(200px,1fr))] fade-in-up">
+  {% if "pages.documents" in user_permissions %}
+    {% include "dashboard/_kpi_card.html" with icon="file-text" icon_bg="bg-primary/10" icon_color="text-primary" label="Total Documents" value=stats.total_documents numeric=True trend=kpi_trends.documents trend_label="vs last 7 days" chart_id="kpi-documents" chart_color="#8B1E2D" chart_data=kpi_trends.documents.sparkline %}
+    {% include "dashboard/_kpi_card.html" with icon="box" icon_bg="bg-warning/10" icon_color="text-warning" label="Total Chunks" value=stats.total_chunks numeric=True trend=kpi_trends.chunks trend_label="vs last 7 days" chart_id="kpi-chunks" chart_color="#C77700" chart_data=kpi_trends.chunks.sparkline %}
+    {% include "dashboard/_kpi_card.html" with icon="database" icon_bg="bg-success/10" icon_color="text-success" label="Storage Used" value=stats.storage_used trend=kpi_trends.storage trend_label="vs last 7 days" chart_id="kpi-storage" chart_color="#1F7A4D" chart_data=kpi_trends.storage.sparkline %}
+  {% endif %}
+  {% if "pages.ask_ai" in user_permissions %}
+    {% include "dashboard/_kpi_card.html" with icon="message-square-text" icon_bg="bg-info/10" icon_color="text-info" label="Queries Today" value=stats.today_queries numeric=True trend=kpi_trends.queries trend_label="vs yesterday" chart_id="kpi-queries" chart_color="#2A78D6" chart_data=kpi_trends.queries.sparkline %}
+  {% endif %}
+  {% if "pages.ai_tasks" in user_permissions %}
+    {% include "dashboard/_kpi_card.html" with icon="sparkles" icon_bg="bg-accent/10" icon_color="text-accent" label="AI Task Runs" value=stats.ai_task_runs numeric=True trend=kpi_trends.ai_tasks trend_label="vs last 7 days" chart_id="kpi-ai-tasks" chart_color="#4A3AA7" chart_data=kpi_trends.ai_tasks.sparkline %}
+  {% endif %}
+</div>
 
-  {% include "dashboard/_sidebar.html" %}
+<div class="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
 
-  <div class="flex-1 min-w-0 flex flex-col lg:pl-64">
+  <div class="min-w-0 space-y-3">
 
-    {% include "dashboard/_topbar.html" %}
-
-    <main class="flex-1 px-4 sm:px-6 lg:px-8 py-6 lg:py-8 w-full max-w-[1600px] mx-auto">
-
-      {% if messages %}
-        <div class="mb-6 space-y-2">
-          {% for message in messages %}
-            <div class="rounded-xl border px-4 py-3 text-sm font-medium
-              {% if message.tags == 'success' %} bg-success/10 border-success/20 text-success
-              {% elif message.tags == 'error' %} bg-danger/10 border-danger/20 text-danger
-              {% else %} bg-primary-soft/40 border-primary-soft text-primary {% endif %}">
-              {{ message }}
-            </div>
-          {% endfor %}
-        </div>
-      {% endif %}
-
-      {% include "dashboard/_welcome.html" %}
-
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 fade-in-up">
-        {% include "dashboard/_kpi_card.html" with icon="file-text" icon_bg="bg-primary/10" icon_color="text-primary" label="Total Documents" value=stats.total_documents numeric=True trend=kpi_trends.documents trend_label="vs last 7 days" chart_id="kpi-documents" chart_color="#8B1E2D" chart_data=kpi_trends.documents.sparkline %}
-        {% include "dashboard/_kpi_card.html" with icon="box" icon_bg="bg-warning/10" icon_color="text-warning" label="Total Chunks" value=stats.total_chunks numeric=True trend=kpi_trends.chunks trend_label="vs last 7 days" chart_id="kpi-chunks" chart_color="#C77700" chart_data=kpi_trends.chunks.sparkline %}
-        {% include "dashboard/_kpi_card.html" with icon="database" icon_bg="bg-success/10" icon_color="text-success" label="Storage Used" value=stats.storage_used trend=kpi_trends.storage trend_label="vs last 7 days" chart_id="kpi-storage" chart_color="#1F7A4D" chart_data=kpi_trends.storage.sparkline %}
-        {% include "dashboard/_kpi_card.html" with icon="message-square-text" icon_bg="bg-info/10" icon_color="text-info" label="Queries Today" value=stats.today_queries numeric=True trend=kpi_trends.queries trend_label="vs yesterday" chart_id="kpi-queries" chart_color="#2A78D6" chart_data=kpi_trends.queries.sparkline %}
+    {% if "pages.documents" in user_permissions %}
+      <div class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(240px,340px)]">
+        {% include "dashboard/_main_chart.html" %}
+        {% include "dashboard/_donut_chart.html" %}
       </div>
 
-      <div class="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[1fr_360px]">
+      {% include "dashboard/_recent_documents_table.html" %}
+    {% endif %}
 
-        <div class="min-w-0 space-y-5">
+    {% include "dashboard/_quick_actions.html" %}
 
-          <div class="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_380px]">
-            {% include "dashboard/_main_chart.html" %}
-            {% include "dashboard/_donut_chart.html" %}
-          </div>
+  </div>
 
-          {% include "dashboard/_recent_documents_table.html" %}
-
-          {% include "dashboard/_quick_actions.html" %}
-
-        </div>
-
-        <div class="space-y-5">
-          {% include "dashboard/_system_status.html" %}
-          {% include "dashboard/_recent_uploads.html" %}
-          {% include "dashboard/_activity_feed.html" %}
-        </div>
-
-      </div>
-
-    </main>
-
+  <div class="space-y-3">
+    {% include "dashboard/_system_status.html" %}
+    {% if "pages.knowledge_base" in user_permissions %}
+      {% include "dashboard/_knowledge_snapshot.html" %}
+    {% endif %}
+    {% if "pages.documents" in user_permissions %}
+      {% include "dashboard/_recent_uploads.html" %}
+    {% endif %}
+    {% if "pages.ai_tasks" in user_permissions %}
+      {% include "dashboard/_recent_ai_task_runs.html" %}
+    {% endif %}
+    {% include "dashboard/_activity_feed.html" %}
   </div>
 
 </div>
 
-<script>
-  document.addEventListener('DOMContentLoaded', () => lucide.createIcons());
-  document.addEventListener('alpine:initialized', () => lucide.createIcons());
-</script>
+{% endblock %}
 
+{% block extra_scripts %}
 <script>
 (function () {
   const read = (id) => {
@@ -216,6 +146,7 @@
     { id: 'kpi-chunks', color: '#C77700' },
     { id: 'kpi-storage', color: '#1F7A4D' },
     { id: 'kpi-queries', color: '#2A78D6' },
+    { id: 'kpi-ai-tasks', color: '#4A3AA7' },
   ];
 
   sparklines.forEach(({ id, color }) => {
@@ -275,6 +206,4 @@
   }
 })();
 </script>
-
-</body>
-</html>
+{% endblock %}

@@ -3,14 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="Enterprise Knowledge Assistant — upload documents and get AI-powered answers grounded in their content.">
+<meta name="description" content="DocIntelligence — upload documents and get AI-powered answers grounded in their content.">
 <meta name="robots" content="noindex, nofollow">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#FAF8F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#14100F" media="(prefers-color-scheme: dark)">
-<title>{% block title %}Dashboard{% endblock %} · Enterprise Knowledge Assistant</title>
+<title>{% block title %}Dashboard{% endblock %} · DocIntelligence</title>
 
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%238B1E2D'/%3E%3Cg stroke='white' stroke-width='1.6' stroke-linecap='round'%3E%3Cline x1='16' y1='7' x2='8' y2='22'/%3E%3Cline x1='16' y1='7' x2='24' y2='22'/%3E%3Cline x1='8' y1='22' x2='24' y2='22'/%3E%3C/g%3E%3Ccircle cx='16' cy='7' r='3' fill='white'/%3E%3Ccircle cx='8' cy='22' r='3' fill='white'/%3E%3Ccircle cx='24' cy='22' r='3' fill='white'/%3E%3C/svg%3E">
+
+{% comment %}
+Opts every full-page navigation on this origin into the browser's
+native View Transitions API (Chrome/Edge 126+; a silent, harmless
+no-op elsewhere) - a subtle cross-fade between pages with zero JS and
+no SPA rewrite, since this app is a classic server-rendered MPA. See
+the ::view-transition-* rule in the <style> block below for the actual
+animation.
+{% endcomment %}
+<meta name="view-transition" content="same-origin">
 
 <script>
   if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -45,6 +55,13 @@
           success: { DEFAULT: '#1F7A4D', dark: '#3EAE78' },
           warning: { DEFAULT: '#C77700', dark: '#E0972B' },
           danger:  { DEFAULT: '#C62828', dark: '#E35B5B' },
+          info:    { DEFAULT: '#2A78D6', dark: '#5B9BE8' },
+          accent:  { DEFAULT: '#4A3AA7', dark: '#7C6BD9' },
+          // Sidebar - a deep "wine noir" tone tinted toward primary's own
+          // hue (not a neutral gray/black) so the always-dark sidebar
+          // reads as an intentional extension of the brand rather than a
+          // generic admin-panel dark mode.
+          sidebar: { DEFAULT: '#1B0F14', soft: '#26141B', deep: '#120A0D' },
         },
         boxShadow: {
           soft: '0 1px 2px rgba(31,27,27,0.04), 0 6px 20px rgba(31,27,27,0.05)',
@@ -67,6 +84,30 @@
   html { scrollbar-width: thin; scrollbar-color: #ECE3E2 transparent; }
   html.dark { scrollbar-color: #2C2221 transparent; }
   .skip-link:focus { clip: auto; width: auto; height: auto; overflow: visible; }
+
+  /* Subtle cross-document page transition (see the view-transition meta tag above). */
+  @media (prefers-reduced-motion: no-preference) {
+    ::view-transition-old(root) { animation: fade-out-page 0.15s ease-in both; }
+    ::view-transition-new(root) { animation: fade-in-page 0.18s ease-out both; }
+  }
+  @keyframes fade-in-page { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fade-out-page { from { opacity: 1; } to { opacity: 0; } }
+
+  /* Shared entrance animation for cards/widgets loading on a page - see .fade-in-up usage in content templates. */
+  @keyframes fade-in-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .fade-in-up { animation: fade-in-up .35s ease-out both; }
+
+  /* Skeleton loading shimmer - see partials/_skeleton.html. */
+  @keyframes skeleton-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+  .skeleton {
+    background: linear-gradient(90deg, rgba(109,102,101,0.08) 25%, rgba(109,102,101,0.16) 37%, rgba(109,102,101,0.08) 63%);
+    background-size: 400% 100%;
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  }
+  .dark .skeleton {
+    background: linear-gradient(90deg, rgba(255,255,255,0.06) 25%, rgba(255,255,255,0.12) 37%, rgba(255,255,255,0.06) 63%);
+    background-size: 400% 100%;
+  }
 </style>
 
 {% block extra_head %}{% endblock %}
@@ -79,22 +120,22 @@
 
 <div class="min-h-screen flex">
 
-  {% if is_admin %}
-    {% include "dashboard/_sidebar.html" %}
-  {% else %}
-    {% include "partials/sidebar.html" %}
-  {% endif %}
+  {% comment %}
+  ONE sidebar, ONE topbar, unconditionally, for every authenticated
+  page - see templates/dashboard/_sidebar.html's own comment for why
+  there's no second variant to branch to. Which *items* render inside
+  them is permission-driven (user_permissions); the shell component
+  and its layout never change, so navigating never causes the visible
+  "the whole page redesigned itself" jump a shell switch would cause.
+  {% endcomment %}
+  {% include "dashboard/_sidebar.html" %}
   {% if request.user.is_authenticated %}{% include "partials/_command_palette.html" %}{% endif %}
 
   <div class="flex-1 min-w-0 flex flex-col lg:pl-64">
 
-    {% if is_admin %}
-      {% include "dashboard/_topbar.html" %}
-    {% else %}
-      {% include "partials/topbar.html" %}
-    {% endif %}
+    {% include "dashboard/_topbar.html" %}
 
-    <main class="flex-1 px-4 sm:px-6 lg:px-8 py-6 lg:py-8 w-full max-w-[1500px] mx-auto">
+    <main class="flex-1 px-4 sm:px-6 lg:px-8 py-6 lg:py-8 w-full max-w-[1600px] mx-auto">
 
       {% if messages %}
         <div class="mb-6 space-y-2">

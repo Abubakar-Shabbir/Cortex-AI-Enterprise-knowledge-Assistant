@@ -14,7 +14,21 @@
       "Bash(DB_NAME=x DB_USER=x DB_PASSWORD=x DB_HOST=x DB_PORT=5432 SECRET_KEY=x OPENROUTER_API_KEY=test HF_HUB_OFFLINE=1 python manage.py makemigrations RAG)",
       "Bash(DB_NAME=x DB_USER=x DB_PASSWORD=x DB_HOST=x DB_PORT=5432 SECRET_KEY=x OPENROUTER_API_KEY=test HF_HUB_OFFLINE=1 python -c ' *)",
       "Bash(DB_NAME=x DB_USER=x DB_PASSWORD=x DB_HOST=x DB_PORT=5432 SECRET_KEY=x OPENROUTER_API_KEY=test HF_HUB_OFFLINE=1 python manage.py check)",
-      "Bash(DB_NAME=x DB_USER=x DB_PASSWORD=x DB_HOST=x DB_PORT=5432 SECRET_KEY=x OPENROUTER_API_KEY=test HF_HUB_OFFLINE=1 python manage.py makemigrations RAG --check --dry-run)"
+      "Bash(DB_NAME=x DB_USER=x DB_PASSWORD=x DB_HOST=x DB_PORT=5432 SECRET_KEY=x OPENROUTER_API_KEY=test HF_HUB_OFFLINE=1 python manage.py makemigrations RAG --check --dry-run)",
+      "Bash(python manage.py makemigrations RAG --check --dry-run)",
+      "Bash(python manage.py check)",
+      "Bash(python manage.py makemigrations RAG)",
+      "Bash(python manage.py migrate RAG)",
+      "Bash(python manage.py seed_rbac)",
+      "Bash(python manage.py shell -c ' *)",
+      "Bash(python manage.py shell -c \"exec\\(open\\(r'C:\\\\Users\\\\LAPTOPEXPERT\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\F--RAG-Project-Document-Intelligence-RAG-Assistant\\\\983d3d63-fdd3-453d-b955-6fd1fd8fbea5\\\\scratchpad\\\\verify_dynamic_rbac.py'\\).read\\(\\)\\)\")",
+      "Bash(python manage.py shell -c \"exec\\(open\\(r'C:\\\\Users\\\\LAPTOPEXPERT\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\F--RAG-Project-Document-Intelligence-RAG-Assistant\\\\983d3d63-fdd3-453d-b955-6fd1fd8fbea5\\\\scratchpad\\\\verify_escalation.py'\\).read\\(\\)\\)\")",
+      "Bash(rm -f \"C:\\\\Users\\\\LAPTOPEXPERT\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\F--RAG-Project-Document-Intelligence-RAG-Assistant\\\\983d3d63-fdd3-453d-b955-6fd1fd8fbea5\\\\scratchpad\\\\verify_ask_ai.py\")",
+      "Bash(git stash *)",
+      "Bash(python manage.py shell -c \"exec\\(open\\(r'C:/Users/LAPTOPEXPERT/AppData/Local/Temp/claude/F--RAG-Project-Document-Intelligence-RAG-Assistant/983d3d63-fdd3-453d-b955-6fd1fd8fbea5/scratchpad/verify_cross_tenant_fix.py'\\).read\\(\\)\\)\")",
+      "Bash(python manage.py shell -c \"exec\\(open\\(r'C:/Users/LAPTOPEXPERT/AppData/Local/Temp/claude/F--RAG-Project-Document-Intelligence-RAG-Assistant/983d3d63-fdd3-453d-b955-6fd1fd8fbea5/scratchpad/verify_queries_page.py'\\).read\\(\\)\\)\")",
+      "Bash(python manage.py shell -c \"exec\\(open\\(r'C:/Users/LAPTOPEXPERT/AppData/Local/Temp/claude/F--RAG-Project-Document-Intelligence-RAG-Assistant/983d3d63-fdd3-453d-b955-6fd1fd8fbea5/scratchpad/verify_django_admin_lockdown.py'\\).read\\(\\)\\)\")",
+      "Bash(python manage.py shell -c \"exec\\(open\\(r'C:/Users/LAPTOPEXPERT/AppData/Local/Temp/claude/F--RAG-Project-Document-Intelligence-RAG-Assistant/983d3d63-fdd3-453d-b955-6fd1fd8fbea5/scratchpad/verify_scope_filter.py'\\).read\\(\\)\\)\")"
     ]
   }
 }

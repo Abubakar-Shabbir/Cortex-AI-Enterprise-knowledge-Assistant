@@ -4,7 +4,7 @@
 
 {% block content %}
 
-{% include "partials/_page_header.html" with title="Knowledge Graph" subtitle="A visual map of how the entities in your documents connect to each other." %}
+{% include "partials/_page_header.html" with title="Knowledge Graph" subtitle="A visual map of how topics connect across everything you can access — click a node to explore it." %}
 
 {% include "partials/_kb_tabs.html" with active="graph" %}
 
@@ -51,7 +51,7 @@
 
   const container = document.getElementById('knowledgeGraph');
 
-  new vis.Network(container, { nodes, edges }, {
+  const network = new vis.Network(container, { nodes, edges }, {
     nodes: {
       shape: 'dot',
       scaling: { min: 10, max: 34 },
@@ -61,6 +61,16 @@
     edges: { smooth: { type: 'continuous' }, width: 1.5 },
     physics: { stabilization: { iterations: 120 }, barnesHut: { gravitationalConstant: -6000, springLength: 140 } },
     interaction: { hover: true, tooltipDelay: 150 },
+  });
+
+  // Every node is clickable - navigates to that topic's detail page.
+  // A sentinel id (rather than a real one) keeps the URL Django-built
+  // so the route itself never drifts out of sync with urls.py.
+  const topicUrlTemplate = '{% url "entity_detail" 999999999 %}';
+  network.on('click', (params) => {
+    if (params.nodes.length) {
+      window.location.href = topicUrlTemplate.replace('999999999', params.nodes[0]);
+    }
   });
 })();
 </script>

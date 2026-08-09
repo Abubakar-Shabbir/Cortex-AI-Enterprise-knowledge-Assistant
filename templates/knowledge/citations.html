@@ -4,7 +4,7 @@
 
 {% block content %}
 
-{% include "partials/_page_header.html" with title="Citation Explorer" subtitle="Every source your AI answers have actually cited, most recent first." %}
+{% include "partials/_page_header.html" with title="Citation Viewer" subtitle="Every source your AI Search answers have actually cited, most recent first." %}
 
 {% include "partials/_kb_tabs.html" with active="citations" %}
 
@@ -25,7 +25,14 @@
             <td class="max-w-[320px] px-5 py-3.5">
               <p class="truncate font-medium text-ink dark:text-ink-dark" title="{{ citation.question }}">{{ citation.question }}</p>
             </td>
-            <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ citation.document }} · chunk {{ citation.chunk_number }}</td>
+            <td class="px-5 py-3.5 text-muted dark:text-muted-dark">
+              {{ citation.document }} · chunk {{ citation.chunk_number }}
+              {% if citation.topic_id %}
+                <a href="{% url 'entity_detail' citation.topic_id %}" class="ml-1.5 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline dark:text-primary-soft">
+                  <i data-lucide="compass" class="h-3 w-3"></i> View topic
+                </a>
+              {% endif %}
+            </td>
             <td class="px-5 py-3.5">
               <span class="inline-flex items-center gap-1 rounded-full bg-primary-soft/40 px-2.5 py-1 text-xs font-medium text-primary dark:bg-primary/15 dark:text-primary-soft">
                 <i data-lucide="quote" class="h-3 w-3"></i> [{{ citation.citation_number }}]

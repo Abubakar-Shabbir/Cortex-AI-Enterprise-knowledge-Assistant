@@ -1,16 +1,19 @@
 {% comment %}
 Usage: {% include "partials/_kb_tabs.html" with active="browse" %}
-active: browse | relationships | graph | citations
+active: browse | relationships | graph | insights | citations
 {% endcomment %}
 <div class="mb-6 flex gap-1 overflow-x-auto border-b border-line dark:border-line-dark">
   <a href="{% url 'knowledge_base' %}" class="shrink-0 border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors {% if active == 'browse' %}border-primary text-primary dark:border-primary-soft dark:text-primary-soft{% else %}border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark{% endif %}">
-    <span class="flex items-center gap-1.5"><i data-lucide="compass" class="h-3.5 w-3.5"></i> Browse</span>
+    <span class="flex items-center gap-1.5"><i data-lucide="compass" class="h-3.5 w-3.5"></i> Explore Topics</span>
   </a>
   <a href="{% url 'relationships' %}" class="shrink-0 border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors {% if active == 'relationships' %}border-primary text-primary dark:border-primary-soft dark:text-primary-soft{% else %}border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark{% endif %}">
     <span class="flex items-center gap-1.5"><i data-lucide="git-branch" class="h-3.5 w-3.5"></i> Relationships</span>
   </a>
   <a href="{% url 'knowledge_graph' %}" class="shrink-0 border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors {% if active == 'graph' %}border-primary text-primary dark:border-primary-soft dark:text-primary-soft{% else %}border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark{% endif %}">
     <span class="flex items-center gap-1.5"><i data-lucide="share-2" class="h-3.5 w-3.5"></i> Graph</span>
+  </a>
+  <a href="{% url 'knowledge_insights' %}" class="shrink-0 border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors {% if active == 'insights' %}border-primary text-primary dark:border-primary-soft dark:text-primary-soft{% else %}border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark{% endif %}">
+    <span class="flex items-center gap-1.5"><i data-lucide="lightbulb" class="h-3.5 w-3.5"></i> Insights</span>
   </a>
   <a href="{% url 'citation_explorer' %}" class="shrink-0 border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors {% if active == 'citations' %}border-primary text-primary dark:border-primary-soft dark:text-primary-soft{% else %}border-transparent text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark{% endif %}">
     <span class="flex items-center gap-1.5"><i data-lucide="quote" class="h-3.5 w-3.5"></i> Citations</span>

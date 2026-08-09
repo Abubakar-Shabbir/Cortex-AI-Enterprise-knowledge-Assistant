@@ -3,6 +3,7 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.test import TestCase, override_settings
 
 from .models import Document, DocumentChunk, Entity, EntityMention, Relationship
@@ -590,7 +591,7 @@ class MultiQuerySearchTests(unittest.TestCase):
 
         call_count = {"n": 0}
 
-        def flaky_vector_search(variant, top_k=None, filters=None):
+        def flaky_vector_search(variant, top_k=None, filters=None, user=None):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise RuntimeError("transient failure")
@@ -617,17 +618,22 @@ class RetrievalFiltersTests(unittest.TestCase):
     """
 
     def test_from_request_parses_valid_document_id(self):
-        filters = RetrievalFilters.from_request(document_id="5")
+        filters = RetrievalFilters.from_request(document_ids=["5"])
         self.assertEqual(filters.document_ids, (5,))
         self.assertFalse(filters.is_empty())
 
+    def test_from_request_parses_multiple_document_ids(self):
+        filters = RetrievalFilters.from_request(document_ids=["5", "6"])
+        self.assertEqual(filters.document_ids, (5, 6))
+        self.assertFalse(filters.is_empty())
+
     def test_from_request_ignores_invalid_document_id(self):
-        filters = RetrievalFilters.from_request(document_id="not-an-int")
+        filters = RetrievalFilters.from_request(document_ids=["not-an-int"])
         self.assertIsNone(filters.document_ids)
         self.assertTrue(filters.is_empty())
 
-    def test_from_request_blank_document_id_is_no_filter(self):
-        filters = RetrievalFilters.from_request(document_id="")
+    def test_from_request_blank_document_ids_is_no_filter(self):
+        filters = RetrievalFilters.from_request(document_ids=[])
         self.assertTrue(filters.is_empty())
 
     def test_apply_document_filters_is_noop_for_none(self):
@@ -933,6 +939,16 @@ class RetrieveChunksOrchestrationTests(unittest.TestCase):
     """
 
     def setUp(self):
+        # retrieve_chunks() caches its result per (question, user,
+        # filters, top_k) - see retrieval_service.py -
+        # process-wide/module-level, not per-test-isolated the way the
+        # DB is for a django.test.TestCase. Several tests below reuse
+        # the exact same "Who is the CEO?" question with no explicit
+        # top_k, so without clearing here, whichever test happens to
+        # run first "wins" and every later one silently gets its
+        # mocked result back instead of exercising its own mocks.
+        cache.clear()
+
         self.vector_result = [{"content": "v", "document": "D1", "chunk_number": 0, "score": 0.1, "search_type": "vector"}]
         self.bm25_result = [{"content": "b", "document": "D1", "chunk_number": 1, "score": 2.0, "search_type": "bm25"}]
         self.hyde_result = [{"content": "h", "document": "D2", "chunk_number": 0, "score": 0.2, "search_type": "hyde"}]
@@ -1045,7 +1061,7 @@ class AnswerQuestionCompressionTests(unittest.TestCase):
 
     def test_compression_disabled_by_default_skips_compress_context(self):
         with patch.object(query_service, "retrieve_chunks", return_value=self.chunks), \
-             patch.object(query_service, "generate_answer", return_value="the answer") as m_answer, \
+             patch.object(query_service, "generate_answer", return_value=("the answer", {})) as m_answer, \
              patch.object(query_service, "compress_context") as m_compress:
 
             result = query_service.answer_question("Who is the CEO?")
@@ -1061,7 +1077,7 @@ class AnswerQuestionCompressionTests(unittest.TestCase):
         compressed = [self.chunks[0]]
 
         with patch.object(query_service, "retrieve_chunks", return_value=self.chunks), \
-             patch.object(query_service, "generate_answer", return_value="the answer") as m_answer, \
+             patch.object(query_service, "generate_answer", return_value=("the answer", {})) as m_answer, \
              patch.object(query_service, "compress_context", return_value=compressed) as m_compress:
 
             result = query_service.answer_question("Who is the CEO?")
@@ -1090,7 +1106,7 @@ class AnswerQuestionCitationTests(unittest.TestCase):
 
     def test_cited_answer_populates_citations_and_marks_sources(self):
         with patch.object(query_service, "retrieve_chunks", return_value=self.chunks), \
-             patch.object(query_service, "generate_answer", return_value="Revenue grew 20% [1]."):
+             patch.object(query_service, "generate_answer", return_value=("Revenue grew 20% [1].", {})):
 
             result = query_service.answer_question("How did revenue change?")
 
@@ -1101,12 +1117,12 @@ class AnswerQuestionCitationTests(unittest.TestCase):
 
     def test_uncited_answer_discounts_confidence_relative_to_cited(self):
         with patch.object(query_service, "retrieve_chunks", return_value=self.chunks), \
-             patch.object(query_service, "generate_answer", return_value="Revenue grew 20% [1]."):
+             patch.object(query_service, "generate_answer", return_value=("Revenue grew 20% [1].", {})):
 
             cited_result = query_service.answer_question("How did revenue change?")
 
         with patch.object(query_service, "retrieve_chunks", return_value=self.chunks), \
-             patch.object(query_service, "generate_answer", return_value="Revenue grew, apparently."):
+             patch.object(query_service, "generate_answer", return_value=("Revenue grew, apparently.", {})):
 
             uncited_result = query_service.answer_question("How did revenue change?")
 
@@ -1116,7 +1132,7 @@ class AnswerQuestionCitationTests(unittest.TestCase):
     def test_not_found_answer_yields_zero_confidence_and_no_citations(self):
         with patch.object(query_service, "retrieve_chunks", return_value=self.chunks), \
              patch.object(
-                 query_service, "generate_answer", return_value=prompt_templates.NOT_FOUND_ANSWER
+                 query_service, "generate_answer", return_value=(prompt_templates.NOT_FOUND_ANSWER, {})
              ):
 
             result = query_service.answer_question("What is the capital of Mars?")
@@ -1127,10 +1143,23 @@ class AnswerQuestionCitationTests(unittest.TestCase):
 
 class HealthServiceTests(unittest.TestCase):
     """
-    get_health_status() - get_system_status() and the Redis ping are
-    both mocked, so this runs offline regardless of whether a real
-    database or Redis is reachable.
+    get_health_status() - get_system_status(), the Redis ping, and the
+    LLM provider health checks are all mocked, so this runs offline
+    regardless of whether a real database/Redis/LLM provider is
+    reachable.
     """
+
+    def setUp(self):
+        # Every test in this class exercises DB/Redis/Celery logic,
+        # not LLM provider logic - default to "nothing configured" (an
+        # empty dict short-circuits get_health_status()'s `if
+        # llm_providers:` check) so these stay offline and each test's
+        # pre-existing assertions are unaffected. See
+        # LlmProviderHealthCheckTests below for coverage of this
+        # check's own behavior.
+        patcher = patch.object(health_service, "_check_llm_providers", return_value={})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _system_status(self, db_online=True, pgvector_enabled=True, embeddings_complete=True):
         return {
@@ -1201,6 +1230,105 @@ class HealthServiceTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "degraded")
         self.assertFalse(result["checks"]["database"])
+
+
+class LlmProviderHealthCheckTests(unittest.TestCase):
+    """
+    _check_llm_providers() and its fold-in to get_health_status()'s
+    overall verdict - added alongside the performance/infra audit's
+    ask_ai_stream/check_infra work ("all configured LLM providers
+    before the application is considered healthy"). get_llm() and
+    _is_configured() are both mocked, so this never makes a real
+    provider network call.
+    """
+
+    def _system_status(self):
+        return {"db_online": True, "pgvector_enabled": True, "embeddings_complete": True}
+
+    def test_no_providers_configured_returns_empty_dict(self):
+        with patch.object(health_service, "_is_configured", return_value=False):
+            self.assertEqual(health_service._check_llm_providers(), {})
+
+    def test_checks_only_configured_providers(self):
+        mock_llm = MagicMock()
+        mock_llm.health_check.side_effect = lambda provider: {"ok": provider == "openrouter", "latency_ms": 42, "message": "Connected"}
+
+        with patch.object(health_service, "_is_configured", side_effect=lambda p: p in ("openrouter", "gemini")), \
+             patch.object(health_service, "get_llm", return_value=mock_llm):
+
+            result = health_service._check_llm_providers()
+
+        self.assertEqual(result["openrouter"]["ok"], True)
+        self.assertEqual(result["gemini"]["ok"], False)
+        self.assertNotIn("groq", result)
+
+    def test_provider_check_exception_reports_false_not_raise(self):
+        mock_llm = MagicMock()
+        mock_llm.health_check.side_effect = RuntimeError("boom")
+
+        with patch.object(health_service, "_is_configured", return_value=True), \
+             patch.object(health_service, "get_llm", return_value=mock_llm):
+
+            result = health_service._check_llm_providers()
+
+        self.assertTrue(result)
+        self.assertTrue(all(entry["ok"] is False for entry in result.values()))
+
+    def test_no_configured_providers_does_not_block_overall_health(self):
+        with patch.object(health_service, "get_system_status", return_value=self._system_status()), \
+             patch.object(health_service, "_check_redis", return_value=False), \
+             patch.object(health_service, "_check_llm_providers", return_value={}):
+
+            result = health_service.get_health_status()
+
+        self.assertEqual(result["status"], "ok")
+
+    def test_at_least_one_healthy_provider_required_when_any_configured(self):
+        # live_llm_check=True exercises _check_llm_providers() (mocked
+        # below) - the default False path calls
+        # _recent_llm_provider_status() instead (usage-derived, see
+        # its own tests), but the "at least one must be healthy"
+        # aggregation logic in get_health_status() is shared by both,
+        # so testing it through either call is equally valid.
+        with patch.object(health_service, "get_system_status", return_value=self._system_status()), \
+             patch.object(health_service, "_check_redis", return_value=False), \
+             patch.object(health_service, "_check_llm_providers", return_value={
+                 "openrouter": {"ok": False, "latency_ms": None, "message": "down"},
+                 "gemini": {"ok": False, "latency_ms": None, "message": "down"},
+             }):
+
+            result = health_service.get_health_status(live_llm_check=True)
+
+        self.assertEqual(result["status"], "degraded")
+
+    def test_one_healthy_provider_among_several_keeps_overall_status_ok(self):
+        healthy_providers = {
+            "openrouter": {"ok": True, "latency_ms": 120, "message": "Connected"},
+            "gemini": {"ok": False, "latency_ms": None, "message": "down"},
+        }
+
+        with patch.object(health_service, "get_system_status", return_value=self._system_status()), \
+             patch.object(health_service, "_check_redis", return_value=False), \
+             patch.object(health_service, "_check_llm_providers", return_value=healthy_providers):
+
+            result = health_service.get_health_status(live_llm_check=True)
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["checks"]["llm_providers"], healthy_providers)
+
+    def test_recent_provider_status_null_ok_does_not_block_overall_health(self):
+        """A configured provider with zero recent traffic (ok=None) must not, by itself, drag the overall verdict to "degraded" - "no data" isn't "bad data". This is the default (live_llm_check=False) path."""
+
+        with patch.object(health_service, "get_system_status", return_value=self._system_status()), \
+             patch.object(health_service, "_check_redis", return_value=False), \
+             patch.object(health_service, "_recent_llm_provider_status", return_value={
+                 "openrouter": {"ok": None, "latency_ms": None, "message": "No requests in the last 15 minutes - use Check Now for a live check."},
+             }):
+
+            result = health_service.get_health_status()
+
+        self.assertEqual(result["status"], "ok")
+        self.assertFalse(result["live_llm_check"])
 
 
 class UploadDocumentAsyncDispatchTests(unittest.TestCase):

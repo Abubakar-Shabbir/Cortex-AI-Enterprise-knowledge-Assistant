@@ -1,219 +1,125 @@
-{% load static %}<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="Your workspace — documents, questions, and answers.">
-<meta name="robots" content="noindex, nofollow">
-<meta name="color-scheme" content="light dark">
-<title>Dashboard · DocIntelligence</title>
+{% extends "base.html" %}
 
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%238B1E2D'/%3E%3Cg stroke='white' stroke-width='1.6' stroke-linecap='round'%3E%3Cline x1='16' y1='7' x2='8' y2='22'/%3E%3Cline x1='16' y1='7' x2='24' y2='22'/%3E%3Cline x1='8' y1='22' x2='24' y2='22'/%3E%3C/g%3E%3Ccircle cx='16' cy='7' r='3' fill='white'/%3E%3Ccircle cx='8' cy='22' r='3' fill='white'/%3E%3Ccircle cx='24' cy='22' r='3' fill='white'/%3E%3C/svg%3E">
+{% block title %}Dashboard{% endblock %}
 
-<script>
-  if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-    document.documentElement.classList.add('dark');
-  }
-</script>
+{% block content %}
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+{% include "dashboard/_welcome.html" %}
 
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-  {# Same design tokens as dashboard.html / base.html - same "design language", per instructions. #}
-  tailwind.config = {
-    darkMode: 'class',
-    theme: {
-      extend: {
-        fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'] },
-        borderRadius: { xl: '12px', '2xl': '14px' },
-        colors: {
-          primary:  { DEFAULT: '#8B1E2D', dark: '#6D1B27', soft: '#E7C8CC', light: '#A6333F' },
-          ink:      { DEFAULT: '#1F1B1B', dark: '#F1E9E8' },
-          muted:    { DEFAULT: '#6D6665', dark: '#A9989A' },
-          surface:  { DEFAULT: '#FAF8F7', dark: '#14100F' },
-          card:     { DEFAULT: '#FFFFFF', dark: '#1D1615' },
-          line:     { DEFAULT: '#ECE3E2', dark: '#2C2221' },
-          success:  { DEFAULT: '#1F7A4D', dark: '#3EAE78' },
-          warning:  { DEFAULT: '#C77700', dark: '#E0972B' },
-          danger:   { DEFAULT: '#C62828', dark: '#E35B5B' },
-          info:     { DEFAULT: '#2A78D6', dark: '#5B9BE8' },
-          accent:   { DEFAULT: '#4A3AA7', dark: '#7C6BD9' },
-          sidebar:  { DEFAULT: '#14100F', soft: '#1D1615' },
-        },
-        boxShadow: {
-          soft: '0 1px 2px rgba(31,27,27,0.04), 0 6px 20px rgba(31,27,27,0.05)',
-          softer: '0 1px 2px rgba(31,27,27,0.03)',
-        },
-      },
-    },
-  };
-</script>
+{% if "pages.documents" in user_permissions or "pages.ask_ai" in user_permissions or "pages.ai_tasks" in user_permissions or "pages.knowledge_base" in user_permissions %}
+  <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(auto-fit,minmax(180px,1fr))] fade-in-up">
+    {% if "pages.documents" in user_permissions %}
+      {% include "dashboard/_mini_stat_card.html" with icon="file-text" icon_bg="bg-primary/10" icon_color="text-primary" label="My Documents" value=stats.total_documents numeric=True %}
+    {% endif %}
+    {% if "pages.ask_ai" in user_permissions %}
+      {% include "dashboard/_mini_stat_card.html" with icon="message-square" icon_bg="bg-info/10" icon_color="text-info" label="Questions Asked" value=stats.questions_asked numeric=True %}
+      {% include "dashboard/_mini_stat_card.html" with icon="timer" icon_bg="bg-warning/10" icon_color="text-warning" label="Avg Response Time" value=stats.avg_response_time %}
+    {% endif %}
+    {% if "pages.documents" in user_permissions %}
+      {% include "dashboard/_mini_stat_card.html" with icon="hard-drive" icon_bg="bg-success/10" icon_color="text-success" label="Storage Used" value=stats.storage_used %}
+    {% endif %}
+    {% if "pages.ai_tasks" in user_permissions %}
+      {% include "dashboard/_mini_stat_card.html" with icon="sparkles" icon_bg="bg-accent/10" icon_color="text-accent" label="AI Task Runs" value=stats.ai_task_runs numeric=True %}
+    {% endif %}
+    {% if "pages.knowledge_base" in user_permissions %}
+      {% include "dashboard/_mini_stat_card.html" with icon="compass" icon_bg="bg-success/10" icon_color="text-success" label="Topics" value=knowledge_overview.total_entities numeric=True %}
+    {% endif %}
+  </div>
+{% endif %}
 
-<script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+{% if "pages.documents" in user_permissions or "pages.ask_ai" in user_permissions or "pages.ai_tasks" in user_permissions %}
+  <div class="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
 
-<style>
-  [x-cloak] { display: none !important; }
-  * { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-thumb { background: #ECE3E2; border-radius: 8px; }
-  .dark ::-webkit-scrollbar-thumb { background: #2C2221; }
-  html { scrollbar-width: thin; scrollbar-color: #ECE3E2 transparent; }
-  html.dark { scrollbar-color: #2C2221 transparent; }
-</style>
-</head>
-
-<body class="bg-surface dark:bg-surface-dark text-ink dark:text-ink-dark antialiased" x-data="{ sidebarOpen: false }">
-
-<div class="min-h-screen flex">
-
-  {% include "user/_sidebar.html" %}
-
-  <div
-    x-show="sidebarOpen"
-    x-cloak
-    x-transition.opacity
-    @click="sidebarOpen = false"
-    class="fixed inset-0 z-30 bg-black/40 lg:hidden"
-  ></div>
-
-  <div class="flex-1 min-w-0 flex flex-col lg:pl-64">
-
-    {% include "dashboard/_topbar.html" %}
-
-    <main class="flex-1 px-4 sm:px-6 lg:px-8 py-6 lg:py-8 w-full max-w-[1100px] mx-auto">
-
-      {% if messages %}
-        <div class="mb-6 space-y-2">
-          {% for message in messages %}
-            <div class="rounded-xl border px-4 py-3 text-sm font-medium
-              {% if message.tags == 'success' %} bg-success/10 border-success/20 text-success
-              {% elif message.tags == 'error' %} bg-danger/10 border-danger/20 text-danger
-              {% else %} bg-primary-soft/40 border-primary-soft text-primary {% endif %}">
-              {{ message }}
+    {% if "pages.documents" in user_permissions %}
+      <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <div class="flex items-center justify-between border-b border-line px-3.5 py-2.5 dark:border-line-dark">
+          <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Documents</h2>
+          <a href="{% url 'documents' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+        </div>
+        <div class="divide-y divide-line dark:divide-line-dark">
+          {% for doc in recent_documents %}
+            <div class="flex items-center gap-2.5 px-3.5 py-2">
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <i data-lucide="file-text" class="h-4 w-4"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium leading-snug text-ink dark:text-ink-dark">{{ doc.title }}</p>
+                <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">{{ doc.file_type|upper }} · {{ doc.chunk_count }} chunks · {{ doc.uploaded_at|timesince }} ago</p>
+              </div>
+            </div>
+          {% empty %}
+            <div class="px-3.5 py-6 text-center">
+              <p class="text-sm text-muted dark:text-muted-dark">No documents uploaded yet.</p>
+              <a href="{% url 'documents' %}" class="mt-2 inline-block text-sm font-medium text-primary hover:underline dark:text-primary-soft">Upload your first document</a>
             </div>
           {% endfor %}
         </div>
-      {% endif %}
-
-      <div class="mb-6">
-        <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">
-          Good {% now "G" as hour %}{% if hour|add:0 < 12 %}morning{% elif hour|add:0 < 18 %}afternoon{% else %}evening{% endif %}, {{ request.user.first_name|default:request.user.username }} <span aria-hidden="true">👋</span>
-        </h1>
-        <p class="mt-1 text-sm text-muted dark:text-muted-dark">Here's what's happening with your documents.</p>
       </div>
+    {% endif %}
 
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {% include "partials/_stat_card.html" with icon="file-text" label="My Documents" value=stats.total_documents numeric=True %}
-        {% include "partials/_stat_card.html" with icon="message-square" label="Questions Asked" value=stats.questions_asked numeric=True %}
-        {% include "partials/_stat_card.html" with icon="timer" label="Avg Response Time" value=stats.avg_response_time %}
-        {% include "partials/_stat_card.html" with icon="hard-drive" label="Storage Used" value=stats.storage_used %}
-      </div>
-
-      <div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-
-        <div class="rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
-          <div class="flex items-center justify-between border-b border-line px-5 py-4 dark:border-line-dark">
-            <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Documents</h2>
-            <a href="{% url 'documents' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
-          </div>
-          <div class="divide-y divide-line dark:divide-line-dark">
-            {% for doc in recent_documents %}
-              <div class="flex items-center gap-3 px-5 py-3.5">
-                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <i data-lucide="file-text" class="h-4 w-4"></i>
-                </div>
-                <div class="min-w-0 flex-1">
-                  <p class="truncate text-sm font-medium text-ink dark:text-ink-dark">{{ doc.title }}</p>
-                  <p class="text-xs text-muted dark:text-muted-dark">{{ doc.file_type|upper }} · {{ doc.chunk_count }} chunks · {{ doc.uploaded_at|timesince }} ago</p>
-                </div>
-              </div>
-            {% empty %}
-              <div class="px-5 py-10 text-center">
-                <p class="text-sm text-muted dark:text-muted-dark">No documents uploaded yet.</p>
-                <a href="{% url 'documents' %}" class="mt-2 inline-block text-sm font-medium text-primary hover:underline dark:text-primary-soft">Upload your first document</a>
-              </div>
-            {% endfor %}
-          </div>
+    {% if "pages.ask_ai" in user_permissions %}
+      <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <div class="flex items-center justify-between border-b border-line px-3.5 py-2.5 dark:border-line-dark">
+          <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Questions</h2>
+          <a href="{% url 'search_history' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
         </div>
-
-        <div class="rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
-          <div class="flex items-center justify-between border-b border-line px-5 py-4 dark:border-line-dark">
-            <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Questions</h2>
-            <a href="{% url 'search_history' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
-          </div>
-          <div class="divide-y divide-line dark:divide-line-dark">
-            {% for log in recent_questions %}
-              <div class="flex items-center gap-3 px-5 py-3.5">
-                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <i data-lucide="message-square" class="h-4 w-4"></i>
-                </div>
-                <div class="min-w-0 flex-1">
-                  <p class="truncate text-sm font-medium text-ink dark:text-ink-dark">{{ log.question }}</p>
-                  <p class="text-xs text-muted dark:text-muted-dark">{{ log.confidence }}% confidence · {{ log.created_at|timesince }} ago</p>
-                </div>
+        <div class="divide-y divide-line dark:divide-line-dark">
+          {% for log in recent_questions %}
+            <div class="flex items-center gap-2.5 px-3.5 py-2">
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <i data-lucide="message-square" class="h-4 w-4"></i>
               </div>
-            {% empty %}
-              <div class="px-5 py-10 text-center">
-                <p class="text-sm text-muted dark:text-muted-dark">No questions asked yet.</p>
-                <a href="{% url 'ask_ai' %}" class="mt-2 inline-block text-sm font-medium text-primary hover:underline dark:text-primary-soft">Ask your first question</a>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium leading-snug text-ink dark:text-ink-dark">{{ log.question }}</p>
+                <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">{{ log.confidence }}% confidence · {{ log.created_at|timesince }} ago</p>
               </div>
-            {% endfor %}
-          </div>
-        </div>
-
-      </div>
-
-      <div class="mt-6 rounded-2xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
-        <h2 class="mb-4 text-sm font-semibold text-ink dark:text-ink-dark">Quick Actions</h2>
-        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-
-          <a href="{% url 'documents' %}" class="flex items-start gap-3 rounded-xl border border-line p-4 transition-colors hover:border-primary/30 hover:bg-primary/5 dark:border-line-dark dark:hover:bg-primary/10">
-            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <i data-lucide="upload" class="h-4 w-4"></i>
             </div>
-            <div class="min-w-0">
-              <p class="text-sm font-semibold text-ink dark:text-ink-dark">Upload Document</p>
-              <p class="text-xs text-muted dark:text-muted-dark">Add a new document</p>
+          {% empty %}
+            <div class="px-3.5 py-6 text-center">
+              <p class="text-sm text-muted dark:text-muted-dark">No questions asked yet.</p>
+              <a href="{% url 'ask_ai' %}" class="mt-2 inline-block text-sm font-medium text-primary hover:underline dark:text-primary-soft">Ask your first question</a>
             </div>
-          </a>
-
-          <a href="{% url 'ask_ai' %}" class="flex items-start gap-3 rounded-xl border border-line p-4 transition-colors hover:border-info/30 hover:bg-info/5 dark:border-line-dark dark:hover:bg-info/10">
-            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-info/10 text-info">
-              <i data-lucide="message-square" class="h-4 w-4"></i>
-            </div>
-            <div class="min-w-0">
-              <p class="text-sm font-semibold text-ink dark:text-ink-dark">Ask AI</p>
-              <p class="text-xs text-muted dark:text-muted-dark">Question your documents</p>
-            </div>
-          </a>
-
-          <a href="{% url 'knowledge_base' %}" class="flex items-start gap-3 rounded-xl border border-line p-4 transition-colors hover:border-success/30 hover:bg-success/5 dark:border-line-dark dark:hover:bg-success/10">
-            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-success/10 text-success">
-              <i data-lucide="share-2" class="h-4 w-4"></i>
-            </div>
-            <div class="min-w-0">
-              <p class="text-sm font-semibold text-ink dark:text-ink-dark">Knowledge Base</p>
-              <p class="text-xs text-muted dark:text-muted-dark">Browse entities</p>
-            </div>
-          </a>
-
+          {% endfor %}
         </div>
       </div>
+    {% endif %}
 
-    </main>
+    {% if "pages.ai_tasks" in user_permissions %}
+      <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <div class="flex items-center justify-between border-b border-line px-3.5 py-2.5 dark:border-line-dark">
+          <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent AI Task Runs</h2>
+          <a href="{% url 'ai_task_history' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+        </div>
+        <div class="divide-y divide-line dark:divide-line-dark">
+          {% for run in recent_ai_task_runs %}
+            <a href="{% url 'ai_task_results' run.id %}" class="flex items-center gap-2.5 px-3.5 py-2 hover:bg-surface dark:hover:bg-white/5">
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <i data-lucide="sparkles" class="h-4 w-4"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium leading-snug text-ink dark:text-ink-dark">{{ run.get_task_type_display }}</p>
+                <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">{{ run.get_status_display }} · {{ run.created_at|timesince }} ago</p>
+              </div>
+            </a>
+          {% empty %}
+            <div class="px-3.5 py-6 text-center">
+              <p class="text-sm text-muted dark:text-muted-dark">No AI Tasks run yet.</p>
+              <a href="{% url 'ai_tasks' %}" class="mt-2 inline-block text-sm font-medium text-primary hover:underline dark:text-primary-soft">Run your first AI Task</a>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
 
   </div>
+{% endif %}
 
-</div>
+{% if "pages.documents" in user_permissions or "pages.ask_ai" in user_permissions or "pages.knowledge_base" in user_permissions or "pages.ai_tasks" in user_permissions or "users.view_all" in user_permissions or "pages.analytics" in user_permissions or "settings.manage_llm" in user_permissions %}
+  <div class="mt-3">
+    {% include "dashboard/_quick_actions.html" %}
+  </div>
+{% else %}
+  {% include "partials/_empty_state.html" with icon="lock" title="No modules assigned yet" message="Your role doesn't grant access to any workspace features yet. An Admin can grant access from Roles." %}
+{% endif %}
 
-<script>
-  document.addEventListener('DOMContentLoaded', () => lucide.createIcons());
-  document.addEventListener('alpine:initialized', () => lucide.createIcons());
-</script>
-
-</body>
-</html>
+{% endblock %}

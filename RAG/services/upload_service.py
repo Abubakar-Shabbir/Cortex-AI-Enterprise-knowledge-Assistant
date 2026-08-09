@@ -5,6 +5,7 @@ from django.conf import settings
 from ..models import (
     Document,
     DocumentChunk,
+    DocumentVersion,
 )
 
 from .validation_service import validate_document
@@ -91,6 +92,63 @@ def upload_document(
         file_size=metadata["file_size"],
 
     )
+
+    return document
+
+
+def upload_new_version(document, file):
+    """
+    Replaces `document`'s active file with `file`, snapshotting the
+    outgoing file into a new DocumentVersion row first (history only -
+    there's no "restore as current" action, so this table only ever
+    grows). Re-processing (chunk/embed/graph-enrich) is the caller's
+    responsibility, same split as upload_document()/
+    process_uploaded_document() above - documents_view's
+    document_version_upload calls this then triggers processing
+    exactly like document_embed does for a fresh upload.
+
+    Deliberately does not re-check ownership - the view is responsible
+    for that (get_object_or_404(..., user=request.user)), the same
+    pattern every other mutating document view already uses.
+    """
+
+    validate_document(file)
+
+    duplicate, file_hash = check_duplicate(user=document.user, file=file)
+
+    if duplicate:
+        raise ValueError("This file is identical to one you've already uploaded.")
+
+    metadata = extract_metadata(file)
+
+    DocumentVersion.objects.create(
+        document=document,
+        version_number=document.version_number,
+        file=document.file,
+        file_hash=document.file_hash,
+        file_size=document.file_size,
+        file_type=document.file_type,
+    )
+
+    # Existing chunks/embeddings/graph mentions describe the OUTGOING
+    # file - delete them so re-processing below rebuilds retrieval data
+    # from scratch instead of leaving stale rows that would duplicate
+    # search results. Cascades ChunkEmbedding (OneToOne) and
+    # EntityMention (FK to chunk) automatically.
+    document.chunks.all().delete()
+
+    document.file = file
+    document.file_hash = file_hash
+    document.file_type = metadata["file_type"]
+    document.file_size = metadata["file_size"]
+    document.version_number += 1
+    document.processing_status = Document.ProcessingStatus.PENDING
+    document.chunk_count = 0
+
+    document.save(update_fields=[
+        "file", "file_hash", "file_type", "file_size", "version_number",
+        "processing_status", "chunk_count",
+    ])
 
     return document
 

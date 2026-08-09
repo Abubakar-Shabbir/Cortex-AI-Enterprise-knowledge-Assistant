@@ -13,7 +13,14 @@ from functools import wraps
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 
-from .services.permission_service import ADMIN_ROLES, SUPER_ADMIN, user_has_permission, user_has_role
+from .services.permission_service import (
+    ADMIN,
+    has_admin_area_access,
+    has_any_settings_permission,
+    has_any_system_logs_permission,
+    user_has_permission,
+    user_has_role,
+)
 
 
 def role_required(*role_slugs):
@@ -55,10 +62,68 @@ def permission_required(*codenames):
 
 
 def admin_required(view_func):
-    """Shortcut for role_required(*ADMIN_ROLES) - the common admin-page case."""
-    return role_required(*ADMIN_ROLES)(view_func)
+    """Shortcut for role_required(ADMIN) - the sole built-in top-tier role now that Super Admin has been removed."""
+    return role_required(ADMIN)(view_func)
 
 
-def super_admin_required(view_func):
-    """Shortcut for role_required(super_admin) - the most sensitive actions (e.g. granting the Super Admin role itself)."""
-    return role_required(SUPER_ADMIN)(view_func)
+def admin_area_required(view_func):
+    """
+    Restrict a view to any role holding at least one admin-area
+    permission (see permission_service.has_admin_area_access /
+    ADMIN_AREA_PERMISSIONS) - broader than a single specific
+    permission on purpose. Used for Admin Overview
+    (RAG.views.admin_dashboard_view): the same population that already
+    gets the admin sidebar shell (context_processors.sidebar_status ->
+    can_view_admin_area) must always be able to reach its own Overview
+    page too, not just whichever specific admin page their permission
+    happens to gate - see get_dashboard_url_for_user for the full
+    rationale.
+    """
+
+    @wraps(view_func)
+    @login_required
+    def wrapped_view(request, *args, **kwargs):
+        if not has_admin_area_access(request.user):
+            raise PermissionDenied("You don't have access to this page.")
+        return view_func(request, *args, **kwargs)
+    return wrapped_view
+
+
+def settings_access_required(view_func):
+    """
+    Restrict admin_settings_view to any role holding at least one
+    settings.manage_* permission - broader than a single specific
+    permission on purpose, mirroring admin_area_required's "coarse view
+    gate" pattern. Which cards the request actually sees/can edit is
+    still scoped per field-group permission inside the view/template
+    itself (system_config_service.SETTINGS_PAGE_PERMISSIONS) - this
+    decorator only answers "can this role open the page at all."
+    """
+
+    @wraps(view_func)
+    @login_required
+    def wrapped_view(request, *args, **kwargs):
+        if not has_any_settings_permission(request.user):
+            raise PermissionDenied("You don't have access to this page.")
+        return view_func(request, *args, **kwargs)
+    return wrapped_view
+
+
+def system_logs_access_required(view_func):
+    """
+    Restrict admin_system_logs_view to any role holding at least one of
+    permission_service.SYSTEM_LOGS_PERMISSIONS - the consolidated
+    System Logs page (Request Traces + Error Groups + Activity tabs)
+    behind one nav entry/one URL. Which tabs a given request actually
+    sees is scoped per-permission inside the view/template, mirroring
+    settings_access_required's "coarse gate + fine-grained internal
+    scoping" pattern.
+    """
+
+    @wraps(view_func)
+    @login_required
+    def wrapped_view(request, *args, **kwargs):
+        if not has_any_system_logs_permission(request.user):
+            raise PermissionDenied("You don't have access to this page.")
+        return view_func(request, *args, **kwargs)
+    return wrapped_view

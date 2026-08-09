@@ -2,20 +2,15 @@ from langchain_experimental.text_splitter import (
     SemanticChunker
 )
 
-from langchain_community.embeddings import (
-    HuggingFaceEmbeddings
-)
-
-from django.conf import settings
+from .embedding_service import shared_embeddings
 
 
-embedding_model = HuggingFaceEmbeddings(
-    model_name=settings.EMBEDDING_MODEL
-)
-
-
+# Reuses the single SentenceTransformer already loaded in
+# embedding_service.py (via the shared_embeddings adapter) instead of
+# loading a second, independent embedding model here - see
+# embedding_service.SharedSentenceTransformerEmbeddings.
 semantic_splitter = SemanticChunker(
-    embeddings=embedding_model,
+    embeddings=shared_embeddings,
     breakpoint_threshold_type="percentile"
 )
 

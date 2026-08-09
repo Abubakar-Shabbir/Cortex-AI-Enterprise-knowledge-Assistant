@@ -18,8 +18,13 @@ pymupdf==1.28.0
 python-docx==1.2.0
 
 # LLM
-google-generativeai==0.8.6
+google-genai==2.17.0
 requests==2.34.2
+
+# Answer rendering - Markdown -> sanitized HTML for Ask AI / AI Tasks
+# LLM output (citation_service.render_answer_html())
+markdown==3.10.3
+nh3==0.3.6
 
 # Async tasks / caching (Sprint 10)
 celery==5.6.3

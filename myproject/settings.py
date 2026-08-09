@@ -49,6 +49,28 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
+# Session/cookie hardening - Secure/SSL-redirect flags are conditioned
+# on DEBUG the same way the rest of this file already branches (see
+# ALLOWED_HOSTS/CSRF_TRUSTED_ORIGINS above): `manage.py runserver`
+# during local dev is plain HTTP, so a hardcoded *_COOKIE_SECURE=True
+# would silently break every login/CSRF-protected POST there. A real
+# deployment (DEBUG=False) is expected to terminate HTTPS, so these
+# flip on automatically without a separate env var to remember to set.
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 7 days, if the browser stays open that long
+
+CSRF_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SAMESITE = "Lax"
+
+SECURE_SSL_REDIRECT = not DEBUG
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+
 
 # Application definition
 
@@ -59,11 +81,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',  # required for pgvector.django.HnswIndex - see ChunkEmbedding.Meta.indexes
     'RAG'
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'RAG.middleware.RequestTraceMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -116,6 +140,17 @@ DATABASES = {
         "HOST": env("DB_HOST"),
 
         "PORT": env("DB_PORT"),
+
+        # Without this, Django opens a fresh PostgreSQL connection
+        # (full TCP + auth handshake) on every single HTTP request and
+        # tears it down at the end - CONN_MAX_AGE keeps connections
+        # open and reused across requests instead. CONN_HEALTH_CHECKS
+        # (Django 4+) validates a reused connection isn't stale before
+        # handing it back out, so this stays safe across a Postgres
+        # restart/network blip rather than just being a raw perf flag.
+        "CONN_MAX_AGE": env.int("CONN_MAX_AGE", default=60),
+
+        "CONN_HEALTH_CHECKS": True,
     }
 }
 
@@ -158,8 +193,6 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 STATIC_URL = 'static/'
 
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 500))
-
 TOP_K = int(os.getenv("TOP_K", 3))
 
 EMBEDDING_MODEL = os.getenv(
@@ -181,6 +214,16 @@ ALLOWED_FILE_EXTENSIONS = [
 
 MAX_FILE_SIZE = 20 * 1024 * 1024   # 20 MB
 
+# Not env-driven (a stray `CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 500))`
+# used to sit near the top of this file and was unconditionally
+# overwritten here two lines later - the env var had zero effect, ever;
+# removed rather than fixed, since CHUNK_SIZE stopped being this app's
+# real source of truth the moment SystemConfiguration.chunk_size shipped
+# (RAG/services/system_config_service.py) - this literal is only the
+# seed value get_config() uses the very first time that DB row is
+# created, and admin/settings.html is the actual live control from then
+# on. CHUNK_OVERLAP is a plain hardcoded constant for the same reason -
+# see system_config_service.MANAGED_SETTINGS_FIELDS.
 CHUNK_SIZE = 800
 
 CHUNK_OVERLAP = 150
@@ -245,6 +288,25 @@ ENABLE_CONTEXT_COMPRESSION = os.getenv("ENABLE_CONTEXT_COMPRESSION", "False") ==
 
 CONTEXT_COMPRESSION_THRESHOLD = float(os.getenv("CONTEXT_COMPRESSION_THRESHOLD", 0.92))
 
+# How long (seconds) the retrieval-side caches stay warm: the full
+# retrieve_chunks() result for a repeated question, the per-accessible-
+# scope BM25 index, and the per-accessible-scope visible-entity set for
+# graph retrieval (see retrieval_service.py / bm25_service.py /
+# graph_retrieval_service.py). Short and shared across all three on
+# purpose - the correctness risk they bound is the same (a document
+# uploaded/embedded moments ago not showing up yet), so one knob is
+# simpler than three, and short keeps that window tight.
+RETRIEVAL_CACHE_TTL = int(os.getenv("RETRIEVAL_CACHE_TTL", 120))
+
+# Defensive cap on the numbered context string sent to the LLM
+# (citation_service.build_cited_context()). Not a real latency fix -
+# a live benchmark during the performance audit showed even a trivial
+# few-word prompt taking just as long on OpenRouter's free tier, so
+# prompt size isn't the actual driver of answer latency here - this is
+# a safety net for a pathological large-top_k + compression-disabled
+# combination blowing up the prompt, not something normal usage hits.
+MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", 12000))
+
 # ==========================================
 # Answer Generation (Sprint 9)
 # ==========================================
@@ -267,8 +329,13 @@ ANSWER_TEMPERATURE = float(os.getenv("ANSWER_TEMPERATURE", 0.2))
 # by context_processors.sidebar_status()).
 # Everything here defaults to behavior identical to before Sprint 10:
 # no Redis/Celery worker required to run the app, matching every
-# other infra-dependent flag in this project (off by default, flip
-# via .env - docker-compose.yml sets both True).
+# other infra-dependent flag in this project (off by default, flip via
+# .env). Only Postgres and Redis run in Docker (see docker-compose.yml)
+# - Django/Celery run natively on the host, so REDIS_URL's default
+# ("redis://localhost:6379/0") deliberately matches docker-compose.yml's
+# "6379:6379" host port mapping for the `redis` service, not a
+# Docker-internal service name/network. There is no Dockerfile for the
+# Django app/worker in this project.
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -284,15 +351,46 @@ CELERY_RESULT_SERIALIZER = "json"
 
 CELERY_TIMEZONE = TIME_ZONE
 
+# Bounds how long a .delay() call blocks trying to reach the broker
+# before giving up - without this, kombu's default retry behavior can
+# leave a request hanging for a long time if Redis is briefly
+# unreachable, defeating the whole point of dispatching work
+# asynchronously in the first place. Callers (e.g.
+# RAG.views.ai_task_create) still wrap .delay() in their own
+# try/except for the case where even this bounded wait fails.
+CELERY_BROKER_CONNECTION_TIMEOUT = 3
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_CONNECTION_MAX_RETRIES = 1
+
+# CELERY_BROKER_CONNECTION_TIMEOUT above only bounds the initial
+# connection attempt - without these, a broker that accepts the TCP
+# connection but then stalls (a half-open connection, a slow/overloaded
+# Redis) can still hang a .delay() call or a health-check PING well past
+# that timeout. socket_timeout bounds every read/write on the connection
+# once established, not just opening it.
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    "socket_connect_timeout": 2,
+    "socket_timeout": 2,
+}
+
 # When False (default), upload_service.upload_document() processes a
 # document inline, exactly as every sprint before this one. When
 # True, it dispatches RAG.tasks.process_document_task instead and
 # returns immediately - the request/response cycle no longer waits on
 # extraction/chunking/embedding/graph-enrichment for large documents.
-# Requires a running Celery worker (see Dockerfile/docker-compose.yml)
-# once enabled - with no worker consuming the queue, documents would
-# stay stuck at chunk_count=0 ("Processing").
+# Requires a running Celery worker (`celery -A myproject worker
+# --loglevel=info`, on the host, pointed at the Dockerized Redis via
+# REDIS_URL) once enabled - with no worker consuming the queue,
+# documents would stay stuck at chunk_count=0 ("Processing").
 ENABLE_ASYNC_PROCESSING = os.getenv("ENABLE_ASYNC_PROCESSING", "False") == "True"
+
+# AI Tasks (Enterprise AI Tasks module) runs ALWAYS dispatch to a Celery
+# worker (RAG.tasks.run_ai_task) - independent of ENABLE_ASYNC_PROCESSING
+# above, which only governs document upload processing. There is no
+# inline/synchronous execution path for an AI Task run, since a run can
+# span up to AI_TASKS_MAX_DOCUMENTS documents; a Celery worker must be
+# running for the AI Tasks feature to work at all.
+AI_TASKS_MAX_DOCUMENTS = int(os.getenv("AI_TASKS_MAX_DOCUMENTS", "100"))
 
 # When True, Django's cache (LocMemCache by default - see CACHES
 # below) is swapped for django-redis pointed at REDIS_URL. LocMemCache
@@ -309,6 +407,19 @@ if USE_REDIS_CACHE:
             "LOCATION": REDIS_URL,
             "OPTIONS": {
                 "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                # Without these, a hung/unreachable Redis blocks every
+                # cache.get()/set() call - and SystemConfigSyncMiddleware
+                # (RAG.middleware) plus context_processors.sidebar_status()
+                # both hit the cache on every single request, so an
+                # unbounded call here would stall Ask AI too, not just
+                # cache-specific pages. Kept short and symmetric with
+                # settings.LLM_REQUEST_TIMEOUT's "fail fast" philosophy.
+                "SOCKET_CONNECT_TIMEOUT": 2,
+                "SOCKET_TIMEOUT": 2,
+                # A broken/slow Redis degrades every cache call to a miss
+                # (falls through to the real DB/computation) instead of
+                # raising into the request - graceful failure, not a 500.
+                "IGNORE_EXCEPTIONS": True,
             },
             "KEY_PREFIX": "rag",
         }
@@ -328,24 +439,44 @@ DJANGO_LOG_LEVEL = os.getenv("DJANGO_LOG_LEVEL", "INFO")
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
+    "filters": {
+        # Stamps every record with the current request's trace id (see
+        # RAG.services.trace) so %(trace_id)s below lets a slow/failed
+        # Ask AI request's full stage-by-stage log trail be found with
+        # one grep, without touching any individual logger.info() call.
+        "trace_id": {
+            "()": "RAG.services.trace.TraceIdLogFilter",
+        },
+    },
     "formatters": {
         "verbose": {
-            "format": "%(asctime)s %(levelname)s %(name)s: %(message)s",
+            "format": "%(asctime)s %(levelname)s [%(trace_id)s] %(name)s: %(message)s",
         },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": "verbose",
+            "filters": ["trace_id"],
+        },
+        # Automatic, app-wide error grouping/dedup (RAG.models.ErrorGroup)
+        # - additive alongside "console", not a replacement. WARNING+
+        # only: every existing logger.warning()/error()/exception() call
+        # across RAG/services/*.py, RAG/views.py, RAG/tasks.py starts
+        # flowing into ErrorGroup with zero call-site changes. See
+        # RAG.services.error_intelligence_service's module docstring.
+        "error_capture": {
+            "class": "RAG.services.error_intelligence_service.ErrorCaptureHandler",
+            "level": "WARNING",
         },
     },
     "root": {
-        "handlers": ["console"],
+        "handlers": ["console", "error_capture"],
         "level": DJANGO_LOG_LEVEL,
     },
     "loggers": {
         "django": {
-            "handlers": ["console"],
+            "handlers": ["console", "error_capture"],
             "level": os.getenv("DJANGO_FRAMEWORK_LOG_LEVEL", "WARNING"),
             "propagate": False,
         },
@@ -381,10 +512,35 @@ LLM_MODEL = env("LLM_MODEL", default="gemini-2.0-flash")
 
 OPENROUTER_API_KEY = env("OPENROUTER_API_KEY", default="")
 
+# Was "deepseek/deepseek-chat-v3.1:free" - that specific free slug has
+# since been retired by OpenRouter (live-verified: returns 404 "This
+# model is unavailable for free. The paid version is available now -
+# use this slug instead: deepseek/deepseek-chat-v3.1"). Free-tier
+# model availability shifts over time; openai/gpt-oss-20b:free is
+# live-verified working as of this fix, and - like the other two
+# providers' models - changeable from Admin > Settings without a
+# redeploy if it's ever retired too. See
+# RAG.services.llm_client.PROVIDER_REGISTRY.
 OPENROUTER_MODEL = env(
     "OPENROUTER_MODEL",
-    default="deepseek/deepseek-chat-v3.1:free"
+    default="openai/gpt-oss-20b:free"
 )
+
+# Groq - OpenAI-compatible REST API, no SDK dependency (see
+# RAG.services.llm_client.GroqClient). llama-3.1-8b-instant is a
+# long-standing, small/fast free-tier Groq model - a reasonable
+# default; changeable from Admin > Settings like the other two.
+GROQ_API_KEY = env("GROQ_API_KEY", default="")
+GROQ_MODEL = env("GROQ_MODEL", default="llama-3.1-8b-instant")
+
+# Per-attempt request timeout and per-provider retry count for the LLM
+# fallback chain (RAG.services.llm_client.LLMClient) - infra-level
+# knobs, env-only (not exposed in Admin > Settings, unlike the
+# provider/model choices). Deliberately short: the whole point of the
+# fallback chain is to fail fast and move to the next provider rather
+# than hang on a slow one.
+LLM_REQUEST_TIMEOUT = env.int("LLM_REQUEST_TIMEOUT", default=30)
+LLM_MAX_RETRIES = env.int("LLM_MAX_RETRIES", default=1)
 
 SITE_URL = env("SITE_URL", default="")
 SITE_NAME = env("SITE_NAME", default="RAG Assistant")

@@ -2,21 +2,26 @@
 Activity Feed — reuses the global activity_feed context var
 (context_processors.sidebar_status), the same real data the topbar
 notification dropdown already shows (this user's own latest 5). "View
-all" points to Admin > Activity Logs, the real workspace-wide feed
-(RAG.views.admin_activity_logs_view).
+all" points to the Activity tab of System Logs, the real workspace-
+wide feed (RAG.views.admin_system_logs_view) - only shown to roles
+that actually hold "activity.view_all_logs", since this widget renders
+on the admin dashboard for any admin-area role, not just ones with
+that specific permission.
 {% endcomment %}
 
-<div class="rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+<div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
 
-  <div class="flex items-center justify-between border-b border-line px-5 py-4 dark:border-line-dark">
+  <div class="flex items-center justify-between border-b border-line px-3.5 py-2.5 dark:border-line-dark">
     <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Activity Feed</h2>
-    <a href="{% url 'admin_activity_logs' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+    {% if "activity.view_all_logs" in user_permissions %}
+      <a href="{% url 'admin_system_logs' %}?tab=activity" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+    {% endif %}
   </div>
 
   <div class="divide-y divide-line dark:divide-line-dark">
     {% for event in activity_feed %}
-      <div class="flex items-start gap-3 px-5 py-3">
-        <div class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+      <div class="flex items-start gap-2.5 px-3.5 py-2">
+        <div class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
           <i data-lucide="{{ event.icon }}" class="h-3.5 w-3.5"></i>
         </div>
         <div class="min-w-0 flex-1">
@@ -25,7 +30,7 @@ all" points to Admin > Activity Logs, the real workspace-wide feed
         <span class="shrink-0 text-xs text-muted dark:text-muted-dark">{{ event.at|timesince }} ago</span>
       </div>
     {% empty %}
-      <div class="px-5 py-8 text-center">
+      <div class="px-3.5 py-5 text-center">
         <p class="text-sm text-muted dark:text-muted-dark">You're all caught up.</p>
       </div>
     {% endfor %}

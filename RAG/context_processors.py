@@ -1,7 +1,7 @@
 from django.core.cache import cache
 
 from .models import Document, QueryLog
-from .services.permission_service import is_admin
+from .services.permission_service import get_user_permission_codenames, has_admin_area_access
 from .services.stats_service import get_system_status
 
 # Maps a URL name to its breadcrumb trail: a list of (label, url_name)
@@ -12,18 +12,34 @@ from .services.stats_service import get_system_status
 # `breadcrumb_leaf` in the view's context - see _breadcrumbs.html.
 BREADCRUMB_MAP = {
     "home": [("Dashboard", None)],
+    "admin_dashboard": [("Overview", None)],
+    "user_dashboard": [("Dashboard", None)],
     "documents": [("Documents", None)],
+    "favorites": [("Documents", "documents"), ("Favorites", None)],
+    "collections": [("Documents", "documents"), ("Collections", None)],
+    "collection_detail": [("Documents", "documents"), ("Collections", "collections")],
+    "org_library": [("Documents", "documents"), ("Organization Library", None)],
+    "shared_with_me": [("Documents", "documents"), ("Shared With Me", None)],
     "knowledge_base": [("Knowledge Base", None)],
     "entity_detail": [("Knowledge Base", "knowledge_base"), ("Entities", "knowledge_base")],
     "relationships": [("Knowledge Base", "knowledge_base"), ("Relationships", None)],
     "knowledge_graph": [("Knowledge Base", "knowledge_base"), ("Graph", None)],
     "citation_explorer": [("Knowledge Base", "knowledge_base"), ("Citations", None)],
+    "knowledge_insights": [("Knowledge Base", "knowledge_base"), ("Insights", None)],
     "ask_ai": [("AI Search", None)],
     "search_history": [("AI Search", "ask_ai"), ("Search History", None)],
+    "ai_tasks": [("AI Tasks", None)],
+    "ai_task_history": [("AI Tasks", "ai_tasks"), ("History", None)],
+    "ai_task_results": [("AI Tasks", "ai_tasks"), ("Results", None)],
     "analytics": [("Analytics", None)],
     "reports": [("Reports", None)],
     "profile": [("Profile", None)],
     "monitoring": [("Monitoring", None)],
+    "admin_users": [("Users", None)],
+    "admin_roles": [("Roles", None)],
+    "admin_settings": [("Settings", None)],
+    "admin_queries": [("Queries", None)],
+    "admin_system_logs": [("System Logs", None)],
 }
 
 
@@ -33,11 +49,21 @@ BREADCRUMB_MAP = {
 # item name _nav_item.html should highlight. Anything not listed maps
 # to itself - a normal single-URL nav item.
 NAV_GROUP_MAP = {
+    "admin_dashboard": "home",
+    "user_dashboard": "home",
     "entity_detail": "knowledge_base",
     "relationships": "knowledge_base",
     "knowledge_graph": "knowledge_base",
     "citation_explorer": "knowledge_base",
+    "knowledge_insights": "knowledge_base",
     "search_history": "ask_ai",
+    "ai_task_history": "ai_tasks",
+    "ai_task_results": "ai_tasks",
+    "favorites": "documents",
+    "collections": "documents",
+    "collection_detail": "documents",
+    "org_library": "documents",
+    "shared_with_me": "documents",
 }
 
 
@@ -101,6 +127,14 @@ def sidebar_status(request):
             30,
         ),
         "activity_feed": events[:5],
-        # RBAC: whether the current viewer's role may see admin-only
-        "is_admin": is_admin(request.user),
+        # RBAC: whether the current viewer's role grants at least one
+        # admin-area permission (drives which sidebar shell renders -
+        # see base.html); real per-page access is still enforced by
+        # each view's own @permission_required.
+        "can_view_admin_area": has_admin_area_access(request.user),
+        # Every permission codename the current viewer's role grants -
+        # sorted list so nav templates can do
+        # `{% if "pages.documents" in user_permissions %}` and
+        # json_script it into partials/_command_palette.html.
+        "user_permissions": get_user_permission_codenames(request.user),
     }

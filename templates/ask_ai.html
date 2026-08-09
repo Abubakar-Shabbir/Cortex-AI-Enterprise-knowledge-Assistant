@@ -2,162 +2,463 @@
 
 {% block title %}AI Search{% endblock %}
 
+{% block extra_head %}
+  {% comment %}
+  Only loaded here (route-based, same pattern vis-network uses in
+  knowledge/graph.html) - streamAnswer() below needs a client-side
+  Markdown renderer + sanitizer for the live-typing phase, since the
+  server-rendered/sanitized HTML (citation_service.render_answer_html())
+  only arrives once at the very end (the "done" SSE event). Without
+  this, live tokens were appended as raw text - the model's own
+  Markdown ("**bold**", "```code```", bullet lists) showed up as
+  literal syntax while typing instead of being rendered.
+  {% endcomment %}
+  <script defer src="https://unpkg.com/marked@12/marked.min.js"></script>
+  <script defer src="https://unpkg.com/dompurify@3/dist/purify.min.js"></script>
+{% endblock %}
+
 {% block content %}
 
-<div class="mb-6">
-  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">AI Search</h1>
-  <p class="text-sm text-muted dark:text-muted-dark">Ask anything about your uploaded documents — answers are grounded only in retrieved context.</p>
-</div>
+<div
+  x-data="askAiPage()"
+>
 
-{% if suggested_questions %}
-  <div class="mb-6 flex flex-wrap items-center gap-2">
-    <span class="flex items-center gap-1 text-xs font-medium text-muted dark:text-muted-dark"><i data-lucide="sparkles" class="h-3.5 w-3.5"></i> Suggested:</span>
-    {% for suggestion in suggested_questions %}
-      <button
-        type="button"
-        @click="const el = document.querySelector('textarea[name=question]'); el.value = '{{ suggestion|escapejs }}'; el.dispatchEvent(new Event('input')); el.focus();"
-        class="rounded-full border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-primary hover:text-primary dark:border-line-dark dark:text-ink-dark dark:hover:border-primary-soft dark:hover:text-primary-soft"
-      >
-        {{ suggestion }}
-      </button>
-    {% endfor %}
-  </div>
-{% endif %}
-
-<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-
-  <div class="lg:col-span-2 space-y-6">
-
-    <div
-      x-data="{ submitting: false, question: '' }"
-      class="rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark"
-    >
-      <form method="POST" @submit="submitting = true">
-        {% csrf_token %}
-        <textarea
-          name="question"
-          x-model="question"
-          rows="4"
-          required
-          placeholder="e.g. What are the key findings in the Q3 report?"
-          class="w-full resize-none rounded-lg border border-line bg-surface p-3.5 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
-        >{% if result %}{{ result.question }}{% endif %}</textarea>
-
-        <div class="mt-3">
-          <label for="document_id" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Search in</label>
-          <select
-            name="document_id"
-            id="document_id"
-            class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark sm:w-64"
-          >
-            <option value="">All documents</option>
-            {% for doc in documents %}
-              <option value="{{ doc.id }}" {% if selected_document_id == doc.id|stringformat:"s" %}selected{% endif %}>{{ doc.title }}</option>
-            {% endfor %}
-          </select>
-        </div>
-
-        <div class="mt-3 flex items-center justify-between">
-          <span class="text-xs text-muted dark:text-muted-dark">Hybrid vector + keyword search over your document library.</span>
-          <button
-            type="submit"
-            :disabled="submitting"
-            class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-70"
-          >
-            <i data-lucide="loader-2" class="h-4 w-4 animate-spin" x-show="submitting"></i>
-            <i data-lucide="send" class="h-4 w-4" x-show="!submitting"></i>
-            <span x-text="submitting ? 'Thinking…' : 'Ask AI'"></span>
-          </button>
-        </div>
-      </form>
+  <div class="mb-6 flex items-center gap-3">
+    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary-light text-white shadow-soft">
+      <i data-lucide="sparkles" class="h-5 w-5"></i>
     </div>
-
-    {% if result %}
-      <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
-
-        <div class="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line px-5 py-4 dark:border-line-dark">
-          <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
-            <i data-lucide="gauge" class="h-3.5 w-3.5"></i> Confidence
-            <span class="font-semibold text-ink dark:text-ink-dark">{{ result.confidence }}%</span>
-          </div>
-          <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
-            <i data-lucide="timer" class="h-3.5 w-3.5"></i> Response Time
-            <span class="font-semibold text-ink dark:text-ink-dark">{{ result.response_time_ms }} ms</span>
-          </div>
-          <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
-            <i data-lucide="layers" class="h-3.5 w-3.5"></i> Retrieved Chunks
-            <span class="font-semibold text-ink dark:text-ink-dark">{{ result.sources|length }}</span>
-          </div>
-          <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
-            <i data-lucide="quote" class="h-3.5 w-3.5"></i> Citations
-            <span class="font-semibold text-ink dark:text-ink-dark">{{ result.citations|length }}</span>
-          </div>
-          <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
-            <i data-lucide="git-merge" class="h-3.5 w-3.5"></i> Search Method
-            <span class="font-semibold text-ink dark:text-ink-dark">{{ result.search_method }}</span>
-          </div>
-        </div>
-
-        <div class="px-5 py-5">
-          <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Answer</h3>
-          <p class="whitespace-pre-line text-sm leading-relaxed text-ink dark:text-ink-dark">{{ result.answer }}</p>
-        </div>
-
-        {% if result.sources %}
-          <div class="border-t border-line px-5 py-5 dark:border-line-dark">
-            <h3 class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Sources</h3>
-            <div class="space-y-3">
-              {% for source in result.sources %}
-                <div class="rounded-lg border border-line bg-surface p-3.5 dark:border-line-dark dark:bg-white/5">
-                  <div class="mb-1.5 flex items-center justify-between gap-2">
-                    <span class="flex items-center gap-1.5 truncate text-sm font-medium text-ink dark:text-ink-dark">
-                      <i data-lucide="file-text" class="h-3.5 w-3.5 shrink-0 text-primary dark:text-primary-soft"></i>
-                      {{ source.document }} <span class="text-muted dark:text-muted-dark">· chunk {{ source.chunk_number }}</span>
-                    </span>
-                    <span class="flex shrink-0 items-center gap-1.5">
-                      {% if source.citation_number %}
-                        <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary dark:bg-primary-soft/10 dark:text-primary-soft">
-                          Cited [{{ source.citation_number }}]
-                        </span>
-                      {% endif %}
-                      <span class="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium capitalize text-muted dark:border-line-dark dark:text-muted-dark">
-                        {{ source.search_type }}
-                      </span>
-                    </span>
-                  </div>
-                  <p class="line-clamp-2 text-xs text-muted dark:text-muted-dark">{{ source.content }}</p>
-                </div>
-              {% endfor %}
-            </div>
-          </div>
-        {% endif %}
-
-      </div>
-    {% endif %}
-
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">AI Search</h1>
+      <p class="text-sm text-muted dark:text-muted-dark">Ask anything about your uploaded documents — answers are grounded only in retrieved context.</p>
+    </div>
   </div>
 
-  <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark h-fit">
-    <div class="border-b border-line px-5 py-4 dark:border-line-dark">
-      <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Questions</h2>
-    </div>
-    <div class="divide-y divide-line dark:divide-line-dark" x-data>
-      {% for log in recent_questions %}
+  {% if suggested_questions %}
+    <div class="mb-6 flex flex-wrap items-center gap-2">
+      <span class="flex items-center gap-1 text-xs font-medium text-muted dark:text-muted-dark"><i data-lucide="wand-2" class="h-3.5 w-3.5"></i> Suggested:</span>
+      {% for suggestion in suggested_questions %}
         <button
           type="button"
-          @click="document.querySelector('textarea[name=question]').value = $el.dataset.q; document.querySelector('textarea[name=question]').focus()"
-          data-q="{{ log.question }}"
-          class="block w-full px-5 py-3.5 text-left transition-colors hover:bg-surface dark:hover:bg-white/5"
+          @click="useQuestion('{{ suggestion|escapejs }}')"
+          class="rounded-full border border-line px-3 py-1.5 text-xs font-medium text-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-primary hover:text-primary hover:shadow-softer dark:border-line-dark dark:text-ink-dark dark:hover:border-primary-soft dark:hover:text-primary-soft"
         >
-          <p class="truncate text-sm font-medium text-ink dark:text-ink-dark">{{ log.question }}</p>
-          <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">{{ log.confidence }}% confidence · {{ log.created_at|timesince }} ago</p>
+          {{ suggestion }}
         </button>
-      {% empty %}
-        <p class="px-5 py-8 text-center text-sm text-muted dark:text-muted-dark">Your recent questions will appear here.</p>
       {% endfor %}
     </div>
+  {% endif %}
+
+  <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+
+    <div class="min-w-0 space-y-6 lg:col-span-2">
+
+      <div class="relative overflow-hidden rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+        <form method="POST" @submit.prevent="streamAnswer($event)">
+          {% csrf_token %}
+          <textarea
+            x-ref="questionInput"
+            name="question"
+            x-model="question"
+            rows="4"
+            maxlength="2000"
+            required
+            placeholder="e.g. What are the key findings in the Q3 report?"
+            class="w-full resize-none rounded-lg border border-line bg-surface p-3.5 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
+            @keydown.enter.ctrl.prevent="$event.target.form.requestSubmit()"
+            @keydown.enter.meta.prevent="$event.target.form.requestSubmit()"
+          ></textarea>
+
+          <div class="mt-1 flex items-center justify-between">
+            <span class="text-[11px] text-muted dark:text-muted-dark">
+              <kbd class="rounded border border-line px-1 py-0.5 font-mono dark:border-line-dark">{% if "Mac" in request.META.HTTP_USER_AGENT %}⌘{% else %}Ctrl{% endif %}+Enter</kbd> to ask
+            </span>
+            <span class="text-[11px] text-muted dark:text-muted-dark" x-text="question.length + ' / 2000'"></span>
+          </div>
+
+          <div class="mt-3 flex flex-wrap items-end justify-between gap-3">
+            <div class="flex flex-wrap items-end gap-3">
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Search in</label>
+                {% include "partials/_select_documents_dialog.html" with field_name="document_ids" initial_selected=selected_documents_json trigger_label="All documents" %}
+              </div>
+
+              <button
+                type="button"
+                @click="showFilters = !showFilters"
+                class="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-xs font-medium text-ink transition-colors hover:border-primary/30 hover:text-primary dark:border-line-dark dark:text-ink-dark"
+                :class="showFilters && 'border-primary/40 text-primary dark:text-primary-soft'"
+              >
+                <i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i> Advanced Filters
+                <span x-show="activeFilterCount > 0" x-text="activeFilterCount" class="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white dark:bg-primary-soft dark:text-card-dark"></span>
+                <i data-lucide="chevron-down" class="h-3.5 w-3.5 transition-transform duration-150" :class="showFilters && 'rotate-180'"></i>
+              </button>
+            </div>
+
+            <button
+              type="submit"
+              :disabled="submitting"
+              class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-70"
+            >
+              <i data-lucide="loader-2" class="h-4 w-4 animate-spin" x-show="submitting"></i>
+              <i data-lucide="send" class="h-4 w-4" x-show="!submitting"></i>
+              <span x-text="submitting ? 'Thinking…' : 'Ask AI'"></span>
+            </button>
+          </div>
+
+          {% comment %}
+          Always visible, whether or not the Advanced Filters panel is
+          expanded - so a filter set earlier (or carried over from the
+          last question) is never invisible to the user. Each chip
+          clears just that one filter; "Clear all" resets everything.
+          {% endcomment %}
+          <div x-show="activeFilterCount > 0" x-cloak class="mt-2 flex flex-wrap items-center gap-1.5">
+            <span class="text-[11px] font-medium text-muted dark:text-muted-dark">Active filters:</span>
+            <template x-if="filters.fileTypes.length">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                Type: <span x-text="filters.fileTypes.map(t => t.toUpperCase()).join(', ')"></span>
+                <button type="button" @click="clearFilter('fileTypes')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <template x-if="filters.uploadedAfter">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                After <span x-text="filters.uploadedAfter"></span>
+                <button type="button" @click="clearFilter('uploadedAfter')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <template x-if="filters.uploadedBefore">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                Before <span x-text="filters.uploadedBefore"></span>
+                <button type="button" @click="clearFilter('uploadedBefore')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <template x-if="filters.collectionId">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                Collection: <span x-text="filters.collectionLabel"></span>
+                <button type="button" @click="clearFilter('collectionId')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <template x-if="filters.categoryId">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                Category: <span x-text="filters.categoryLabel"></span>
+                <button type="button" @click="clearFilter('categoryId')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <template x-if="filters.tagId">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                Tag: <span x-text="filters.tagLabel"></span>
+                <button type="button" @click="clearFilter('tagId')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <template x-if="filters.orgLibraryOnly">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                Organization Library only
+                <button type="button" @click="clearFilter('orgLibraryOnly')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <button type="button" @click="clearAllFilters()" class="text-[11px] font-medium text-muted underline hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark">Clear all</button>
+          </div>
+
+          <div x-show="showFilters" x-cloak x-transition class="mt-4 grid grid-cols-1 gap-4 rounded-lg border border-line bg-surface p-4 dark:border-line-dark dark:bg-white/5 sm:grid-cols-3">
+            <div>
+              <span class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">File type</span>
+              <div class="flex flex-wrap gap-3">
+                {% for ext in allowed_file_extensions %}
+                  <label class="flex items-center gap-1.5 text-sm text-ink dark:text-ink-dark">
+                    <input type="checkbox" name="file_types" value="{{ ext }}" x-model="filters.fileTypes" class="rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark">
+                    {{ ext|upper }}
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+            <div>
+              <label for="uploaded_after" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Uploaded after</label>
+              <input type="date" name="uploaded_after" id="uploaded_after" x-model="filters.uploadedAfter" class="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+            </div>
+            <div>
+              <label for="uploaded_before" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Uploaded before</label>
+              <input type="date" name="uploaded_before" id="uploaded_before" x-model="filters.uploadedBefore" class="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+            </div>
+            <div>
+              <label for="collection_id" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Collection</label>
+              <select name="collection_id" id="collection_id" x-model="filters.collectionId" @change="filters.collectionLabel = $event.target.selectedOptions[0].text" {% if not collections %}disabled{% endif %} class="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:opacity-50 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+                <option value="">Any collection</option>
+                {% for collection in collections %}
+                  <option value="{{ collection.id }}">{{ collection.name }}</option>
+                {% endfor %}
+              </select>
+              {% if not collections %}
+                <p class="mt-1 text-[11px] text-muted dark:text-muted-dark">No collections yet — create one from <a href="{% url 'collections' %}" class="text-primary hover:underline dark:text-primary-soft">Documents &rsaquo; Collections</a>.</p>
+              {% endif %}
+            </div>
+            <div>
+              <label for="category_id" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Category</label>
+              <select name="category_id" id="category_id" x-model="filters.categoryId" @change="filters.categoryLabel = $event.target.selectedOptions[0].text" {% if not categories %}disabled{% endif %} class="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:opacity-50 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+                <option value="">Any category</option>
+                {% for category in categories %}
+                  <option value="{{ category.id }}">{{ category.name }}</option>
+                {% endfor %}
+              </select>
+              {% if not categories %}
+                <p class="mt-1 text-[11px] text-muted dark:text-muted-dark">No categories yet — add one to a document in <a href="{% url 'documents' %}" class="text-primary hover:underline dark:text-primary-soft">My Documents</a>.</p>
+              {% endif %}
+            </div>
+            <div>
+              <label for="tag_id" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Tag</label>
+              <select name="tag_id" id="tag_id" x-model="filters.tagId" @change="filters.tagLabel = $event.target.selectedOptions[0].text" {% if not tags %}disabled{% endif %} class="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:opacity-50 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+                <option value="">Any tag</option>
+                {% for tag in tags %}
+                  <option value="{{ tag.id }}">{{ tag.name }}</option>
+                {% endfor %}
+              </select>
+              {% if not tags %}
+                <p class="mt-1 text-[11px] text-muted dark:text-muted-dark">No tags yet — add one to a document in <a href="{% url 'documents' %}" class="text-primary hover:underline dark:text-primary-soft">My Documents</a>.</p>
+              {% endif %}
+            </div>
+            <div class="flex items-end sm:col-span-3">
+              <label class="flex items-center gap-2 text-sm text-ink dark:text-ink-dark">
+                <input type="checkbox" name="org_library_only" value="1" x-model="filters.orgLibraryOnly" class="rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark">
+                <span class="flex items-center gap-1.5"><i data-lucide="library" class="h-3.5 w-3.5"></i> Organization Library only</span>
+              </label>
+            </div>
+          </div>
+        </form>
+
+        <div
+          x-show="submitting"
+          x-cloak
+          x-transition.opacity
+          class="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-card/90 backdrop-blur-sm dark:bg-card-dark/90"
+        >
+          <i data-lucide="loader-2" class="h-6 w-6 animate-spin text-primary"></i>
+          <p class="text-sm font-medium text-ink dark:text-ink-dark">Retrieving context and thinking…</p>
+        </div>
+      </div>
+
+      {% comment %}
+      A persistent container (same #id across every render) so the
+      streaming JS below can update it in place: it fills in with a
+      plain-text live skeleton as answer tokens arrive, then swaps to
+      this exact server-rendered partial's markup (fetched from
+      ask_ai_stream's final SSE event) once the answer completes - the
+      same template runs either way, so the end state here and the
+      classic full-page-POST end state below are always identical.
+      {% endcomment %}
+      <div id="ask-ai-result-container">
+        {% include "partials/_ask_ai_result.html" %}
+      </div>
+
+    </div>
+
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark h-fit">
+      <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Questions</h2>
+      </div>
+      <div class="divide-y divide-line dark:divide-line-dark">
+        {% for log in recent_questions %}
+          <div class="group flex items-center gap-1 px-2 py-1.5 transition-colors hover:bg-surface dark:hover:bg-white/5">
+            <a
+              href="{% url 'ask_ai' %}?log_id={{ log.id }}"
+              class="min-w-0 flex-1 rounded-lg px-3 py-2 {% if result.id == log.id %}bg-primary/5{% endif %}"
+            >
+              <p class="truncate text-sm font-medium text-ink dark:text-ink-dark">{{ log.question }}</p>
+              <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">{{ log.confidence }}% confidence · {{ log.created_at|timesince }} ago</p>
+            </a>
+            <button
+              type="button"
+              @click="useQuestion('{{ log.question|escapejs }}')"
+              title="Ask again"
+              class="shrink-0 rounded-lg p-2 text-muted opacity-0 transition-opacity hover:text-primary group-hover:opacity-100 dark:text-muted-dark dark:hover:text-primary-soft"
+            >
+              <i data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i>
+            </button>
+          </div>
+        {% empty %}
+          <p class="px-5 py-8 text-center text-sm text-muted dark:text-muted-dark">Your recent questions will appear here.</p>
+        {% endfor %}
+      </div>
+    </div>
+
   </div>
 
 </div>
 
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // Defined here (a real <script> block, in extra_scripts - loaded
+  // after Alpine's own `defer` script, per base.html, so it's always
+  // ready before Alpine evaluates x-data="askAiPage()") rather than as
+  // an inline x-data="{ ... }" object literal on the element itself.
+  //
+  // That inline form was the actual bug behind "Answer section shows
+  // raw JavaScript": x-data's value is itself a double-quoted HTML
+  // attribute, and streamAnswer() below builds HTML strings containing
+  // double-quoted attributes like class="...". Nested unescaped `"`
+  // characters inside a double-quoted HTML attribute close that
+  // attribute early - the HTML parser has no idea it's "inside a JS
+  // template literal", it just sees the next `"` and ends x-data()
+  // right there. Everything after that point (the rest of this
+  // function's source) got tokenized as bogus HTML attribute soup on
+  // the <div>, until an unrelated `>` (e.g. from an arrow function
+  // "=>") force-closed the tag early and dumped the remaining raw JS
+  // source into the page as literal text content - exactly the
+  // symptom reported. Using a named function referenced by
+  // x-data="askAiPage()" (the same pattern admin/queries.html and
+  // admin/ai_logs.html already use) moves the object literal into a
+  // real <script> block, where double quotes in HTML template strings
+  // are just normal JS string content - no attribute to collide with.
+  function askAiPage() {
+    return {
+      submitting: false,
+      question: '{{ result.question|escapejs }}',
+      filters: {
+        collectionId: '{{ selected_collection_id|escapejs }}',
+        collectionLabel: '{{ selected_collection_name|escapejs }}',
+        categoryId: '{{ selected_category_id|escapejs }}',
+        categoryLabel: '{{ selected_category_name|escapejs }}',
+        tagId: '{{ selected_tag_id|escapejs }}',
+        tagLabel: '{{ selected_tag_name|escapejs }}',
+        orgLibraryOnly: {{ selected_org_library_only|yesno:'true,false' }},
+        fileTypes: [{% for ext in selected_file_types %}'{{ ext|escapejs }}',{% endfor %}],
+        uploadedAfter: '{{ selected_uploaded_after|escapejs }}',
+        uploadedBefore: '{{ selected_uploaded_before|escapejs }}',
+      },
+      get activeFilterCount() {
+        let n = 0;
+        if (this.filters.fileTypes.length) n++;
+        if (this.filters.uploadedAfter) n++;
+        if (this.filters.uploadedBefore) n++;
+        if (this.filters.collectionId) n++;
+        if (this.filters.categoryId) n++;
+        if (this.filters.tagId) n++;
+        if (this.filters.orgLibraryOnly) n++;
+        return n;
+      },
+      clearFilter(key) {
+        if (key === 'fileTypes') this.filters.fileTypes = [];
+        else if (key === 'collectionId') { this.filters.collectionId = ''; this.filters.collectionLabel = ''; }
+        else if (key === 'categoryId') { this.filters.categoryId = ''; this.filters.categoryLabel = ''; }
+        else if (key === 'tagId') { this.filters.tagId = ''; this.filters.tagLabel = ''; }
+        else if (key === 'orgLibraryOnly') this.filters.orgLibraryOnly = false;
+        else this.filters[key] = '';
+      },
+      clearAllFilters() {
+        this.filters = {
+          collectionId: '', collectionLabel: '', categoryId: '', categoryLabel: '',
+          tagId: '', tagLabel: '', orgLibraryOnly: false, fileTypes: [],
+          uploadedAfter: '', uploadedBefore: '',
+        };
+      },
+      showFilters: {{ selected_file_types|yesno:'true,false' }} || {{ selected_uploaded_after|yesno:'true,false' }} || {{ selected_uploaded_before|yesno:'true,false' }} || {{ selected_collection_id|yesno:'true,false' }} || {{ selected_category_id|yesno:'true,false' }} || {{ selected_tag_id|yesno:'true,false' }} || {{ selected_org_library_only|yesno:'true,false' }},
+      expandedSources: {},
+      copied: false,
+      useQuestion(text) {
+        this.question = text;
+        this.$refs.questionInput.focus();
+        this.$refs.questionInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      },
+      toggleSource(n) {
+        this.expandedSources[n] = !this.expandedSources[n];
+      },
+      scrollToSource(n) {
+        const el = document.querySelector(`[data-source-number="${n}"]`);
+        if (!el) return;
+        this.expandedSources[n] = true;
+        this.$nextTick(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('ring-2', 'ring-primary', 'ring-offset-2', 'ring-offset-card');
+          setTimeout(() => el.classList.remove('ring-2', 'ring-primary', 'ring-offset-2', 'ring-offset-card'), 1600);
+        });
+      },
+      copyAnswer(text) {
+        navigator.clipboard.writeText(text).then(() => {
+          this.copied = true;
+          setTimeout(() => this.copied = false, 1800);
+        });
+      },
+      async streamAnswer(event) {
+        // Progressive reveal of the answer, into the same
+        // #ask-ai-result-container the classic full-page POST renders
+        // into - see ask_ai_stream (RAG/views.py). Falls back to a
+        // normal form submit on any failure (fetch/stream unsupported,
+        // network error, or a server-side error event), so the classic
+        // path always still works.
+        this.submitting = true;
+        const form = event.target;
+        const container = document.getElementById('ask-ai-result-container');
+        const csrftoken = form.querySelector('[name=csrfmiddlewaretoken]').value;
+
+        try {
+          const response = await fetch('{% url "ask_ai_stream" %}', {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrftoken },
+            body: new FormData(form),
+          });
+
+          if (!response.ok || !response.body) throw new Error('stream unavailable');
+
+          container.innerHTML = `
+            <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+              <div class="px-5 py-5">
+                <div class="mb-2 flex items-center gap-2">
+                  <h3 class="text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Answer</h3>
+                  <i data-lucide="loader-2" class="h-3.5 w-3.5 animate-spin text-primary"></i>
+                </div>
+                <div id="ask-ai-live-answer" class="text-sm leading-relaxed text-ink dark:text-ink-dark [&>*+*]:mt-3 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs dark:[&_code]:bg-white/10 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-surface [&_pre]:p-3 [&_pre]:text-xs dark:[&_pre]:bg-white/5 [&_pre_code]:bg-transparent [&_pre_code]:p-0"></div>
+              </div>
+            </div>
+          `;
+          lucide.createIcons();
+          const liveAnswer = document.getElementById('ask-ai-live-answer');
+          // Accumulated raw Markdown from "token" events - re-parsed and
+          // re-sanitized on every token (cheap for answer-length text)
+          // rather than incrementally, since partial/unclosed Markdown
+          // syntax (an unfinished "**" or code fence) doesn't parse
+          // sensibly token-by-token anyway. DOMPurify runs client-side
+          // because this is a live preview only - the authoritative,
+          // stored answer is always the server-rendered/nh3-sanitized
+          // HTML that replaces this element on the "done" event below.
+          let liveAnswerRaw = '';
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            let boundary;
+            while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+              const frame = buffer.slice(0, boundary);
+              buffer = buffer.slice(boundary + 2);
+              if (!frame.startsWith('data: ')) continue;
+
+              const payload = JSON.parse(frame.slice(6));
+
+              if (payload.type === 'token') {
+                liveAnswerRaw += payload.text;
+                liveAnswer.innerHTML = DOMPurify.sanitize(marked.parse(liveAnswerRaw));
+              } else if (payload.type === 'done') {
+                container.innerHTML = payload.html;
+                lucide.createIcons();
+                Alpine.initTree(container);
+              } else if (payload.type === 'error') {
+                throw new Error('stream error');
+              }
+            }
+          }
+        } catch (err) {
+          form.submit();
+          return;
+        }
+
+        this.submitting = false;
+      },
+    };
+  }
+</script>
 {% endblock %}

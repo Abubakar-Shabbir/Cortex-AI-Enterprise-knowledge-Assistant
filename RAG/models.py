@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
 from django.db import models
-from pgvector.django import VectorField
+from pgvector.django import HnswIndex, VectorField
 from django.conf import settings
 
 class Document(models.Model):
@@ -56,8 +56,174 @@ class Document(models.Model):
                    "PENDING until the Embed button is clicked (documents_view.document_embed).",
     )
 
+    description = models.TextField(blank=True, default="")
+
+    is_org_library = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Admin-managed Organization Library membership - visible/retrievable "
+                   "to every user, not just the owner. See document_access_service.",
+    )
+
+    is_archived = models.BooleanField(default=False, db_index=True)
+    archived_at = models.DateTimeField(null=True, blank=True)
+
+    category = models.ForeignKey(
+        "Category",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="documents",
+    )
+
+    tags = models.ManyToManyField("Tag", blank=True, related_name="documents")
+
+    version_number = models.PositiveIntegerField(
+        default=1,
+        help_text="Current version. Prior versions are snapshotted into DocumentVersion "
+                   "by upload_service.upload_new_version() before this is incremented.",
+    )
+
     def __str__(self):
         return self.title
+
+
+class Category(models.Model):
+    """A single-valued grouping, scoped per user - each user keeps their own category vocabulary, same as Tag, so categorizing a shared/org document never leaks a category name to its other viewers."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="categories")
+    name = models.CharField(max_length=80)
+    slug = models.SlugField(max_length=90)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "slug")
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class Tag(models.Model):
+    """A multi-valued label, scoped per user - see Category's docstring for why."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="tags")
+    name = models.CharField(max_length=50)
+    slug = models.SlugField(max_length=60)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "slug")
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class Collection(models.Model):
+    """A personal folder. The owner need not own every document inside it - only be able to access it (checked in collections_service, not a DB constraint), since filing an org/shared document into your own folder is a legitimate use case."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="collections")
+    name = models.CharField(max_length=150)
+    description = models.CharField(max_length=255, blank=True, default="")
+    documents = models.ManyToManyField(
+        Document, through="CollectionDocument", related_name="collections"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "name")
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class CollectionDocument(models.Model):
+    collection = models.ForeignKey(Collection, on_delete=models.CASCADE, related_name="items")
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="collection_memberships")
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("collection", "document")
+
+
+class Favorite(models.Model):
+    """Any accessible document can be favorited, not just an owned one - see document_access_service.can_view_document."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="favorite_documents")
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="favorited_by")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "document")
+
+
+class DocumentVersion(models.Model):
+    """
+    History-only snapshot of a document's PREVIOUS active file, written
+    right before that file gets replaced (upload_service.upload_new_version).
+    Document.file/.file_hash/.file_size/.file_type/.version_number always
+    describe the CURRENT version; this table only ever grows - there is no
+    "restore as current" action.
+    """
+
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="versions")
+    version_number = models.PositiveIntegerField()
+    file = models.FileField(upload_to="documents/versions/")
+    file_hash = models.CharField(max_length=64, blank=True, default="")
+    file_size = models.BigIntegerField(default=0)
+    file_type = models.CharField(max_length=20, blank=True)
+    replaced_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("document", "version_number")
+        ordering = ["-version_number"]
+
+
+class DocumentShare(models.Model):
+    """
+    Exactly one of shared_with_user / shared_with_role is set (enforced by
+    the CheckConstraint below). Grants view + download only - never
+    delete/re-version/manage-shares; those stay owner-only regardless of
+    any share (see document_access_service.can_edit_document).
+    """
+
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="shares")
+    shared_with_user = models.ForeignKey(
+        User, on_delete=models.CASCADE, null=True, blank=True, related_name="document_shares_received"
+    )
+    shared_with_role = models.ForeignKey(
+        "Role", on_delete=models.CASCADE, null=True, blank=True, related_name="document_shares"
+    )
+    shared_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(shared_with_user__isnull=False, shared_with_role__isnull=True)
+                    | models.Q(shared_with_user__isnull=True, shared_with_role__isnull=False)
+                ),
+                name="documentshare_exactly_one_target",
+            ),
+        ]
+        unique_together = [
+            ("document", "shared_with_user"),
+            ("document", "shared_with_role"),
+        ]
+
+
+class DocumentAccessLog(models.Model):
+    """Powers Recent Documents - written on document_download/document_preview, not on every list-page render."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="document_accesses")
+    document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="access_logs")
+    accessed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["user", "-accessed_at"])]
 
 
 class DocumentChunk(models.Model):
@@ -104,6 +270,26 @@ class ChunkEmbedding(models.Model):
         auto_now_add=True
     )
 
+    class Meta:
+        # HNSW, not IVFFlat: IVFFlat needs representative data present
+        # at index-creation time to pick good cluster centroids and a
+        # tuned `lists` parameter, and degrades badly on a small/empty
+        # table; HNSW needs neither and searches correctly from the
+        # first row. opclasses matches L2Distance - the only distance
+        # function every retrieval query in this project actually
+        # uses (retrieval_service._vector_similarity_search) - an
+        # index built for a different operator wouldn't be used by
+        # these queries at all.
+        indexes = [
+            HnswIndex(
+                name="chunkembedding_embedding_hnsw",
+                fields=["embedding"],
+                m=16,
+                ef_construction=64,
+                opclasses=["vector_l2_ops"],
+            )
+        ]
+
     def __str__(self):
         return (
             f"{self.chunk.document.title} "
@@ -149,6 +335,11 @@ class QueryLog(models.Model):
     created_at = models.DateTimeField(
         auto_now_add=True,
         db_index=True
+    )
+
+    is_flagged = models.BooleanField(
+        default=False,
+        help_text="Pinned for follow-up in Admin > Queries. A shared review flag, not tied to any one admin.",
     )
 
     class Meta:
@@ -299,6 +490,17 @@ class Relationship(models.Model):
 # the seed data source for existing accounts in
 # RAG/management/commands/seed_rbac.py; no other code should branch on
 # them going forward.
+#
+# There is no "Super Admin" tier - Admin is the sole built-in top-tier
+# role and always has full access (see Role.has_permission below).
+# Every other role (including the built-in "user") is fully dynamic:
+# created, edited, and deleted through Admin > Roles
+# (RAG.views.admin_roles_view), with permissions assigned per role,
+# not hardcoded per feature.
+
+ADMIN_ROLE_SLUG = "admin"
+USER_ROLE_SLUG = "user"
+
 
 class Permission(models.Model):
     """
@@ -365,7 +567,7 @@ class Role(models.Model):
 
     is_system = models.BooleanField(
         default=False,
-        help_text="Built-in role (super_admin/admin/user) seeded by seed_rbac - not meant to be deleted.",
+        help_text="Built-in role (admin/user) seeded by seed_rbac - not meant to be deleted.",
     )
 
     created_at = models.DateTimeField(
@@ -379,6 +581,16 @@ class Role(models.Model):
         return self.name
 
     def has_permission(self, codename):
+        # Admin always has full system access by design (not just at
+        # seed time) - a permission added months from now still just
+        # works for Admin without anyone remembering to attach it.
+        # The M2M table is still kept in sync for Admin (see the
+        # Permission post_save signal in RAG/apps.py and
+        # RAG.admin.RoleAdmin.save_related) purely so the Role
+        # Management UI's checkboxes show the truth, not because this
+        # check depends on it.
+        if self.slug == ADMIN_ROLE_SLUG:
+            return True
         return self.permissions.filter(codename=codename).exists()
 
 
@@ -425,8 +637,8 @@ class ActivityLog(models.Model):
     RAG.services.activity_log_service.log_activity() for events that
     aren't already captured by an existing model (Document.uploaded_at
     already records uploads; this covers deletions, suspensions, role
-    changes, and logins). Backs Admin > Activity Logs
-    (RAG.views.admin_activity_logs_view).
+    changes, and logins). Backs the Activity tab of Admin > System Logs
+    (RAG.views.admin_system_logs_view).
     """
 
     actor = models.ForeignKey(
@@ -478,11 +690,23 @@ class SystemConfiguration(models.Model):
     """
 
     LLM_PROVIDER_CHOICES = [
-        ("gemini", "Gemini"),
         ("openrouter", "OpenRouter"),
+        ("groq", "Groq"),
+        ("gemini", "Gemini"),
     ]
 
     llm_provider = models.CharField(max_length=20, choices=LLM_PROVIDER_CHOICES, default="openrouter")
+
+    # Per-provider model selection - kept independent per provider
+    # (rather than one shared "model" field) since a model name from
+    # one provider is meaningless to another. See
+    # RAG.services.llm_client.PROVIDER_REGISTRY for the curated
+    # free-model choices the Settings page offers per provider; these
+    # fields accept any string, so a value set directly via .env is
+    # never clobbered by the dropdown's curated list.
+    openrouter_model = models.CharField(max_length=150, default="openai/gpt-oss-20b:free")
+    groq_model = models.CharField(max_length=150, default="llama-3.1-8b-instant")
+    gemini_model = models.CharField(max_length=150, default="gemini-2.0-flash")
 
     top_k = models.PositiveSmallIntegerField(default=3)
     answer_temperature = models.FloatField(default=0.2)
@@ -522,3 +746,360 @@ class SystemConfiguration(models.Model):
 
     def __str__(self):
         return "System Configuration"
+
+
+class AITaskRun(models.Model):
+    """
+    One guided AI Task run (Select Task -> Select Documents -> Configure
+    -> Run -> Review -> Export). Always processed by a Celery worker
+    (RAG.tasks.run_ai_task) - unlike document processing, there is no
+    inline/synchronous path, since a run can span up to
+    settings.AI_TASKS_MAX_DOCUMENTS documents.
+    """
+
+    class TaskType(models.TextChoices):
+        ANALYZE = "analyze", "Analyze Documents"
+        COMPARE = "compare", "Compare Documents"
+        SUMMARIZE = "summarize", "Summarize Documents"
+        EXTRACT = "extract", "Extract Information"
+        VALIDATE = "validate", "Validate Against Reference Documents"
+        FIND_SIMILAR = "find_similar", "Find Similar Documents"
+        ORGANIZE = "organize", "Organize Documents"
+        REPORT = "report", "Generate Reports"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="ai_task_runs"
+    )
+
+    task_type = models.CharField(max_length=20, choices=TaskType.choices)
+
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+
+    config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Task-specific options from the Configure step (criteria, "
+                   "fields, similarity_threshold, ...) - shape depends on "
+                   "task_type, validated by ai_tasks_engine_service, not the DB.",
+    )
+
+    document_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Snapshot of the target-document count at creation time, "
+                   "after the AI_TASKS_MAX_DOCUMENTS cap was enforced.",
+    )
+
+    error_message = models.TextField(blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.get_task_type_display()} ({self.id}) - {self.user.username}"
+
+
+class AITaskRunDocument(models.Model):
+    """
+    Through model for AITaskRun's document set. TARGET documents are
+    the ones being analyzed/compared/summarized/...; REFERENCE
+    documents (a job description, a policy, a standard) are only used
+    by Validate Against Reference Documents, and optionally Analyze
+    Documents, to check TARGET documents against.
+    """
+
+    class Role(models.TextChoices):
+        TARGET = "target", "Target"
+        REFERENCE = "reference", "Reference"
+
+    run = models.ForeignKey(
+        AITaskRun, on_delete=models.CASCADE, related_name="run_documents"
+    )
+
+    document = models.ForeignKey(
+        Document, on_delete=models.CASCADE, related_name="ai_task_run_memberships"
+    )
+
+    role = models.CharField(
+        max_length=20, choices=Role.choices, default=Role.TARGET
+    )
+
+    class Meta:
+        unique_together = ("run", "document")
+        indexes = [models.Index(fields=["run", "role"])]
+
+
+class AITaskResult(models.Model):
+    """
+    One row per result item a run produces. `document` is NULL for a
+    corpus-level result (Compare's overall diff narrative, Organize's
+    per-group scheme, Generate Reports' final report body, Summarize's
+    executive summary, Find Similar's per-cluster label) rather than a
+    finding about one specific target document.
+
+    SET_NULL (not CASCADE) on `document` so deleting a document later
+    doesn't erase review history the user already exported - the row
+    just loses its live document link and falls back to the `title`
+    snapshot.
+    """
+
+    run = models.ForeignKey(AITaskRun, on_delete=models.CASCADE, related_name="results")
+
+    document = models.ForeignKey(
+        Document,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ai_task_results",
+    )
+
+    rank = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Display order within its group - Analyze ranking, Organize "
+                   "group index, Find Similar cluster index. NULL where no "
+                   "ordering applies.",
+    )
+
+    score = models.FloatField(
+        null=True, blank=True,
+        help_text="Task-specific numeric score - Analyze relevance, Validate "
+                   "compliance percent, Find Similar similarity. NULL where "
+                   "not applicable.",
+    )
+
+    title = models.CharField(
+        max_length=255, blank=True, default="",
+        help_text="Document title snapshot for a per-document row, or a "
+                   "heading (e.g. 'Executive Summary') for a corpus-level row.",
+    )
+
+    summary = models.TextField(
+        blank=True, default="",
+        help_text="LLM prose finding for this result, with inline [n] "
+                   "citation markers per the citation_service.py convention.",
+    )
+
+    data = models.JSONField(
+        default=dict, blank=True,
+        help_text="Task-specific structured payload (extracted fields, "
+                   "violations, combined table, report sections, ...). "
+                   "Rendered generically by templates/ai_tasks/_result_row.html "
+                   "based on which keys are present.",
+    )
+
+    citations = models.JSONField(
+        default=list, blank=True,
+        help_text="[{number, document, chunk_number, role}, ...] - the subset "
+                   "of build_cited_context() source blocks this result's "
+                   "summary actually cited.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["run_id", "rank", "-score", "id"]
+        indexes = [models.Index(fields=["run", "document"])]
+
+    def __str__(self):
+        return self.title or f"Result {self.id} for run {self.run_id}"
+
+
+class AIRequestTrace(models.Model):
+    """
+    One row per Ask AI question or AI Task run - the shared execution
+    trace both features write to (RAG.services.observability_service
+    .save_trace() is the one function that creates these; nothing else
+    should). Built from the same per-stage timing
+    (RAG.services.perf.timed_stage() / RAG.services.trace.record_stage())
+    and LLM call metadata (RAG.services.llm_client.get_last_llm_meta())
+    both features already produce - this model is where that data
+    becomes queryable instead of living only in console log lines.
+
+    Exactly one of `query_log` / `ai_task_run` is set, matching `source`.
+    AI Tasks gets one row per RUN, not per per-document LLM call (a run
+    makes N+1 LLM calls) - `stages` is a list, so per-item granularity is
+    an additive follow-up, not a redesign.
+    """
+
+    class Source(models.TextChoices):
+        ASK_AI = "ask_ai", "Ask AI"
+        AI_TASK = "ai_task", "AI Task"
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    trace_id = models.CharField(max_length=32, unique=True, db_index=True)
+
+    source = models.CharField(max_length=20, choices=Source.choices, db_index=True)
+
+    user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="ai_request_traces"
+    )
+
+    query_log = models.OneToOneField(
+        QueryLog, on_delete=models.SET_NULL, null=True, blank=True, related_name="trace"
+    )
+
+    ai_task_run = models.OneToOneField(
+        AITaskRun, on_delete=models.SET_NULL, null=True, blank=True, related_name="trace"
+    )
+
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.RUNNING, db_index=True)
+
+    provider = models.CharField(max_length=50, blank=True, default="")
+
+    model = models.CharField(max_length=100, blank=True, default="")
+
+    providers_attempted = models.JSONField(
+        default=list, blank=True,
+        help_text="Ordered list of provider keys actually tried this request/run - "
+                   "len() > 1 means a fallback happened.",
+    )
+
+    retry_count = models.PositiveIntegerField(default=0)
+
+    prompt_tokens = models.PositiveIntegerField(null=True, blank=True)
+    completion_tokens = models.PositiveIntegerField(null=True, blank=True)
+    total_tokens = models.PositiveIntegerField(null=True, blank=True)
+
+    llm_latency_ms = models.PositiveIntegerField(null=True, blank=True)
+
+    time_to_first_token_ms = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Only populated for a streamed Ask AI answer.",
+    )
+
+    retrieved_chunks = models.PositiveIntegerField(default=0)
+
+    citation_count = models.PositiveIntegerField(default=0)
+
+    cache_hit = models.BooleanField(null=True, blank=True)
+
+    stages = models.JSONField(
+        default=list, blank=True,
+        help_text="[{name, duration_ms, ...context}, ...] in execution order - "
+                   "the same shape perf.timed_stage() already logs to console.",
+    )
+
+    total_duration_ms = models.PositiveIntegerField(default=0)
+
+    bottleneck_stage = models.CharField(max_length=100, blank=True, default="")
+
+    bottleneck_label = models.CharField(max_length=200, blank=True, default="")
+
+    error_type = models.CharField(
+        max_length=100, blank=True, default="",
+        help_text="A short classified code (e.g. LLMTimeoutError, "
+                   "AllProvidersFailedError) - never a raw exception message.",
+    )
+
+    error_message = models.TextField(
+        blank=True, default="",
+        help_text="Sanitized short message for support/debugging - must never "
+                   "contain API keys, tokens, or a raw stack trace.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["source", "status"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.get_source_display()} trace {self.trace_id}"
+
+
+class ErrorGroup(models.Model):
+    """
+    Deduplicated errors/warnings captured automatically from the app's
+    existing logging calls (RAG.services.error_intelligence_service
+    .ErrorCaptureHandler, wired into settings.LOGGING) - every
+    logger.warning()/error()/exception() call already made throughout
+    RAG/services/*.py, RAG/views.py, RAG/tasks.py (auth, documents,
+    retrieval, LLM providers, Redis, Celery, unhandled exceptions) flows
+    into this model with zero changes to any of those call sites.
+
+    One row per *distinct* error shape (see `fingerprint`), not one row
+    per occurrence - a Redis outage that logs the same warning 500 times
+    increments one row's occurrence_count/last_seen/recent_occurrences
+    rather than creating 500 rows. This is deliberately read-only
+    observability, not a ticketing system - no resolved/acknowledged
+    workflow.
+    """
+
+    fingerprint = models.CharField(
+        max_length=64, unique=True, db_index=True,
+        help_text="sha256(logger_name:level:error_type-or-normalized-message) - what groups occurrences together.",
+    )
+
+    logger_name = models.CharField(max_length=200, db_index=True, help_text='e.g. "RAG.services.llm_client", "django.request".')
+
+    level = models.CharField(max_length=20, db_index=True, help_text="WARNING / ERROR / CRITICAL - matches the Python logging level name.")
+
+    error_type = models.CharField(max_length=200, blank=True, default="", help_text="Exception class name, if the log call included exc_info - blank for a plain logger.warning() with no exception.")
+
+    message = models.TextField(help_text="Redacted (see error_intelligence_service.redact_secrets()), truncated first-occurrence message - not a full traceback, by design (see the module docstring on what this deliberately doesn't store).")
+
+    occurrence_count = models.PositiveIntegerField(default=1)
+
+    first_seen = models.DateTimeField(auto_now_add=True)
+
+    last_seen = models.DateTimeField(db_index=True)
+
+    recent_occurrences = models.JSONField(
+        default=list, blank=True,
+        help_text="[{trace_id, timestamp}, ...] - the most recent occurrences only (capped), for correlating back to an AIRequestTrace or a specific request via RAG.services.trace's trace_id / the X-Request-ID response header.",
+    )
+
+    class Meta:
+        ordering = ["-last_seen"]
+        indexes = [
+            models.Index(fields=["level", "last_seen"]),
+            models.Index(fields=["logger_name", "last_seen"]),
+        ]
+
+    def __str__(self):
+        return f"[{self.level}] {self.logger_name}: {self.message[:60]}"
+
+    @property
+    def severity(self):
+        """
+        Computed, not stored - a state machine (manually resolved/
+        acknowledged errors) is explicitly out of scope; this is just
+        "how alarming does this look right now" from level + recent
+        volume, recomputed fresh every time it's read.
+        """
+
+        from django.utils import timezone
+
+        if self.level == "CRITICAL":
+            return "critical"
+
+        recent_and_frequent = self.occurrence_count >= 10 and (timezone.now() - self.last_seen).total_seconds() < 3600
+
+        if self.level == "ERROR" and recent_and_frequent:
+            return "critical"
+
+        if self.level == "ERROR":
+            return "high"
+
+        if recent_and_frequent:
+            return "high"
+
+        return "medium"

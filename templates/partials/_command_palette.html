@@ -3,29 +3,48 @@ Command palette (Cmd/Ctrl+K) — client-side keyboard navigation across
 every top-level page this user can see. Destinations are the exact
 same URLs as the sidebar (built with {% url %}, not hardcoded paths),
 just reachable without touching the mouse.
+
+Each entry carries the permission codename that gates its page
+(`perm: null` for pages every authenticated user can reach, e.g.
+Profile; `perm: [a, b]` for a page reachable by any one of several
+permissions, e.g. the multi-tab System Logs page) - `allItems` is
+filtered against user_permissions
+(context_processors.sidebar_status, json_script'd below) so an entry
+never appears for a role that can't actually open it, the same rule
+every sidebar/quick-actions template applies.
 {% endcomment %}
+{{ user_permissions|json_script:"user-permissions-json" }}
 <div
   x-data="{
     open: false,
     query: '',
     activeIndex: 0,
-    items: [
-      { label: 'Dashboard', icon: 'layout-dashboard', href: '{% url 'home' %}', hint: 'Overview' },
-      { label: 'Documents', icon: 'file-text', href: '{% url 'documents' %}', hint: 'Upload & manage' },
-      { label: 'Knowledge Base', icon: 'share-2', href: '{% url 'knowledge_base' %}', hint: 'Entities & relationships' },
-      { label: 'AI Search', icon: 'message-square', href: '{% url 'ask_ai' %}', hint: 'Ask a question' },
-      { label: 'Search History', icon: 'history', href: '{% url 'search_history' %}', hint: 'Past questions' },
-      { label: 'Profile', icon: 'user-round', href: '{% url 'profile' %}', hint: 'Account settings' }{% if is_admin %},
-      { label: 'Analytics', icon: 'bar-chart-3', href: '{% url 'analytics' %}', hint: 'Usage trends (admin)' },
-      { label: 'Reports', icon: 'file-down', href: '{% url 'reports' %}', hint: 'Export data' },
-      { label: 'Users', icon: 'users', href: '{% url 'admin_users' %}', hint: 'Roles & access (admin)' },
-      { label: 'Roles', icon: 'shield', href: '{% url 'admin_roles' %}', hint: 'Define permissions (admin)' },
-      { label: 'Queries', icon: 'search', href: '{% url 'admin_queries' %}', hint: 'Workspace-wide log (admin)' },
-      { label: 'Activity Logs', icon: 'scroll-text', href: '{% url 'admin_activity_logs' %}', hint: 'Workspace-wide feed (admin)' },
-      { label: 'Settings', icon: 'settings', href: '{% url 'admin_settings' %}', hint: 'RAG pipeline config (admin)' },
-      { label: 'Monitoring', icon: 'activity', href: '{% url 'monitoring' %}', hint: 'System health (admin)' }{% else %},
-      { label: 'Reports', icon: 'file-down', href: '{% url 'reports' %}', hint: 'Export data' }{% endif %}
+    permissions: JSON.parse(document.getElementById('user-permissions-json').textContent),
+    allItems: [
+      { label: 'Dashboard', icon: 'layout-dashboard', href: '{% url 'home' %}', hint: 'Overview', perm: null },
+      { label: 'Documents', icon: 'file-text', href: '{% url 'documents' %}', hint: 'Upload & manage', perm: 'pages.documents' },
+      { label: 'Knowledge Base', icon: 'share-2', href: '{% url 'knowledge_base' %}', hint: 'Entities & relationships', perm: 'pages.knowledge_base' },
+      { label: 'AI Search', icon: 'message-square', href: '{% url 'ask_ai' %}', hint: 'Ask a question', perm: 'pages.ask_ai' },
+      { label: 'Search History', icon: 'history', href: '{% url 'search_history' %}', hint: 'Past questions', perm: 'pages.ask_ai' },
+      { label: 'AI Tasks', icon: 'sparkles', href: '{% url 'ai_tasks' %}', hint: 'Run a guided AI operation', perm: 'pages.ai_tasks' },
+      { label: 'AI Task History', icon: 'history', href: '{% url 'ai_task_history' %}', hint: 'Past AI Task runs', perm: 'pages.ai_tasks' },
+      { label: 'Analytics', icon: 'bar-chart-3', href: '{% url 'analytics' %}', hint: 'Usage trends', perm: 'pages.analytics' },
+      { label: 'Reports', icon: 'file-down', href: '{% url 'reports' %}', hint: 'Export data', perm: 'pages.reports' },
+      { label: 'Profile', icon: 'user-round', href: '{% url 'profile' %}', hint: 'Account settings', perm: null },
+      { label: 'Users', icon: 'users', href: '{% url 'admin_users' %}', hint: 'Roles & access (admin)', perm: 'users.view_all' },
+      { label: 'Roles', icon: 'shield', href: '{% url 'admin_roles' %}', hint: 'Define permissions (admin)', perm: 'roles.manage' },
+      { label: 'Queries', icon: 'search', href: '{% url 'admin_queries' %}', hint: 'Workspace-wide log (admin)', perm: 'queries.view_all_logs' },
+      { label: 'System Logs', icon: 'terminal', href: '{% url 'admin_system_logs' %}', hint: 'Traces, errors & activity (admin)', perm: ['system.view_ai_logs', 'activity.view_all_logs'] },
+      { label: 'Settings', icon: 'settings', href: '{% url 'admin_settings' %}', hint: 'RAG pipeline config (admin)', perm: ['settings.manage_llm', 'settings.manage_chunking', 'settings.manage_retrieval', 'settings.manage_embedding', 'settings.manage_database'] },
+      { label: 'Monitoring', icon: 'activity', href: '{% url 'monitoring' %}', hint: 'System health (admin)', perm: 'system.view_health' },
     ],
+    get items() {
+      return this.allItems.filter(i => {
+        if (i.perm === null) return true;
+        if (Array.isArray(i.perm)) return i.perm.some(p => this.permissions.includes(p));
+        return this.permissions.includes(i.perm);
+      });
+    },
     get filtered() {
       const q = this.query.trim().toLowerCase();
       if (!q) return this.items;

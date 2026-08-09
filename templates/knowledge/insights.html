@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}Knowledge Insights{% endblock %}
+
+{% block content %}
+
+{% include "partials/_page_header.html" with title="Knowledge Insights" subtitle="What's well-covered, what's thin, and what might be worth a closer look — across everything you can access." %}
+
+{% include "partials/_kb_tabs.html" with active="insights" %}
+
+<div class="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+  {% include "partials/_stat_card.html" with icon="compass" label="Topics" value=insights.total_topics numeric=True %}
+  {% include "partials/_stat_card.html" with icon="file-text" label="Accessible Documents" value=insights.total_accessible_documents numeric=True %}
+</div>
+
+<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+
+  {# ---------- Most Referenced Documents ---------- #}
+  <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="star" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Most Referenced Documents
+      </h2>
+      <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">Documents with the most extracted entity mentions — the most load-bearing sources in the graph.</p>
+    </div>
+    <div class="divide-y divide-line dark:divide-line-dark">
+      {% for document in insights.most_referenced_documents %}
+        <div class="flex items-center justify-between gap-3 px-5 py-3">
+          <span class="min-w-0 truncate text-sm text-ink dark:text-ink-dark">{{ document.title }}</span>
+          <span class="shrink-0 rounded-full border border-line px-2 py-0.5 text-[11px] text-muted dark:border-line-dark dark:text-muted-dark">{{ document.mention_total }} mention{{ document.mention_total|pluralize }}</span>
+        </div>
+      {% empty %}
+        <p class="px-5 py-6 text-center text-sm text-muted dark:text-muted-dark">Nothing to show yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ---------- Frequently Connected Topics ---------- #}
+  <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="network" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Frequently Connected Topics
+      </h2>
+      <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">Topics with the most direct connections to other topics.</p>
+    </div>
+    <div class="divide-y divide-line dark:divide-line-dark">
+      {% for topic in insights.frequently_connected_topics %}
+        <a href="{% url 'entity_detail' topic.id %}" class="flex items-center justify-between gap-3 px-5 py-3 hover:bg-surface dark:hover:bg-white/5">
+          <span class="min-w-0 truncate text-sm font-medium text-ink dark:text-ink-dark">{{ topic.display_name }}</span>
+          <span class="shrink-0 rounded-full border border-line px-2 py-0.5 text-[11px] text-muted dark:border-line-dark dark:text-muted-dark">{{ topic.degree }} connection{{ topic.degree|pluralize }}</span>
+        </a>
+      {% empty %}
+        <p class="px-5 py-6 text-center text-sm text-muted dark:text-muted-dark">Nothing to show yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ---------- Recently Updated Knowledge ---------- #}
+  <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="clock" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Recently Updated Knowledge
+      </h2>
+    </div>
+    <div class="divide-y divide-line dark:divide-line-dark">
+      {% for event in insights.recently_updated %}
+        <div class="px-5 py-3">
+          {% if event.kind == 'mention' %}
+            <p class="text-sm text-ink dark:text-ink-dark"><span class="font-medium">{{ event.entity.display_name }}</span> newly linked to "{{ event.document.title }}"</p>
+          {% else %}
+            <p class="text-sm text-ink dark:text-ink-dark"><span class="font-medium">{{ event.relationship.source.display_name }}</span> {{ event.relationship.relation_type|lower }} <span class="font-medium">{{ event.relationship.target.display_name }}</span></p>
+          {% endif %}
+          <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">{{ event.at|timesince }} ago</p>
+        </div>
+      {% empty %}
+        <p class="px-5 py-6 text-center text-sm text-muted dark:text-muted-dark">Nothing to show yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ---------- Knowledge Coverage ---------- #}
+  <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="pie-chart" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Knowledge Coverage
+      </h2>
+      <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">Documents that aren't fully contributing to the knowledge graph yet.</p>
+    </div>
+    <div class="px-5 py-4">
+      {% if insights.not_processed or insights.processed_without_extraction %}
+        {% if insights.not_processed %}
+          <p class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Not yet processed ({{ insights.not_processed|length }})</p>
+          <ul class="mb-3 space-y-1">
+            {% for document in insights.not_processed %}
+              <li class="truncate text-sm text-ink dark:text-ink-dark">{{ document.title }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        {% if insights.processed_without_extraction %}
+          <p class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Processed, nothing extracted ({{ insights.processed_without_extraction|length }})</p>
+          <ul class="space-y-1">
+            {% for document in insights.processed_without_extraction %}
+              <li class="truncate text-sm text-ink dark:text-ink-dark">{{ document.title }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% else %}
+        <p class="py-2 text-center text-sm text-muted dark:text-muted-dark">Full coverage — every accessible, processed document has contributed to the graph.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ---------- Knowledge Quality ---------- #}
+  <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="badge-alert" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Weak / Unconfirmed Topics
+      </h2>
+      <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">Mentioned only once, with no confirmed connections — worth a second look before relying on them.</p>
+    </div>
+    <div class="divide-y divide-line dark:divide-line-dark">
+      {% for topic in insights.weak_topics %}
+        <a href="{% url 'entity_detail' topic.id %}" class="flex items-center justify-between gap-3 px-5 py-3 hover:bg-surface dark:hover:bg-white/5">
+          <span class="min-w-0 truncate text-sm text-ink dark:text-ink-dark">{{ topic.display_name }}</span>
+          <span class="shrink-0 rounded-full border border-line px-2 py-0.5 text-[11px] capitalize text-muted dark:border-line-dark dark:text-muted-dark">{{ topic.entity_type|lower }}</span>
+        </a>
+      {% empty %}
+        <p class="px-5 py-6 text-center text-sm text-muted dark:text-muted-dark">No weak signals found.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ---------- Duplicate Knowledge ---------- #}
+  <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="copy" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Possible Duplicate Content
+      </h2>
+      <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">Documents whose embeddings are nearly identical — likely the same content uploaded more than once.</p>
+    </div>
+    <div class="divide-y divide-line dark:divide-line-dark">
+      {% for cluster in insights.duplicate_clusters %}
+        <div class="px-5 py-3">
+          {% for document in cluster.documents %}
+            <p class="truncate text-sm text-ink dark:text-ink-dark">{{ document.title }}</p>
+          {% endfor %}
+        </div>
+      {% empty %}
+        <p class="px-5 py-6 text-center text-sm text-muted dark:text-muted-dark">No likely duplicates found.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+
+<div class="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
+  {% include "partials/_coming_soon.html" with title="Missing References" description="Flagging topics that should have a supporting document but don't needs a defined reference schema this project doesn't have yet." icon="link-2" %}
+  {% include "partials/_coming_soon.html" with title="Conflicting Information" description="Spotting contradictions between documents is an analysis task. Use Compare Documents or Validate Against Reference Documents in AI Tasks instead." icon="shield-question" %}
+</div>
+
+{% endblock %}

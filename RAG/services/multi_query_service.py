@@ -63,6 +63,7 @@ def multi_query_search(
     top_k: Optional[int] = None,
     filters=None,
     num_variants: Optional[int] = None,
+    user=None,
 ) -> list:
     """
     Retrieve using several LLM-generated phrasings of `question` in
@@ -73,6 +74,11 @@ def multi_query_search(
     generated - this is purely additive to the existing hybrid
     pipeline (vector_search()/bm25_search() on the original question
     still run separately), never a replacement for it.
+
+    `user` is forwarded to vector_search()/bm25_search() unchanged -
+    both fail closed (return []) without it, so an omitted `user`
+    here simply yields no fused results rather than searching every
+    user's chunks.
     """
 
     top_k = top_k or settings.TOP_K
@@ -99,8 +105,8 @@ def multi_query_search(
     for variant in extra_variants:
 
         try:
-            ranked_lists.append(vector_search(variant, top_k=top_k, filters=filters))
-            ranked_lists.append(bm25_search(variant, top_k, filters=filters))
+            ranked_lists.append(vector_search(variant, top_k=top_k, filters=filters, user=user))
+            ranked_lists.append(bm25_search(variant, top_k, filters=filters, user=user))
         except Exception:
             logger.exception(
                 "Multi-query retrieval: search failed for variant %r", variant

@@ -1,14 +1,20 @@
+import contextvars
+import hashlib
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
+from django.core.cache import cache
 from pgvector.django import L2Distance
 
 from ..models import ChunkEmbedding
+from .document_access_service import get_accessible_document_ids
 from .embedding_service import generate_embedding
 from .bm25_service import bm25_search
 from .dynamic_topk_service import compute_dynamic_top_k
 from .graph_retrieval_service import graph_search
 from .hyde_service import generate_hypothetical_document
+from .perf import Timer, timed_stage
 from .query_expansion_service import expand_query
 from .reranker_service import rerank_chunks
 from .retrieval_filters import apply_document_filters
@@ -16,7 +22,7 @@ from .retrieval_filters import apply_document_filters
 logger = logging.getLogger(__name__)
 
 
-def _vector_similarity_search(embedding, top_k, search_type="vector", filters=None):
+def _vector_similarity_search(embedding, top_k, search_type="vector", filters=None, user=None):
     """
     Shared pgvector L2Distance nearest-neighbor lookup. Both
     vector_search() (embeds the question) and hyde_search() (embeds a
@@ -24,9 +30,31 @@ def _vector_similarity_search(embedding, top_k, search_type="vector", filters=No
     ChunkEmbedding once you already have an embedding vector - this is
     the one place that runs it, tagged with whichever `search_type`
     the caller is using it for.
+
+    `user` is required for a non-empty result: like
+    graph_retrieval_service.graph_search(), a missing `user` fails
+    closed (returns []) rather than searching every user's chunks -
+    this table has no other tenant isolation, so an omitted `user`
+    must never silently mean "everyone". Scoped to `user`'s full
+    accessible set (owned + Organization Library + shared-with-them),
+    not just documents they own - see document_access_service.
     """
 
-    queryset = ChunkEmbedding.objects.annotate(
+    if user is None:
+        return []
+
+    accessible_ids = get_accessible_document_ids(user)
+
+    if not accessible_ids:
+        return []
+
+    # select_related avoids an N+1: without it, every result row below
+    # triggers 2 extra queries the moment the loop touches
+    # item.chunk.content / item.chunk.document.title (live-profiled:
+    # 13 queries for a 5-result search instead of the 3 this produces).
+    queryset = ChunkEmbedding.objects.filter(chunk__document_id__in=accessible_ids).select_related(
+        "chunk", "chunk__document"
+    ).annotate(
         distance=L2Distance("embedding", embedding)
     )
 
@@ -61,7 +89,7 @@ def _vector_similarity_search(embedding, top_k, search_type="vector", filters=No
     return results
 
 
-def vector_search(question, top_k=None, filters=None):
+def vector_search(question, top_k=None, filters=None, user=None):
     """
     Semantic Vector Search
     """
@@ -73,10 +101,11 @@ def vector_search(question, top_k=None, filters=None):
         top_k or settings.TOP_K,
         search_type="vector",
         filters=filters,
+        user=user,
     )
 
 
-def hyde_search(question, top_k=None, filters=None):
+def hyde_search(question, top_k=None, filters=None, user=None):
     """
     HyDE Retrieval (Hypothetical Document Embeddings)
 
@@ -99,7 +128,63 @@ def hyde_search(question, top_k=None, filters=None):
         top_k or settings.TOP_K,
         search_type="hyde",
         filters=filters,
+        user=user,
     )
+
+
+def _run_timed(label, fn, *args, **kwargs):
+    """
+    Runs `fn` on whichever thread calls this (a ThreadPoolExecutor
+    worker, when used from retrieve_chunks() below), logging its own
+    timing from inside that thread - accurate regardless of which
+    order the main thread later collects each Future's .result() in,
+    unlike timing measured from the collection side.
+
+    Always closes this thread's DB connection before returning: Django
+    only auto-closes a request's DB connection via the normal request/
+    response cycle signal handlers, which never fire for an ad-hoc
+    ThreadPoolExecutor thread - skipping this would leak one
+    connection per retrieval call, accumulating over the app's
+    lifetime.
+    """
+
+    from django.db import connection
+
+    try:
+        with timed_stage(label):
+            return fn(*args, **kwargs)
+    finally:
+        connection.close()
+
+
+def _submit_timed(executor, label, fn, *args, **kwargs):
+    """
+    executor.submit(_run_timed, ...), but running inside a copy of the
+    calling thread's contextvars context - a plain executor.submit()
+    does NOT propagate contextvars into the worker thread (that's an
+    asyncio-Task behavior, not a ThreadPoolExecutor one), so without
+    this, every timed_stage() call made from inside a worker thread
+    (vector/BM25/graph/HyDE/multi-query below) would see no bound
+    trace_id/stage list and silently vanish from the request's trace -
+    confirmed live: those stages logged "[-]" instead of the real trace
+    id before this fix. contextvars.Context.run() executes `fn` with
+    that captured context installed on the worker thread, so
+    RAG.services.trace.get_trace_id()/record_stage() (and hence
+    TraceIdLogFilter, and the AIRequestTrace stage list) work correctly
+    for concurrently-run stages too, not just ones on the main thread.
+    """
+
+    ctx = contextvars.copy_context()
+
+    return executor.submit(ctx.run, _run_timed, label, fn, *args, **kwargs)
+
+
+def _retrieval_cache_key(question, user, filters, effective_top_k):
+    """Cache key for a full retrieve_chunks() result - identical (question, user, filters, top_k) reuses it rather than recomputing embed+BM25+graph from scratch."""
+
+    raw = f"{question}|{user.id if user else 'anon'}|{filters!r}|{effective_top_k}"
+
+    return "retrieve_chunks:" + hashlib.sha256(raw.encode()).hexdigest()
 
 
 def retrieve_chunks(question, user=None, filters=None, top_k=None):
@@ -116,13 +201,31 @@ def retrieve_chunks(question, user=None, filters=None, top_k=None):
     caller override retrieval depth directly; when omitted it's
     settings.ENABLE_DYNAMIC_TOP_K-dependent (dynamic heuristic or the
     fixed settings.TOP_K).
+
+    Every independent source (vector/BM25/graph, plus HyDE/multi-query
+    when enabled) runs concurrently rather than one after another -
+    they share no data dependency, only the final merge does. The
+    whole result is also cached for settings.RETRIEVAL_CACHE_TTL
+    seconds per (question, user, filters, top_k) - a repeated question
+    skips retrieval entirely on a cache hit. The LLM answer is never
+    cached here (see query_service.answer_question()) - only
+    retrieval, so answer freshness/quality is unaffected either way.
     """
+
+    overall_timer = Timer()
 
     effective_top_k = top_k or (
         compute_dynamic_top_k(question)
         if settings.ENABLE_DYNAMIC_TOP_K
         else settings.TOP_K
     )
+
+    cache_key = _retrieval_cache_key(question, user, filters, effective_top_k)
+    cached = cache.get(cache_key)
+
+    if cached is not None:
+        logger.info("[PERF] retrieve_chunks TOTAL %8.1fms cache=hit results=%d", overall_timer.stop(), len(cached))
+        return cached
 
     # When reranking is enabled, over-fetch a larger candidate pool
     # from each source so the reranker has real alternatives to
@@ -138,51 +241,65 @@ def retrieve_chunks(question, user=None, filters=None, top_k=None):
     # question. expand_query() never raises and falls back to
     # `question` unchanged, so this is safe even when the flag is off
     # or the LLM call fails.
-    lexical_query = (
-        expand_query(question) if settings.ENABLE_QUERY_EXPANSION else question
-    )
+    #
+    # Query Expansion only gates BM25's input, not vector/graph/HyDE -
+    # so rather than blocking the whole function on it before the
+    # parallel fan-out below (as a naive read of "BM25 needs
+    # lexical_query first" would suggest), it's submitted to the SAME
+    # pool as everything else, and BM25's own thread waits on its
+    # Future internally. When both Query Expansion and HyDE are
+    # enabled (each a real LLM call), this is the difference between
+    # ~13s (6.5s expansion, blocking, then 6.5s more for HyDE) and
+    # ~6.5s (both running at once, total bounded by whichever is
+    # slower) - live-profiled on this exact question.
+    with ThreadPoolExecutor(max_workers=6) as executor:
 
-    vector_results = vector_search(question, top_k=retrieval_top_k, filters=filters)
+        expansion_future = None
+        if settings.ENABLE_QUERY_EXPANSION:
+            expansion_future = _submit_timed(executor, "query expansion", expand_query, question)
 
-    bm25_results = bm25_search(
+        def _bm25_after_expansion():
+            lexical_query = expansion_future.result() if expansion_future is not None else question
+            return bm25_search(lexical_query, retrieval_top_k, filters=filters, user=user)
 
-        lexical_query,
-
-        retrieval_top_k,
-
-        filters=filters,
-
-    )
-
-    graph_results = graph_search(
-
-        question,
-
-        user,
-
-        retrieval_top_k,
-
-        filters=filters,
-
-    )
-
-    hyde_results = []
-
-    if settings.ENABLE_HYDE:
-        hyde_results = hyde_search(question, top_k=retrieval_top_k, filters=filters)
-
-    multi_query_results = []
-
-    if settings.ENABLE_MULTI_QUERY:
-        # Imported here, not at module level, to avoid a circular
-        # import: multi_query_service reuses this module's
-        # vector_search() and bm25_service.bm25_search() directly
-        # rather than duplicating retrieval logic.
-        from .multi_query_service import multi_query_search
-
-        multi_query_results = multi_query_search(
-            question, top_k=retrieval_top_k, filters=filters
+        # Every submit below preserves each function's own original
+        # positional-vs-keyword calling convention exactly (not just
+        # matching values by position) - some existing tests assert on
+        # Mock.call_args.kwargs specifically, and this also just keeps
+        # each call site consistent with that function's own signature
+        # elsewhere in the codebase.
+        vector_future = _submit_timed(
+            executor, "vector search", vector_search, question, top_k=retrieval_top_k, filters=filters, user=user
         )
+        bm25_future = _submit_timed(executor, "hybrid search (BM25)", _bm25_after_expansion)
+        graph_future = _submit_timed(
+            executor, "knowledge graph retrieval", graph_search, question, user, retrieval_top_k, filters=filters
+        )
+
+        hyde_future = None
+        if settings.ENABLE_HYDE:
+            hyde_future = _submit_timed(
+                executor, "HyDE retrieval", hyde_search, question, top_k=retrieval_top_k, filters=filters, user=user
+            )
+
+        multi_query_future = None
+        if settings.ENABLE_MULTI_QUERY:
+            # Imported here, not at module level, to avoid a circular
+            # import: multi_query_service reuses this module's
+            # vector_search() and bm25_service.bm25_search() directly
+            # rather than duplicating retrieval logic.
+            from .multi_query_service import multi_query_search
+
+            multi_query_future = _submit_timed(
+                executor, "multi-query retrieval", multi_query_search,
+                question, top_k=retrieval_top_k, filters=filters, user=user,
+            )
+
+        vector_results = vector_future.result()
+        bm25_results = bm25_future.result()
+        graph_results = graph_future.result()
+        hyde_results = hyde_future.result() if hyde_future is not None else []
+        multi_query_results = multi_query_future.result() if multi_query_future is not None else []
 
     all_results = (
         vector_results
@@ -211,6 +328,17 @@ def retrieve_chunks(question, user=None, filters=None, top_k=None):
     candidates = list(merged.values())
 
     if settings.ENABLE_RERANKER:
-        return rerank_chunks(question, candidates, top_k=effective_top_k)
+        with timed_stage("reranking", candidates=len(candidates)):
+            final = rerank_chunks(question, candidates, top_k=effective_top_k)
+    else:
+        final = candidates[:effective_top_k]
 
-    return candidates[:effective_top_k]
+    cache.set(cache_key, final, settings.RETRIEVAL_CACHE_TTL)
+
+    logger.info(
+        "[PERF] retrieve_chunks TOTAL %8.1fms cache=miss vector=%d bm25=%d graph=%d hyde=%d multi_query=%d merged=%d final=%d",
+        overall_timer.stop(), len(vector_results), len(bm25_results), len(graph_results),
+        len(hyde_results), len(multi_query_results), len(candidates), len(final),
+    )
+
+    return final

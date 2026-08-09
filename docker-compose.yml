@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: pgvector-db
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: rag_db
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # Backs the Celery broker/result store (CELERY_BROKER_URL/
+  # CELERY_RESULT_BACKEND) and, when USE_REDIS_CACHE=True, Django's
+  # cache backend - see myproject/settings.py. The app/worker
+  # themselves still run natively (`manage.py runserver` /
+  # `celery -A myproject worker`), matching how postgres above is used
+  # - this file provisions backing services only. Default REDIS_URL
+  # (redis://localhost:6379/0) in .env matches the port published here.
+  redis:
+    image: redis:7-alpine
+    container_name: rag-redis
+    restart: unless-stopped
+
+    ports:
+      - "6379:6379"
+
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:

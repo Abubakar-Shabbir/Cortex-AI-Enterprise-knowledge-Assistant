@@ -4,37 +4,41 @@ LLM Service
 Handles answer generation using the configured LLM provider.
 
 This module is provider-agnostic and communicates only with the
-central LLM client. The client is responsible for:
-
-- Selecting the configured provider
-- Automatic Gemini -> OpenRouter fallback
-- Future provider support (OpenAI, Claude, DeepSeek, etc.)
+central LLM client (llm_client.py), which is responsible for
+selecting the configured provider, automatic multi-provider fallback
+(OpenRouter -> Groq -> Gemini, or whichever order the primary provider
+implies), retries, and typed errors.
 
 Responsibilities
 ----------------
-- Build the grounded RAG prompt
+- Build the grounded, structured (JSON-mode) RAG prompt - same
+  response_format="json" pattern ai_tasks_engine_service.py already
+  proved out, via llm_client.parse_json_response() for the shared
+  parse/validate step.
 - Send it to the configured LLM
-- Return the generated answer
-- Handle failures gracefully
+- Return the generated answer plus its structured extras (key points,
+  an optional comparison table)
+- Handle failures gracefully - distinguishing "the sources don't
+  answer this" (NOT_FOUND_ANSWER) from "every LLM provider failed"
+  (SERVICE_UNAVAILABLE_ANSWER), so the UI can show the right message
+  for each instead of one generic fallback.
 """
 
 import logging
 
-from .llm_client import get_llm
+from .llm_client import AllProvidersFailedError, get_llm, parse_json_response
 from .prompt_templates import (
-    build_answer_prompt,
+    build_structured_answer_prompt,
     NOT_FOUND_ANSWER,
+    SERVICE_UNAVAILABLE_ANSWER,
 )
 
 logger = logging.getLogger(__name__)
 
-# Singleton client
-llm = get_llm()
 
-
-def generate_answer(context: str, question: str) -> str:
+def generate_answer(context: str, question: str) -> tuple[str, dict]:
     """
-    Generate a grounded answer using retrieved context.
+    Generate a grounded, structured answer using retrieved context.
 
     Parameters
     ----------
@@ -47,26 +51,55 @@ def generate_answer(context: str, question: str) -> str:
 
     Returns
     -------
-    str
-        Grounded answer with citations.
+    (answer, extras) : tuple[str, dict]
+        `answer` is grounded prose with "[n]" citations - NOT_FOUND_ANSWER
+        if the model determined the sources don't answer the question, or
+        SERVICE_UNAVAILABLE_ANSWER if every configured LLM provider
+        failed. `extras` is {"key_points": list[str], "table": dict|None}
+        - always {} (no extras) alongside either fallback answer, since
+        there's nothing to structure when there's no real answer.
     """
 
     try:
 
-        prompt = build_answer_prompt(
+        prompt = build_structured_answer_prompt(
             context=context,
             question=question,
         )
 
-        answer = llm.generate(prompt)
+        # Fetched fresh on every call (not cached at module import) so
+        # a provider/model change saved from Admin > Settings takes
+        # effect immediately - see llm_client.py's module docstring.
+        llm = get_llm()
+
+        raw = llm.generate(prompt, response_format="json")
+
+        parsed = parse_json_response(raw)
+
+        if parsed is None:
+            logger.warning("LLM answer generation: empty/invalid/non-object JSON response.")
+            return NOT_FOUND_ANSWER, {}
+
+        answer = (parsed.get("answer") or "").strip()
 
         if not answer:
-            return NOT_FOUND_ANSWER
+            return NOT_FOUND_ANSWER, {}
 
-        return answer.strip()
+        extras = {
+            "key_points": parsed.get("key_points") or [],
+            "table": parsed.get("table") or None,
+        }
+
+        return answer, extras
+
+    except AllProvidersFailedError:
+
+        logger.exception("LLM answer generation failed - every configured provider failed.")
+
+        return SERVICE_UNAVAILABLE_ANSWER, {}
 
     except Exception:
 
         logger.exception("LLM answer generation failed.")
 
-        return NOT_FOUND_ANSWER
+        return NOT_FOUND_ANSWER, {}

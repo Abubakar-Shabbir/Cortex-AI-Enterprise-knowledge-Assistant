@@ -6,8 +6,9 @@ from django.db import connection
 from django.db.models import Avg, Count, Sum
 from django.utils import timezone
 
-from ..models import ChunkEmbedding, Document, DocumentChunk, Entity, QueryLog
+from ..models import AITaskRun, ChunkEmbedding, Document, DocumentChunk, QueryLog
 from ..utils.formatting import format_bytes, format_ms
+from .knowledge_service import get_knowledge_overview, search_topics
 
 
 def get_dashboard_stats(user):
@@ -32,6 +33,7 @@ def get_dashboard_stats(user):
         "avg_response_time": format_ms(round(avg_response)),
         "storage_used": format_bytes(storage_bytes),
         "last_upload": documents.order_by("-uploaded_at").first(),
+        "ai_task_runs": AITaskRun.objects.filter(user=user).count(),
     }
 
 
@@ -40,6 +42,7 @@ def get_recent_activity(user, limit=5):
     return {
         "recent_documents": Document.objects.filter(user=user).order_by("-uploaded_at")[:limit],
         "recent_questions": QueryLog.objects.filter(user=user).order_by("-created_at")[:limit],
+        "recent_ai_task_runs": AITaskRun.objects.filter(user=user).order_by("-created_at")[:limit],
     }
 
 
@@ -120,12 +123,19 @@ def get_dashboard_insights(user):
             "action_label": "Go to AI Search",
         })
 
-    top_entity = Entity.objects.filter(user=user).order_by("-mention_count").first()
-    if top_entity:
+    # Reuses knowledge_service's Topic-merge (not a raw Entity.objects
+    # filter by user=user) so this recommendation reflects everything
+    # accessible to the viewer - owned, Organization Library, and
+    # shared-with-them documents - not just ones they personally
+    # uploaded. See the Knowledge Center's scoping-fix for why
+    # Entity.user alone under-represents what a user can actually see.
+    top_topics = search_topics(user, page=1)
+    top_topic = top_topics.object_list[0] if top_topics.object_list else None
+    if top_topic:
         recommendations.append({
             "icon": "sparkles",
-            "title": f'Try asking about "{top_entity.display_name}"',
-            "description": f"It's the most frequently mentioned entity across your documents ({top_entity.mention_count} mentions).",
+            "title": f'Try asking about "{top_topic["display_name"]}"',
+            "description": f"It's the most frequently mentioned topic across everything you can access ({top_topic['mention_count']} mentions).",
             "action_url_name": "ask_ai",
             "action_label": "Ask now",
         })
@@ -164,19 +174,36 @@ def get_analytics_data(user, days=14):
     ).values_list("uploaded_at", flat=True):
         uploads_by_day[timezone.localtime(uploaded_at).date()] += 1
 
+    ai_tasks_by_day = Counter()
+    ai_task_status_counts = Counter()
+
+    for created_at, status in AITaskRun.objects.filter(
+        user=user, created_at__date__gte=start_date
+    ).values_list("created_at", "status"):
+        ai_tasks_by_day[timezone.localtime(created_at).date()] += 1
+        ai_task_status_counts[status] += 1
+
     labels, questions_series, uploads_series = [], [], []
     confidence_series, response_time_series = [], []
+    ai_task_runs_series = []
 
     for i in range(days):
         day = start_date + timedelta(days=i)
         labels.append(day.strftime("%b %d"))
         questions_series.append(questions_by_day.get(day, 0))
         uploads_series.append(uploads_by_day.get(day, 0))
+        ai_task_runs_series.append(ai_tasks_by_day.get(day, 0))
 
         day_confidences = confidence_by_day.get(day, [])
         day_response_times = response_time_by_day.get(day, [])
         confidence_series.append(round(sum(day_confidences) / len(day_confidences)) if day_confidences else None)
         response_time_series.append(round(sum(day_response_times) / len(day_response_times)) if day_response_times else None)
+
+    ai_task_status_display = dict(AITaskRun.Status.choices)
+    ai_task_status_labels = [ai_task_status_display.get(s, s) for s in ai_task_status_counts] or ["No runs yet"]
+    ai_task_status_values = list(ai_task_status_counts.values()) or [0]
+
+    knowledge_overview = get_knowledge_overview(user)
 
     top_docs = Document.objects.filter(user=user).order_by("-chunk_count")[:8]
 
@@ -197,6 +224,39 @@ def get_analytics_data(user, days=14):
         avg=Avg("response_time_ms")
     )["avg"] or 0
 
+    # Confidence Distribution - every answered question bucketed by
+    # confidence tier, matching the same thresholds ask_ai.html colors
+    # its confidence pill by (>=70 success, >=40 warning, else danger),
+    # just split into 4 readable bands here instead of 3.
+    confidence_buckets = [
+        ("Excellent (80-100%)", 80, 101, "#1F7A4D"),
+        ("Good (60-79%)", 60, 80, "#2A78D6"),
+        ("Fair (40-59%)", 40, 60, "#C77700"),
+        ("Low (0-39%)", 0, 40, "#C62828"),
+    ]
+    all_confidences = list(
+        QueryLog.objects.filter(user=user).values_list("confidence", flat=True)
+    )
+    confidence_distribution_labels = []
+    confidence_distribution_values = []
+    confidence_distribution_colors = []
+    for label, low, high, color in confidence_buckets:
+        count = sum(1 for c in all_confidences if low <= c < high)
+        confidence_distribution_labels.append(label)
+        confidence_distribution_values.append(count)
+        confidence_distribution_colors.append(color)
+
+    # Weekday Activity - question volume by day of week, over a longer
+    # 90-day window (independent of `days`) since a meaningful "which
+    # weekday are you busiest" pattern needs more than a 2-week sample.
+    weekday_window_start = today - timedelta(days=89)
+    weekday_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    weekday_counts = [0] * 7
+    for created_at in QueryLog.objects.filter(
+        user=user, created_at__date__gte=weekday_window_start
+    ).values_list("created_at", flat=True):
+        weekday_counts[timezone.localtime(created_at).weekday()] += 1
+
     return {
         "labels": labels,
         "questions_series": questions_series,
@@ -209,8 +269,86 @@ def get_analytics_data(user, days=14):
         "search_type_values": list(search_type_counts.values()) or [0],
         "storage_type_labels": list(storage_by_type.keys()) or ["No documents yet"],
         "storage_type_values": list(storage_by_type.values()) or [0],
+        "confidence_distribution_labels": confidence_distribution_labels,
+        "confidence_distribution_values": confidence_distribution_values,
+        "confidence_distribution_colors": confidence_distribution_colors,
+        "weekday_labels": weekday_labels,
+        "weekday_values": weekday_counts,
+        "total_questions": sum(questions_series),
+        "total_uploads": sum(uploads_series),
         "avg_response_time": format_ms(round(avg_response)),
         "total_storage": format_bytes(sum(storage_by_type.values())),
+        "ai_task_runs_series": ai_task_runs_series,
+        "total_ai_task_runs": sum(ai_task_runs_series),
+        "ai_task_status_labels": ai_task_status_labels,
+        "ai_task_status_values": ai_task_status_values,
+        "total_topics": knowledge_overview["total_entities"],
+        "total_relationships": knowledge_overview["total_relationships"],
+    }
+
+
+def get_comparison_report_data(user, days=14):
+    """
+    Period-over-period comparison (the last `days` days vs. the
+    `days` immediately before that) across the headline usage metrics
+    - backs the Reports page's Comparative Report. Every figure is a
+    live aggregate over the user's own Document/QueryLog rows, reusing
+    the same _period_change() helper get_kpi_trends() already uses for
+    the Dashboard's trend badges, just over a configurable window
+    instead of a fixed 7 days.
+    """
+
+    today = timezone.localdate()
+    current_start = today - timedelta(days=days - 1)
+    previous_start = current_start - timedelta(days=days)
+    previous_end = current_start - timedelta(days=1)
+
+    documents_qs = Document.objects.filter(user=user)
+    logs_qs = QueryLog.objects.filter(user=user)
+    ai_tasks_qs = AITaskRun.objects.filter(user=user)
+
+    current_documents = documents_qs.filter(uploaded_at__date__gte=current_start)
+    previous_documents = documents_qs.filter(uploaded_at__date__range=(previous_start, previous_end))
+
+    current_logs = logs_qs.filter(created_at__date__gte=current_start)
+    previous_logs = logs_qs.filter(created_at__date__range=(previous_start, previous_end))
+
+    current_ai_tasks = ai_tasks_qs.filter(created_at__date__gte=current_start)
+    previous_ai_tasks = ai_tasks_qs.filter(created_at__date__range=(previous_start, previous_end))
+
+    current_avg_confidence = current_logs.aggregate(avg=Avg("confidence"))["avg"] or 0
+    previous_avg_confidence = previous_logs.aggregate(avg=Avg("confidence"))["avg"] or 0
+
+    current_avg_response = current_logs.aggregate(avg=Avg("response_time_ms"))["avg"] or 0
+    previous_avg_response = previous_logs.aggregate(avg=Avg("response_time_ms"))["avg"] or 0
+
+    current_storage = current_documents.aggregate(total=Sum("file_size"))["total"] or 0
+    previous_storage = previous_documents.aggregate(total=Sum("file_size"))["total"] or 0
+
+    def row(label, current, previous, formatter=round):
+        change_pct, direction = _period_change(current, previous)
+        return {
+            "label": label,
+            "current": formatter(current),
+            "previous": formatter(previous),
+            "change_pct": change_pct,
+            "direction": direction,
+        }
+
+    rows = [
+        row("Documents Uploaded", current_documents.count(), previous_documents.count()),
+        row("Questions Asked", current_logs.count(), previous_logs.count()),
+        row("Avg Confidence (%)", round(current_avg_confidence), round(previous_avg_confidence)),
+        row("Avg Response Time (ms)", round(current_avg_response), round(previous_avg_response)),
+        row("Storage Added", current_storage, previous_storage, format_bytes),
+        row("AI Task Runs", current_ai_tasks.count(), previous_ai_tasks.count()),
+    ]
+
+    return {
+        "days": days,
+        "current_range": f"{current_start.strftime('%b %d')} – {today.strftime('%b %d')}",
+        "previous_range": f"{previous_start.strftime('%b %d')} – {previous_end.strftime('%b %d')}",
+        "rows": rows,
     }
 
 
@@ -244,14 +382,25 @@ def get_system_status():
     total_storage = Document.objects.aggregate(total=Sum("file_size"))["total"] or 0
 
     # LLM_PROVIDER selects which key/model actually matters - checking
-    # GEMINI_API_KEY unconditionally would report "not configured" for
-    # a workspace correctly running on OpenRouter (the default), and
-    # vice versa.
+    # GEMINI_API_KEY unconditionally would report "not configured" for a
+    # workspace correctly running on OpenRouter or Groq, and vice versa.
+    # Looked up generically via llm_client.PROVIDER_REGISTRY (the same
+    # single source of truth the fallback chain/Settings page/health
+    # checks already use) rather than a hardcoded if/else - the
+    # if/else this replaced only ever branched openrouter-vs-Gemini and
+    # silently mis-checked GEMINI_API_KEY/LLM_MODEL for a Groq-primary
+    # workspace.
+    from .llm_client import PROVIDER_REGISTRY
+
     llm_provider = settings.LLM_PROVIDER.lower()
-    llm_model = settings.OPENROUTER_MODEL if llm_provider == "openrouter" else settings.LLM_MODEL
-    llm_configured = (
-        bool(settings.OPENROUTER_API_KEY) if llm_provider == "openrouter" else bool(settings.GEMINI_API_KEY)
-    )
+    provider_meta = PROVIDER_REGISTRY.get(llm_provider)
+
+    if provider_meta:
+        llm_model = getattr(settings, provider_meta["model_setting"], "")
+        llm_configured = bool(getattr(settings, provider_meta["api_key_setting"], ""))
+    else:
+        llm_model = ""
+        llm_configured = False
 
     return {
         "db_online": db_online,
@@ -395,10 +544,12 @@ def get_kpi_trends(user):
     documents_qs = Document.objects.filter(user=user)
     chunks_qs = DocumentChunk.objects.filter(document__user=user)
     logs_qs = QueryLog.objects.filter(user=user)
+    ai_tasks_qs = AITaskRun.objects.filter(user=user)
 
     recent_documents = documents_qs.filter(uploaded_at__date__gte=window_start)
     recent_chunks = chunks_qs.filter(created_at__date__gte=window_start)
     recent_logs = logs_qs.filter(created_at__date__gte=window_start)
+    recent_ai_tasks = ai_tasks_qs.filter(created_at__date__gte=window_start)
 
     documents_current = recent_documents.count()
     documents_previous = documents_qs.filter(uploaded_at__date__range=(prior_start, prior_end)).count()
@@ -414,10 +565,14 @@ def get_kpi_trends(user):
     queries_today = logs_qs.filter(created_at__date=today).count()
     queries_yesterday = logs_qs.filter(created_at__date=today - timedelta(days=1)).count()
 
+    ai_tasks_current = recent_ai_tasks.count()
+    ai_tasks_previous = ai_tasks_qs.filter(created_at__date__range=(prior_start, prior_end)).count()
+
     doc_pct, doc_dir = _period_change(documents_current, documents_previous)
     chunk_pct, chunk_dir = _period_change(chunks_current, chunks_previous)
     storage_pct, storage_dir = _period_change(storage_current, storage_previous)
     query_pct, query_dir = _period_change(queries_today, queries_yesterday)
+    ai_tasks_pct, ai_tasks_dir = _period_change(ai_tasks_current, ai_tasks_previous)
 
     return {
         "documents": {
@@ -431,6 +586,10 @@ def get_kpi_trends(user):
         "storage": {
             "change_pct": storage_pct, "direction": storage_dir,
             "sparkline": daily_sum(recent_documents, "uploaded_at", "file_size"),
+        },
+        "ai_tasks": {
+            "change_pct": ai_tasks_pct, "direction": ai_tasks_dir,
+            "sparkline": daily_counts(recent_ai_tasks, "created_at"),
         },
         "queries": {
             "change_pct": query_pct, "direction": query_dir,

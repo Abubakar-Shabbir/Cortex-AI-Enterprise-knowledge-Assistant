@@ -1,0 +1,167 @@
+{% comment %}
+Reusable "Select Documents" picker - the single source-of-truth
+document chooser every module should use instead of asking a user to
+upload the same file again. Backed by RAG.views.select_documents_search
+(GET, JSON), which only ever returns documents the requester can
+access (owned + Organization Library + shared-with-them).
+
+Usage - must be included INSIDE the enclosing <form>, since its hidden
+inputs (name="{{ field_name }}", one per selected document) submit
+along with the rest of the form automatically:
+
+  {% include "partials/_select_documents_dialog.html" with
+     field_name="document_ids"
+     initial_selected=selected_documents_json
+     search_url_name="select_documents_search"
+     trigger_label="Select Documents" %}
+
+`initial_selected` is a list of {"id": ..., "title": ...} dicts (e.g.
+from a Python list already computed server-side) - pass an empty list
+for a fresh/empty selection.
+{% endcomment %}
+
+{{ initial_selected|json_script:field_name }}
+
+<div x-data="selectDocumentsDialog('{{ field_name }}')" class="inline-block">
+
+  <template x-for="id in Object.keys(selected)" :key="id">
+    <input type="hidden" :name="fieldName" :value="id">
+  </template>
+
+  <button type="button" @click="open = true; search(true)"
+    class="inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-sm font-medium text-ink transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:hover:bg-primary/10">
+    <i data-lucide="file-check-2" class="h-4 w-4"></i>
+    <span x-text="Object.keys(selected).length ? Object.keys(selected).length + ' document' + (Object.keys(selected).length === 1 ? '' : 's') + ' selected' : '{{ trigger_label|default:"Select Documents" }}'"></span>
+  </button>
+
+  <div x-show="open" x-cloak x-transition.opacity
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+    @click.self="open = false" @keydown.escape.window="open = false">
+    <div class="flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-line bg-card shadow-2xl dark:border-line-dark dark:bg-card-dark">
+
+      <div class="flex items-center justify-between gap-3 border-b border-line px-5 py-4 dark:border-line-dark">
+        <h3 class="text-sm font-semibold text-ink dark:text-ink-dark">Select Documents</h3>
+        <button type="button" @click="open = false" class="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5">
+          <i data-lucide="x" class="h-4 w-4"></i>
+        </button>
+      </div>
+
+      <div class="border-b border-line px-5 py-3 dark:border-line-dark">
+        <input type="text" x-model="query" @input.debounce.300ms="search(true)" placeholder="Search by title…"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+        <div class="mt-2 flex flex-wrap gap-1.5">
+          <template x-for="opt in ['', 'pdf', 'docx', 'txt']" :key="opt">
+            <button type="button" @click="fileType = opt; search(true)"
+              class="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+              :class="fileType === opt ? 'border-primary bg-primary/10 text-primary dark:text-primary-soft' : 'border-line text-muted hover:bg-surface dark:border-line-dark dark:text-muted-dark dark:hover:bg-white/5'"
+              x-text="opt ? opt.toUpperCase() : 'All types'"></button>
+          </template>
+        </div>
+      </div>
+
+      <div class="flex-1 overflow-y-auto px-5 py-3">
+        <template x-if="Object.keys(selected).length">
+          <div class="mb-3 flex flex-wrap gap-1.5">
+            <template x-for="item in Object.values(selected)" :key="item.id">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary dark:text-primary-soft">
+                <span x-text="item.title" class="max-w-[160px] truncate"></span>
+                <button type="button" @click="toggle(item)"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+          </div>
+        </template>
+
+        <div class="space-y-1">
+          <template x-for="doc in results" :key="doc.id">
+            <button type="button" @click="toggle(doc)"
+              class="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-surface dark:hover:bg-white/5"
+              :class="selected[doc.id] ? 'bg-primary/5' : ''">
+              <span class="flex min-w-0 items-center gap-2">
+                <i data-lucide="check-square" class="h-4 w-4 shrink-0" :class="selected[doc.id] ? 'text-primary dark:text-primary-soft' : 'text-line dark:text-line-dark'"></i>
+                <span class="truncate text-ink dark:text-ink-dark" x-text="doc.title"></span>
+              </span>
+              <span class="shrink-0 rounded-full bg-line px-2 py-0.5 text-[10px] font-semibold uppercase text-muted dark:bg-white/10 dark:text-muted-dark" x-text="doc.owner_badge"></span>
+            </button>
+          </template>
+          <p x-show="!loading && !results.length" class="px-3 py-6 text-center text-sm text-muted dark:text-muted-dark">No documents found.</p>
+          <p x-show="loading" class="px-3 py-6 text-center text-sm text-muted dark:text-muted-dark">Loading…</p>
+        </div>
+
+        <button type="button" x-show="hasNext" @click="loadMore()" class="mt-2 w-full rounded-lg border border-line py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Load more</button>
+      </div>
+
+      <div class="flex justify-end gap-2 border-t border-line px-5 py-3 dark:border-line-dark">
+        <button type="button" @click="selected = {}; announceSelection()" class="rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Clear</button>
+        <button type="button" @click="open = false" class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-dark">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  if (typeof window.selectDocumentsDialog !== 'function') {
+    window.selectDocumentsDialog = function (fieldName) {
+      const dataEl = document.getElementById(fieldName);
+      const initialSelected = dataEl ? JSON.parse(dataEl.textContent) : [];
+      return {
+        fieldName,
+        open: false,
+        loading: false,
+        query: '',
+        fileType: '',
+        results: [],
+        page: 1,
+        hasNext: false,
+        selected: Object.fromEntries((initialSelected || []).map((item) => [item.id, item])),
+
+        init() {
+          // Announce the starting selection too (e.g. Ask AI
+          // re-rendering with a previously-selected document set) so
+          // a listening ancestor's count is correct from first paint,
+          // not just after the next toggle.
+          this.announceSelection();
+        },
+
+        toggle(doc) {
+          if (this.selected[doc.id]) delete this.selected[doc.id];
+          else this.selected[doc.id] = { id: doc.id, title: doc.title };
+          this.announceSelection();
+        },
+
+        announceSelection() {
+          // Alpine's reactivity is dependency-tracked - a parent
+          // component reading this.selected via plain DOM queries
+          // would never see live updates, since that establishes no
+          // tracked dependency. Dispatching a window event lets any
+          // ancestor listen (@select-documents-changed.window=...)
+          // and update its OWN reactive state instead - the
+          // documented Alpine pattern for cross-component
+          // communication between sibling/nested x-data scopes.
+          this.$dispatch('select-documents-changed', {
+            fieldName: this.fieldName,
+            count: Object.keys(this.selected).length,
+          });
+        },
+
+        search(reset) {
+          if (reset) { this.page = 1; this.results = []; }
+          this.loading = true;
+          const params = new URLSearchParams({ q: this.query, file_type: this.fileType, page: this.page });
+          fetch('{% url "select_documents_search" %}?' + params.toString())
+            .then((r) => r.json())
+            .then((data) => {
+              this.results = reset ? data.results : this.results.concat(data.results);
+              this.hasNext = data.has_next;
+              this.loading = false;
+            })
+            .catch(() => { this.loading = false; });
+        },
+
+        loadMore() {
+          this.page += 1;
+          this.search(false);
+        },
+      };
+    };
+  }
+</script>

@@ -5,9 +5,9 @@ context var the app's shared sidebar/Monitoring page already read
 health checks were added here.
 {% endcomment %}
 
-<div class="rounded-2xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+<div class="rounded-xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
 
-  <div class="mb-4 flex items-center justify-between">
+  <div class="mb-2.5 flex items-center justify-between">
     <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">System Status</h2>
     <span class="flex items-center gap-1.5 text-xs font-medium">
       {% if system_status.db_online and system_status.pgvector_enabled and system_status.llm_configured %}
@@ -20,7 +20,7 @@ health checks were added here.
     </span>
   </div>
 
-  <div class="space-y-3.5 text-sm">
+  <div class="space-y-2 text-sm">
 
     <div class="flex items-center justify-between">
       <span class="flex items-center gap-2 text-muted dark:text-muted-dark"><i data-lucide="database" class="h-4 w-4"></i> PostgreSQL</span>
@@ -63,7 +63,7 @@ health checks were added here.
 
   </div>
 
-  <a href="{% url 'monitoring' %}" class="mt-4 block rounded-lg bg-primary/10 px-3 py-2.5 text-center text-sm font-semibold text-primary transition-colors hover:bg-primary/15 dark:text-primary-soft">
+  <a href="{% url 'monitoring' %}" class="mt-2.5 block rounded-lg bg-primary/10 px-3 py-1.5 text-center text-sm font-semibold text-primary transition-colors hover:bg-primary/15 dark:text-primary-soft">
     View System Health
   </a>
 

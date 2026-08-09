@@ -52,13 +52,13 @@ Requirements
 
 JSON Format
 
-{
+{{
     "variants": [
         "...",
         "...",
         "..."
     ]
-}
+}}
 
 Generate {num_variants} alternate queries.
 
