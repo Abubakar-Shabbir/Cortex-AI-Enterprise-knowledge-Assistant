@@ -323,108 +323,39 @@ MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", 12000))
 ANSWER_TEMPERATURE = float(os.getenv("ANSWER_TEMPERATURE", 0.2))
 
 # ==========================================
-# Celery + Redis (Sprint 10)
+# Background Task Execution (free-tier refactor)
 # ==========================================
-# REDIS_URL backs both the Celery broker/result store and, when
-# USE_REDIS_CACHE is enabled, Django's cache backend (currently used
-# by context_processors.sidebar_status()).
-# Everything here defaults to behavior identical to before Sprint 10:
-# no Redis/Celery worker required to run the app, matching every
-# other infra-dependent flag in this project (off by default, flip via
-# .env). Only Postgres and Redis run in Docker (see docker-compose.yml)
-# - Django/Celery run natively on the host, so REDIS_URL's default
-# ("redis://localhost:6379/0") deliberately matches docker-compose.yml's
-# "6379:6379" host port mapping for the `redis` service, not a
-# Docker-internal service name/network. There is no Dockerfile for the
-# Django app/worker in this project.
+# Document processing and AI Tasks used to require a separate Celery
+# worker process talking to a Redis broker - a hard requirement most
+# free-tier hosts (Render free, Railway, Fly.io free allowance,
+# PythonAnywhere) don't support, since they only run a single always-on
+# process. Both now dispatch onto an in-process
+# concurrent.futures.ThreadPoolExecutor instead (see
+# RAG/services/task_runner.py) - no broker, no second process, no new
+# dependency. Django's cache (see CACHES below) also no longer has a
+# Redis-backed option; LocMemCache (Django's implicit default) is the
+# only cache backend now, which is fine for the short-TTL, non-critical
+# caches that use it (sidebar status, BM25/graph/retrieval caches,
+# geolocation, system-config sync).
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
-
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
-
-CELERY_ACCEPT_CONTENT = ["json"]
-
-CELERY_TASK_SERIALIZER = "json"
-
-CELERY_RESULT_SERIALIZER = "json"
-
-CELERY_TIMEZONE = TIME_ZONE
-
-# Bounds how long a .delay() call blocks trying to reach the broker
-# before giving up - without this, kombu's default retry behavior can
-# leave a request hanging for a long time if Redis is briefly
-# unreachable, defeating the whole point of dispatching work
-# asynchronously in the first place. Callers (e.g.
-# RAG.views.ai_task_create) still wrap .delay() in their own
-# try/except for the case where even this bounded wait fails.
-CELERY_BROKER_CONNECTION_TIMEOUT = 3
-CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
-CELERY_BROKER_CONNECTION_MAX_RETRIES = 1
-
-# CELERY_BROKER_CONNECTION_TIMEOUT above only bounds the initial
-# connection attempt - without these, a broker that accepts the TCP
-# connection but then stalls (a half-open connection, a slow/overloaded
-# Redis) can still hang a .delay() call or a health-check PING well past
-# that timeout. socket_timeout bounds every read/write on the connection
-# once established, not just opening it.
-CELERY_BROKER_TRANSPORT_OPTIONS = {
-    "socket_connect_timeout": 2,
-    "socket_timeout": 2,
-}
+BACKGROUND_WORKER_THREADS = int(os.getenv("BACKGROUND_WORKER_THREADS", 4))
 
 # When False (default), upload_service.upload_document() processes a
-# document inline, exactly as every sprint before this one. When
-# True, it dispatches RAG.tasks.process_document_task instead and
-# returns immediately - the request/response cycle no longer waits on
-# extraction/chunking/embedding/graph-enrichment for large documents.
-# Requires a running Celery worker (`celery -A myproject worker
-# --loglevel=info`, on the host, pointed at the Dockerized Redis via
-# REDIS_URL) once enabled - with no worker consuming the queue,
-# documents would stay stuck at chunk_count=0 ("Processing").
+# document inline, exactly as every sprint before this one. When True,
+# it dispatches RAG.tasks.process_document_task onto the background
+# thread pool instead and returns immediately - the request/response
+# cycle no longer waits on extraction/chunking/embedding/
+# graph-enrichment for large documents.
 ENABLE_ASYNC_PROCESSING = os.getenv("ENABLE_ASYNC_PROCESSING", "False") == "True"
 
-# AI Tasks (Enterprise AI Tasks module) runs ALWAYS dispatch to a Celery
-# worker (RAG.tasks.run_ai_task) - independent of ENABLE_ASYNC_PROCESSING
-# above, which only governs document upload processing. There is no
-# inline/synchronous execution path for an AI Task run, since a run can
-# span up to AI_TASKS_MAX_DOCUMENTS documents; a Celery worker must be
-# running for the AI Tasks feature to work at all.
+# AI Tasks (Enterprise AI Tasks module) ALWAYS dispatch to the
+# background thread pool (RAG.tasks.run_ai_task) - independent of
+# ENABLE_ASYNC_PROCESSING above, which only governs document upload
+# processing. There is no inline/synchronous execution path for an AI
+# Task run, since a run can span up to AI_TASKS_MAX_DOCUMENTS documents;
+# unlike the old Celery-based design, this has no missing-worker failure
+# mode, since the thread pool lives in this same process.
 AI_TASKS_MAX_DOCUMENTS = int(os.getenv("AI_TASKS_MAX_DOCUMENTS", "100"))
-
-# When True, Django's cache (LocMemCache by default - see CACHES
-# below) is swapped for django-redis pointed at REDIS_URL. LocMemCache
-# is process-local, so it's fine for the sidebar status cache and for
-# rate limiting a single dev/test process, but doesn't share state
-# across multiple gunicorn workers/machines - Redis is required for
-# rate limiting to work correctly in any multi-process deployment.
-USE_REDIS_CACHE = os.getenv("USE_REDIS_CACHE", "False") == "True"
-
-if USE_REDIS_CACHE:
-    CACHES = {
-        "default": {
-            "BACKEND": "django_redis.cache.RedisCache",
-            "LOCATION": REDIS_URL,
-            "OPTIONS": {
-                "CLIENT_CLASS": "django_redis.client.DefaultClient",
-                # Without these, a hung/unreachable Redis blocks every
-                # cache.get()/set() call - and SystemConfigSyncMiddleware
-                # (RAG.middleware) plus context_processors.sidebar_status()
-                # both hit the cache on every single request, so an
-                # unbounded call here would stall Ask AI too, not just
-                # cache-specific pages. Kept short and symmetric with
-                # settings.LLM_REQUEST_TIMEOUT's "fail fast" philosophy.
-                "SOCKET_CONNECT_TIMEOUT": 2,
-                "SOCKET_TIMEOUT": 2,
-                # A broken/slow Redis degrades every cache call to a miss
-                # (falls through to the real DB/computation) instead of
-                # raising into the request - graceful failure, not a 500.
-                "IGNORE_EXCEPTIONS": True,
-            },
-            "KEY_PREFIX": "rag",
-        }
-    }
 
 # ==========================================
 # Monitoring (Sprint 10)
@@ -501,10 +432,18 @@ GEMINI_API_KEY = env(
 #
 # OpenRouter is the default primary provider (a free-tier model) so
 # everyday usage doesn't run into Gemini's free-tier quota limits.
-# Gemini stays configured as the automatic fallback in llm_client.py
-# if the primary provider's call fails - set LLM_PROVIDER=gemini in
-# .env to flip which one is primary.
+# set LLM_PROVIDER=gemini in .env to flip which one is primary.
 LLM_PROVIDER = env("LLM_PROVIDER", default="openrouter")
+
+# Whether llm_client.LLMClient is allowed to fall through to another
+# configured provider when the primary one fails/times out/rate-limits.
+# Defaults OFF: a provider selected in Settings must be the one that
+# actually answers, or the request fails with a clear error - never a
+# silent, invisible switch to a different provider/model. An admin who
+# wants resilience over strict provider fidelity can flip this on from
+# Admin > Settings (SystemConfiguration.enable_fallback overrides this
+# at runtime, same pattern as every other MANAGED_SETTINGS_FIELDS entry).
+LLM_FALLBACK_ENABLED = env.bool("LLM_FALLBACK_ENABLED", default=False)
 
 # Gemini's own model name - kept independent from OPENROUTER_MODEL so
 # the Gemini fallback client never gets handed an OpenRouter-style

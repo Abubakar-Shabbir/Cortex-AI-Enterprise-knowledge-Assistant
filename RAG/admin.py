@@ -58,6 +58,21 @@ class UserRoleInline(admin.StackedInline):
     verbose_name = "RBAC role assignment"
     verbose_name_plural = "RBAC role assignment"
 
+    # Same is_admin() gate as RBACAdminOnlyMixin (not reused directly -
+    # StackedInline's permission signature differs from ModelAdmin's) -
+    # a Django is_staff account viewing the User change page shouldn't
+    # see or edit RBAC role assignments unless the app's own RBAC says
+    # they're an Admin, regardless of what Django's own auth
+    # permissions happen to grant them.
+    def has_view_permission(self, request, obj=None):
+        return is_admin(request.user)
+
+    def has_add_permission(self, request, obj=None):
+        return is_admin(request.user)
+
+    def has_change_permission(self, request, obj=None):
+        return is_admin(request.user)
+
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "role":
             assignable_ids = [role.id for role in get_assignable_roles(request.user)]
@@ -110,8 +125,39 @@ admin.site.unregister(User)
 admin.site.register(User, UserAdmin)
 
 
+class RBACAdminOnlyMixin:
+    """
+    Restricts a Django Admin page to this app's own Admin role
+    (permission_service.is_admin), not Django's is_staff/is_superuser.
+    Role/Permission/UserRole are the RBAC system itself - the one place
+    a Django `is_superuser=True` account (an ops/deploy account,
+    createsuperuser, ...) unconditionally bypassing ModelAdmin's
+    default permission checks would matter most, since it would let
+    such an account view every user's role assignment and the full
+    permission catalog regardless of what their own RBAC role (if any)
+    actually grants. The privilege-escalation writes below were already
+    guarded (see RoleAdmin.save_related / UserRoleAdmin.save_model) -
+    this closes the matching read/visibility gap.
+    """
+
+    def has_module_permission(self, request):
+        return is_admin(request.user)
+
+    def has_view_permission(self, request, obj=None):
+        return is_admin(request.user)
+
+    def has_add_permission(self, request):
+        return is_admin(request.user)
+
+    def has_change_permission(self, request, obj=None):
+        return is_admin(request.user)
+
+    def has_delete_permission(self, request, obj=None):
+        return is_admin(request.user)
+
+
 @admin.register(Role)
-class RoleAdmin(admin.ModelAdmin):
+class RoleAdmin(RBACAdminOnlyMixin, admin.ModelAdmin):
     list_display = ("name", "slug", "is_system", "created_at")
     list_filter = ("is_system",)
     search_fields = ("name", "slug")
@@ -165,13 +211,13 @@ class RoleAdmin(admin.ModelAdmin):
 
 
 @admin.register(Permission)
-class PermissionAdmin(admin.ModelAdmin):
+class PermissionAdmin(RBACAdminOnlyMixin, admin.ModelAdmin):
     list_display = ("codename", "name", "namespace")
     search_fields = ("codename", "name", "description")
 
 
 @admin.register(UserRole)
-class UserRoleAdmin(admin.ModelAdmin):
+class UserRoleAdmin(RBACAdminOnlyMixin, admin.ModelAdmin):
     list_display = ("user", "role", "assigned_by", "assigned_at")
     list_filter = ("role",)
     search_fields = ("user__username", "user__email")

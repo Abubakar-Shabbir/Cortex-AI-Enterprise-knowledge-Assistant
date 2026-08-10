@@ -41,7 +41,7 @@ def upload_document(
     on that document (documents_view.document_embed), not
     automatically here. That view is what checks
     settings.ENABLE_ASYNC_PROCESSING to decide whether to dispatch to
-    a Celery worker or run inline.
+    the background thread pool or run inline.
     """
 
     # ==================================================
@@ -161,15 +161,16 @@ def process_uploaded_document(document):
     Split out from upload_document() (Sprint 10) so the exact same
     processing logic runs whether it's called inline (settings.
     ENABLE_ASYNC_PROCESSING off) or from RAG.tasks.process_document_task
-    in a Celery worker (when it's on) - the caller decides *when* this
-    runs, never *what* it does. Takes `document` (not a separate
-    `user`) so a Celery task only needs to pass a document_id and
-    re-fetch it - the graph-enrichment owner is always document.user.
+    on the background thread pool (when it's on) - the caller decides
+    *when* this runs, never *what* it does. Takes `document` (not a
+    separate `user`) so a background task only needs to pass a
+    document_id and re-fetch it - the graph-enrichment owner is always
+    document.user.
 
     Nothing calls this automatically at upload time anymore (see
     upload_document() below) - it only runs when a user clicks Embed
     on a still-PENDING document (documents_view.document_embed), or
-    when that dispatches it to a Celery worker.
+    when that dispatches it to the background thread pool.
 
     document.chunk_count is written right after chunking, not at the
     very end - so a document_status poll during the embed loop can

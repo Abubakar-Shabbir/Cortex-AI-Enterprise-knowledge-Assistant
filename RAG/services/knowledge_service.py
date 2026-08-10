@@ -58,6 +58,12 @@ RELATIONSHIPS_PER_PAGE = 24
 CITATIONS_LIMIT = 100
 GRAPH_NODE_LIMIT = 120
 
+# Cap on distinct slices in the Dashboard's "Topics by Category" chart -
+# same "fold the long tail into Other" precedent as
+# stats_service.DOCUMENT_TYPE_COLORS, so a user with a dozen LLM-invented
+# entity_type strings still gets a readable chart, not a dozen slivers.
+KNOWLEDGE_CATEGORY_CHART_LIMIT = 5
+
 # Fetch cap before Python-side Topic grouping - generous for current
 # scale, same "cap for readability/perf, not correctness" precedent as
 # GRAPH_NODE_LIMIT below.
@@ -341,6 +347,7 @@ def get_knowledge_overview(user):
         ).count()
 
     categories = Counter(t["entity_type"] for t in topics)
+    category_breakdown = _build_category_breakdown(categories)
 
     return {
         "total_entities": len(topics),
@@ -349,8 +356,37 @@ def get_knowledge_overview(user):
         "total_accessible_documents": total_accessible_documents,
         "indexed_documents": indexed_documents,
         "indexed_documents_label": f"of {total_accessible_documents} document{'' if total_accessible_documents == 1 else 's'}",
-        "categories": [{"entity_type": k, "count": v} for k, v in categories.most_common()],
+        "categories": [
+            {"entity_type": k, "count": v, "color": get_entity_type_color(k)} for k, v in categories.most_common()
+        ],
+        "category_breakdown": category_breakdown,
     }
+
+
+def _build_category_breakdown(categories):
+    """
+    Top KNOWLEDGE_CATEGORY_CHART_LIMIT entity_type counts, colored via
+    the same get_entity_type_color() the Knowledge Graph visualization
+    uses, with any remaining types folded into one "Other" slice -
+    feeds the Dashboard's "Topics by Category" chart (_knowledge_snapshot.html).
+    """
+
+    ranked = categories.most_common()
+    top = ranked[:KNOWLEDGE_CATEGORY_CHART_LIMIT]
+    other_count = sum(count for _, count in ranked[KNOWLEDGE_CATEGORY_CHART_LIMIT:])
+
+    breakdown = [
+        {"entity_type": entity_type, "count": count, "color": get_entity_type_color(entity_type)}
+        for entity_type, count in top
+    ]
+    if other_count:
+        breakdown.append({"entity_type": "Other", "count": other_count, "color": ENTITY_TYPE_FALLBACK_COLOR})
+
+    total = sum(item["count"] for item in breakdown)
+    for item in breakdown:
+        item["percent"] = round((item["count"] / total) * 100) if total else 0
+
+    return breakdown
 
 
 def search_topics(user, query="", entity_type="", page=1):

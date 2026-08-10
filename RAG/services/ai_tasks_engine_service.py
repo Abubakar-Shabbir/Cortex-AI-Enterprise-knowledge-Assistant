@@ -5,8 +5,8 @@ execute_run(run) is the top-level, never-raise entry point (mirrors
 graph_extraction_service.extract_graph()'s contract) - it sets
 status=RUNNING, dispatches to the matching _run_<task_type> handler,
 and always ends by setting status (COMPLETED/FAILED) + completed_at,
-so RAG.tasks.run_ai_task's Celery wrapper never needs its own
-try/except around business logic.
+so RAG.tasks.run_ai_task never needs its own try/except around
+business logic.
 
 Every per-item LLM call goes through _call_llm_json(), which never
 raises - on failure it logs and returns None, and the caller writes a
@@ -107,6 +107,31 @@ def _source_block(document, text, role="target"):
 # LLM call + citation helpers shared by every task handler
 # ============================================================
 
+class _RunCancelled(Exception):
+    """
+    Raised internally by _call_llm_json() when it notices the user
+    requested a stop (AITaskRun.cancel_requested, set by
+    RAG.views.ai_task_cancel) - caught in execute_run() to end the run
+    as status=CANCELLED instead of letting it either keep going to
+    COMPLETED or surface as an unexplained FAILED. Never escapes
+    ai_tasks_engine_service - execute_run() is still a never-raise
+    entry point overall.
+    """
+
+
+def _cancel_requested(run):
+    """
+    A fresh DB read, not run.cancel_requested (the in-memory attribute
+    on the `run` object execute_run() was handed at the start) -
+    cancellation is requested by a web request hitting a *different*
+    thread (of the same process's background thread pool) than the one
+    running this handler, so the only way to see it is to ask the
+    database again.
+    """
+
+    return AITaskRun.objects.filter(id=run.id, cancel_requested=True).exists()
+
+
 def _call_llm_json(run, prompt, item_label):
     """
     Never-raise JSON-mode call - the one place every per-item handler
@@ -120,7 +145,17 @@ def _call_llm_json(run, prompt, item_label):
     never raised. Wrapped in timed_stage() so every one of the ~15 call
     sites across the 8 task handlers gets recorded into the run's
     AIRequestTrace with no per-call-site change needed.
+
+    Also the one place that checks for a user-requested stop (see
+    _cancel_requested's docstring for why here specifically): every
+    task handler's expensive per-document/per-batch work funnels
+    through this function, so checking here - between LLM calls, never
+    mid-call - covers cancellation for all 8 task types without each
+    handler's loop needing its own check.
     """
+
+    if _cancel_requested(run):
+        raise _RunCancelled()
 
     with timed_stage("AI Task LLM call", item=item_label):
         return generate_json(prompt, temperature=0.2, context_label=f"AI Task run {run.id}: {item_label}")
@@ -199,16 +234,32 @@ def _budget_per_document(count):
 
 def _run_analyze(run, targets, references):
     criteria = run.config.get("criteria", "")
+
+    # Same reference-handling pattern as _run_validate() below: reference
+    # documents (if any were attached to the run) are extracted once,
+    # tagged role="reference", and prepended to every target's own source
+    # block so the LLM sees them as numbered context alongside the target
+    # it's actually scoring. Previously this function never read
+    # `references` at all - the wizard/model let a user attach reference
+    # documents to an Analyze run, but they were silently stored and never
+    # reached the prompt.
+    reference_budget = _budget_per_document(len(references) + 1)
+    reference_chunks = []
+    for reference in references:
+        context_result = get_document_context_text(reference, max_chars=reference_budget)
+        if "error" not in context_result:
+            reference_chunks.append(_source_block(reference, context_result["text"], role="reference"))
+
     scored = []  # [(document, score, AITaskResult)] for the synthesis pass
 
     for document in targets:
-        context_result = get_document_context_text(document)
+        context_result = get_document_context_text(document, max_chars=reference_budget)
 
         if "error" in context_result:
             _write_failed_result(run, document=document)
             continue
 
-        source_chunks = [_source_block(document, context_result["text"])]
+        source_chunks = reference_chunks + [_source_block(document, context_result["text"])]
         context = build_cited_context(source_chunks)
         prompt = build_analyze_prompt(context, criteria)
         parsed = _call_llm_json(run, prompt, f"analyze document {document.id}")
@@ -279,8 +330,24 @@ def _run_compare(run, targets, references):
         source_chunks.append(_source_block(document, context_result["text"]))
 
     if len(source_chunks) < 2:
-        # Nothing meaningful to compare - the per-document failure rows
-        # above already explain why, no corpus-level call is made.
+        # Nothing meaningful to compare - a diff needs at least two
+        # extractable documents. Any target that failed extraction
+        # already has its own failure row from the loop above, but a
+        # target that DID extract successfully (the common case: 1 of N
+        # succeeded) would otherwise just vanish here - no AITaskResult
+        # row, no explanation, while the run still completes and
+        # execute_run()'s summary can't count a document that never got
+        # a row. Give it its own row so it's visible and the "N of M
+        # could not be analyzed" summary accounts for it too.
+        for document in included_documents:
+            AITaskResult.objects.create(
+                run=run,
+                document=document,
+                title=document.title,
+                summary="Comparison needs at least 2 documents with extractable text; only this one qualified.",
+                data={"error": True},
+            )
+        run.error_message = "Comparison needs at least 2 documents with extractable text."
         return
 
     context = build_cited_context(source_chunks)
@@ -485,7 +552,12 @@ def _embed_targets(run, targets):
                 document=document,
                 title=document.title,
                 summary="This document hasn't been processed yet - click Embed on it in My Documents first.",
-                data={"error": "not_embedded"},
+                # error must be the boolean True, not a string - execute_run()'s
+                # failure-count summary filters on data__error=True exactly; a
+                # string here would satisfy the template's truthy `{% if
+                # result.data.error %}` check but silently never count toward
+                # "N of M document(s) could not be analyzed".
+                data={"error": True, "reason": "not_embedded"},
             )
             continue
         ids.append(document.id)
@@ -536,7 +608,12 @@ def _run_find_similar(run, targets, references):
                 run=run,
                 document=documents_by_id[doc_id],
                 rank=index,
-                score=similarity_to_centroid(embedding_by_id[doc_id], cluster["centroid"]),
+                # *100 - AITaskResult.score is a 0-100 scale everywhere else
+                # (Analyze relevance, Validate compliance percent); storing
+                # similarity_to_centroid()'s raw 0-1 cosine value here made
+                # _result_row.html guess the scale from magnitude, which broke
+                # its color thresholds (a strong 0.85 match read as "bad").
+                score=round(similarity_to_centroid(embedding_by_id[doc_id], cluster["centroid"]) * 100, 1),
                 title=documents_by_id[doc_id].title,
                 data={"cluster_label": label},
             )
@@ -592,7 +669,8 @@ def _run_organize(run, targets, references):
         for doc_id in group["document_ids"]:
             AITaskResult.objects.create(
                 run=run, document=documents_by_id[doc_id], rank=index,
-                score=similarity_to_centroid(embedding_by_id[doc_id], group["centroid"]),
+                # *100 - see the matching comment in _run_find_similar() above.
+                score=round(similarity_to_centroid(embedding_by_id[doc_id], group["centroid"]) * 100, 1),
                 title=documents_by_id[doc_id].title, data={"cluster_label": label},
             )
 
@@ -688,15 +766,17 @@ def execute_run(run):
     """
     Never-raise top-level entry point (mirrors
     graph_extraction_service.extract_graph()'s contract) - called by
-    RAG.tasks.run_ai_task inside a Celery worker. Always ends by
-    setting run.status (COMPLETED or FAILED) + completed_at, so the
-    Celery task itself needs no try/except around business logic.
+    RAG.tasks.run_ai_task on the background thread pool. Always ends by
+    setting run.status (COMPLETED, FAILED, or CANCELLED) + completed_at,
+    so the task itself needs no try/except around business logic.
 
     status=FAILED is reserved for a run-level exception outside any
     per-item try/except (e.g. the run's own document set failing to
     load) - a per-item LLM failure never fails the whole run, it just
     yields a degraded AITaskResult row for that one item (see
     _write_failed_result / _call_llm_json's never-raise contract).
+    status=CANCELLED is the third, deliberate outcome - see
+    _RunCancelled/_cancel_requested above.
     """
 
     run.status = AITaskRun.Status.RUNNING
@@ -704,6 +784,9 @@ def execute_run(run):
     run.save(update_fields=["status", "started_at"])
 
     try:
+        if _cancel_requested(run):
+            raise _RunCancelled()
+
         run_documents = list(run.run_documents.select_related("document").all())
         targets = [rd.document for rd in run_documents if rd.role == "target"]
         references = [rd.document for rd in run_documents if rd.role == "reference"]
@@ -722,6 +805,15 @@ def execute_run(run):
             run.error_message = (run.error_message + " " if run.error_message else "") + f"{failed_items} of {total_items} document(s) could not be analyzed."
 
         run.status = AITaskRun.Status.COMPLETED
+
+    except _RunCancelled:
+        # Whatever AITaskResult rows a handler already wrote before the
+        # next _call_llm_json() call noticed cancel_requested stay as
+        # they are - a partial result set, not rolled back - so the
+        # user can still see/export what was produced before they
+        # stopped it.
+        run.status = AITaskRun.Status.CANCELLED
+        run.error_message = run.error_message or "Stopped by user."
 
     except Exception:
         logger.exception("AI Task run %s failed", run.id)

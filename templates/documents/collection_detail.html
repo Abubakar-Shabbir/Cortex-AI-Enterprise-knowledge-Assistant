@@ -78,7 +78,8 @@
       </div>
     {% endif %}
   {% else %}
-    {% include "partials/_empty_state.html" with icon="folder-open" title="This collection is empty" message="Add documents to it from My Documents." action_url="documents" action_label="Go to My Documents" %}
+    {% url 'documents' as documents_url %}
+    {% include "partials/_empty_state.html" with icon="folder-open" title="This collection is empty" message="Add documents to it from My Documents." action_url=documents_url action_label="Go to My Documents" %}
   {% endif %}
 </div>
 

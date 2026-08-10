@@ -5,7 +5,7 @@ context var the app's shared sidebar/Monitoring page already read
 health checks were added here.
 {% endcomment %}
 
-<div class="rounded-xl border border-line bg-card p-3 shadow-soft dark:border-line-dark dark:bg-card-dark">
+<div class="flex h-full flex-col rounded-xl border border-line bg-card p-3 shadow-soft dark:border-line-dark dark:bg-card-dark">
 
   <div class="mb-2 flex items-center justify-between">
     <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">System Status</h2>
@@ -63,7 +63,7 @@ health checks were added here.
 
   </div>
 
-  <a href="{% url 'monitoring' %}" class="mt-2 block rounded-lg bg-primary/10 px-3 py-1.5 text-center text-sm font-semibold text-primary transition-colors hover:bg-primary/15 dark:text-primary-soft">
+  <a href="{% url 'monitoring' %}" class="mt-auto block rounded-lg bg-primary/10 px-3 py-1.5 text-center text-sm font-semibold text-primary transition-colors hover:bg-primary/15 dark:text-primary-soft">
     View System Health
   </a>
 

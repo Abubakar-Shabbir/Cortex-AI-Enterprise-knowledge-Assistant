@@ -4,6 +4,9 @@
 
 {% block content %}
 
+{% comment %}CSRF source for cancelRun()'s fetch POST - same #csrf-source pattern documents.html/admin/queries.html use for their own AJAX POSTs.{% endcomment %}
+<form id="csrf-source" class="hidden">{% csrf_token %}</form>
+
 <div x-data="systemLogsPage()">
 
   {% include "partials/_page_header.html" with title="System Logs" subtitle="Every AI request trace, deduped application error, and workspace activity event — one page, one nav entry." %}
@@ -55,6 +58,62 @@
   {% if can_view_traces %}
   <div x-show="activeTab === 'traces'" x-cloak>
 
+  {% comment %}
+  Active (pending/running) AI Task Runs - the one gap the trace table
+  below can't fill: AIRequestTrace only gets a row once execute_run()
+  finishes (RAG.tasks.run_ai_task), so a run stuck at PENDING (most
+  commonly: the server process restarted mid-task and orphaned it -
+  AI Tasks have no inline fallback or automatic resume) is otherwise
+  invisible on this page until either it finishes or an admin thinks
+  to check AITaskRun in /admin/. This panel reads it directly instead.
+  Not live-polled (this page is otherwise a static filter-and-reload
+  page throughout) - Refresh or reload to see updated state; the
+  per-row Stop button reloads on success for the same reason.
+  {% endcomment %}
+  {% if active_ai_task_runs %}
+    <div class="mb-3 overflow-hidden rounded-2xl border border-warning/30 bg-warning/5 shadow-soft dark:border-warning-dark/30 dark:bg-warning-dark/10">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-warning/20 px-4 py-3 dark:border-warning-dark/20">
+        <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+          <span class="h-2 w-2 animate-pulse rounded-full bg-warning dark:bg-warning-dark"></span>
+          Active AI Task Runs
+          <span class="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-semibold text-warning dark:text-warning-dark">{{ active_ai_task_runs|length }}</span>
+        </h2>
+        <a href="{% url 'admin_system_logs' %}" class="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline dark:text-primary-soft">
+          <i data-lucide="refresh-cw" class="h-3 w-3"></i> Refresh
+        </a>
+      </div>
+      <div class="divide-y divide-warning/15 dark:divide-warning-dark/15">
+        {% for run in active_ai_task_runs %}
+          <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium
+                  {% if run.status == 'running' %} bg-warning/15 text-warning dark:text-warning-dark
+                  {% else %} bg-line text-muted dark:bg-white/10 dark:text-muted-dark {% endif %}">
+                  {{ run.get_status_display }}
+                </span>
+                <a href="{% url 'ai_task_results' run.id %}" class="text-sm font-medium text-ink hover:text-primary dark:text-ink-dark dark:hover:text-primary-soft">{{ run.get_task_type_display }}</a>
+                <span class="text-xs text-muted dark:text-muted-dark">{{ run.user.username|default:"—" }} · {{ run.document_count }} doc{{ run.document_count|pluralize }} · {{ run.created_at|timesince }} ago</span>
+              </div>
+              {% if run.stuck_pending %}
+                <p class="mt-1 flex items-center gap-1.5 text-xs text-warning dark:text-warning-dark">
+                  <i data-lucide="alert-triangle" class="h-3 w-3 shrink-0"></i>
+                  This run may have been interrupted by a server restart — stop it and start a new one.
+                </p>
+              {% endif %}
+            </div>
+            <button type="button" @click="cancelRun({{ run.id }})" :disabled="cancellingRunId === {{ run.id }}"
+              class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-danger/30 bg-danger/5 px-2.5 py-1 text-xs font-medium text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-danger-dark/30 dark:text-danger-dark dark:hover:bg-danger-dark/10">
+              <i data-lucide="loader-2" class="h-3 w-3 animate-spin" x-show="cancellingRunId === {{ run.id }}"></i>
+              <i data-lucide="square" class="h-3 w-3" x-show="cancellingRunId !== {{ run.id }}"></i>
+              Stop
+            </button>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
   <div class="mb-3 rounded-2xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
     <form method="GET" class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-7">
 
@@ -74,6 +133,7 @@
           <option value="completed" {% if filters.status == "completed" %}selected{% endif %}>Completed</option>
           <option value="failed" {% if filters.status == "failed" %}selected{% endif %}>Failed</option>
           <option value="running" {% if filters.status == "running" %}selected{% endif %}>Running</option>
+          <option value="cancelled" {% if filters.status == "cancelled" %}selected{% endif %}>Cancelled</option>
         </select>
       </div>
 
@@ -165,6 +225,7 @@
                   <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold
                     {% if trace.status == "completed" %} bg-success/10 text-success dark:text-success-dark
                     {% elif trace.status == "failed" %} bg-danger/10 text-danger dark:text-danger-dark
+                    {% elif trace.status == "cancelled" %} bg-line text-muted dark:bg-white/10 dark:text-muted-dark
                     {% else %} bg-warning/10 text-warning dark:text-warning-dark {% endif %}">
                     {{ trace.get_status_display }}
                   </span>
@@ -673,6 +734,22 @@
       activeTab: '{{ default_tab }}',
       detail: { open: false, loading: false, data: null },
       errorDetail: { open: false, loading: false, data: null },
+      cancellingRunId: null,
+
+      cancelRun(runId) {
+        if (this.cancellingRunId) return;
+        if (!confirm('Stop this AI Task run? Results already produced are kept.')) return;
+        this.cancellingRunId = runId;
+        const csrftoken = document.querySelector('#csrf-source [name=csrfmiddlewaretoken]').value;
+        const cancelUrlTemplate = '{% url "ai_task_cancel" 999999999 %}';
+        fetch(cancelUrlTemplate.replace('999999999', runId), { method: 'POST', headers: { 'X-CSRFToken': csrftoken } })
+          .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+          .then(({ ok, data }) => {
+            if (!ok) { alert(data.error || 'Could not stop this run.'); this.cancellingRunId = null; return; }
+            window.location.reload();
+          })
+          .catch(() => { alert('Could not stop this run - check your connection.'); this.cancellingRunId = null; });
+      },
 
       openDetail(traceId) {
         this.detail = { open: true, loading: true, data: null };

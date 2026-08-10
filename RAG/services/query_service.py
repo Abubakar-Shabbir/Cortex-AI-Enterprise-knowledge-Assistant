@@ -29,7 +29,7 @@ from ..models import AIRequestTrace, QueryLog
 from .citation_service import build_cited_context, extract_citations
 from .context_compression_service import compress_context
 from .knowledge_service import get_related_topics_for_citations
-from .llm_client import LLMProviderError, get_llm
+from .llm_client import LLMProviderError, get_last_llm_meta, get_llm
 from .llm_service import generate_answer
 from .observability_service import save_trace
 from .perf import timed_stage
@@ -192,6 +192,8 @@ def answer_question(question, user=None, filters=None):
         citation_count=len(citations),
     )
 
+    llm_meta = get_last_llm_meta() or {}
+
     result = {
 
         "question": question,
@@ -207,6 +209,18 @@ def answer_question(question, user=None, filters=None):
         "confidence": confidence,
 
         "search_method": describe_search_method(retrieved_chunks),
+
+        # Which provider/model actually generated this answer - never
+        # inferred from settings.LLM_PROVIDER, which is only what was
+        # *requested*; this is what llm_client.py actually used,
+        # including when settings.LLM_FALLBACK_ENABLED caused it to
+        # differ from the configured primary. Empty when every
+        # provider failed (SERVICE_UNAVAILABLE_ANSWER).
+        "llm_provider": llm_meta.get("provider", ""),
+
+        "llm_model": llm_meta.get("model", ""),
+
+        "llm_fallback_used": llm_meta.get("fallback_used", False),
 
         "trace_id": get_trace_id(),
 
@@ -235,6 +249,8 @@ def answer_question(question, user=None, filters=None):
             answer=answer,
 
             sources=retrieved_chunks,
+
+            structured_data={"key_points": result["key_points"], "table": result["table"]},
 
             search_method=result["search_method"],
 
@@ -348,6 +364,8 @@ def answer_question_stream(question, user=None, filters=None):
         citation_count=len(citations),
     )
 
+    llm_meta = get_last_llm_meta() or {}
+
     result = {
 
         "question": question,
@@ -363,6 +381,12 @@ def answer_question_stream(question, user=None, filters=None):
         "confidence": confidence,
 
         "search_method": describe_search_method(retrieved_chunks),
+
+        "llm_provider": llm_meta.get("provider", ""),
+
+        "llm_model": llm_meta.get("model", ""),
+
+        "llm_fallback_used": llm_meta.get("fallback_used", False),
 
         "trace_id": get_trace_id(),
 
@@ -390,6 +414,8 @@ def answer_question_stream(question, user=None, filters=None):
             answer=answer,
 
             sources=retrieved_chunks,
+
+            structured_data={"key_points": result["key_points"], "table": result["table"]},
 
             search_method=result["search_method"],
 

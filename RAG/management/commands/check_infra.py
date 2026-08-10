@@ -1,8 +1,8 @@
 """
-Startup/readiness validation for Postgres, pgvector, Redis, Celery
-workers (when async processing is enabled), and every configured LLM
-provider - a CLI wrapper around health_service.get_health_status(),
-the same check backing the public /health/ endpoint.
+Startup/readiness validation for Postgres, pgvector, the in-process
+background task pool, and every configured LLM provider - a CLI wrapper
+around health_service.get_health_status(), the same check backing the
+public /health/ endpoint.
 
 Deliberately a standalone command, not wired into Django's boot
 sequence (AppConfig.ready()) - this codebase already has one
@@ -19,14 +19,13 @@ configuration passes, 1 otherwise - suitable as a deploy-script/CI
 gate, not just a human-readable report.
 """
 
-from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from RAG.services.health_service import get_health_status
 
 
 class Command(BaseCommand):
-    help = "Validate Postgres, pgvector, Redis, Celery, and configured LLM providers are reachable."
+    help = "Validate Postgres, pgvector, the background task pool, and configured LLM providers are reachable."
 
     def handle(self, *args, **options):
 
@@ -45,18 +44,11 @@ class Command(BaseCommand):
         self._report("PostgreSQL", checks["database"])
         self._report("pgvector extension", checks["pgvector"])
 
-        redis_relevant = settings.USE_REDIS_CACHE or settings.ENABLE_ASYNC_PROCESSING
-        self._report(
-            "Redis",
-            checks["redis"],
-            note="not required (USE_REDIS_CACHE and ENABLE_ASYNC_PROCESSING are both off)" if not redis_relevant else None,
-        )
-
-        if settings.ENABLE_ASYNC_PROCESSING:
-            workers = health["celery_workers"] or 0
-            self._report(f"Celery workers ({workers} responded)", workers > 0)
-        else:
-            self.stdout.write(self.style.WARNING("  - Celery workers: skipped (ENABLE_ASYNC_PROCESSING is off)"))
+        bg = health["background_jobs"]
+        active = bg.get("active")
+        max_workers = bg.get("max_workers")
+        detail = f" ({active} active, {max_workers} worker threads)" if active is not None else ""
+        self._report(f"Background task pool{detail}", checks["background_jobs"])
 
         llm_providers = checks["llm_providers"]
 

@@ -30,7 +30,7 @@ eight templates.
         {% if result.score >= 70 %} bg-success/10 text-success dark:text-success-dark
         {% elif result.score >= 40 %} bg-warning/10 text-warning dark:text-warning-dark
         {% else %} bg-danger/10 text-danger dark:text-danger-dark {% endif %}">
-        {% if result.score <= 1 %}{{ result.score|floatformat:2 }}{% else %}{{ result.score|floatformat:0 }}{% endif %}{% if result.score > 1 %}%{% endif %}
+        {{ result.score|floatformat:0 }}%
       </span>
     {% endif %}
   </div>

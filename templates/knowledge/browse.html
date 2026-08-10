@@ -4,7 +4,7 @@
 
 {% block content %}
 
-{% include "partials/_page_header.html" with title="Knowledge Center" subtitle="Your organization's connected knowledge space — explore topics, entities, and relationships discovered across everything you can access." %}
+{% include "partials/_page_header.html" with icon="compass" title="Knowledge Center" subtitle="Your organization's connected knowledge space — explore topics, entities, and relationships discovered across everything you can access." %}
 
 {% include "partials/_kb_tabs.html" with active="browse" %}
 
@@ -13,10 +13,10 @@
 </p>
 
 <div class="mb-4 flex flex-wrap gap-3">
-  <div class="min-w-[190px] flex-1" title="Distinct people, organizations, and concepts found across your accessible documents.">{% include "partials/_stat_card.html" with icon="compass" label="Topics" value=overview.total_entities %}</div>
-  <div class="min-w-[190px] flex-1" title="Directed connections discovered between topics.">{% include "partials/_stat_card.html" with icon="git-branch" label="Relationships" value=overview.total_relationships %}</div>
-  <div class="min-w-[190px] flex-1" title="Documents that contributed at least one topic to your knowledge base.">{% include "partials/_stat_card.html" with icon="file-text" label="Connected Documents" value=overview.total_sources %}</div>
-  <div class="min-w-[190px] flex-1" title="Documents fully processed and searched for topics, out of every document you can access.">{% include "partials/_stat_card.html" with icon="database-zap" label="Indexed Documents" value=overview.indexed_documents sublabel=overview.indexed_documents_label %}</div>
+  <div class="min-w-[190px] flex-1" title="Distinct people, organizations, and concepts found across your accessible documents.">{% include "partials/_stat_card.html" with icon="compass" label="Topics" value=overview.total_entities icon_bg="bg-primary/10" icon_color="text-primary dark:text-primary-soft" %}</div>
+  <div class="min-w-[190px] flex-1" title="Directed connections discovered between topics.">{% include "partials/_stat_card.html" with icon="git-branch" label="Relationships" value=overview.total_relationships icon_bg="bg-info/10" icon_color="text-info" %}</div>
+  <div class="min-w-[190px] flex-1" title="Documents that contributed at least one topic to your knowledge base.">{% include "partials/_stat_card.html" with icon="file-text" label="Connected Documents" value=overview.total_sources icon_bg="bg-success/10" icon_color="text-success" %}</div>
+  <div class="min-w-[190px] flex-1" title="Documents fully processed and searched for topics, out of every document you can access.">{% include "partials/_stat_card.html" with icon="database-zap" label="Indexed Documents" value=overview.indexed_documents sublabel=overview.indexed_documents_label icon_bg="bg-accent/10" icon_color="text-accent" %}</div>
 </div>
 
 {% if insights.recently_updated %}
@@ -52,34 +52,54 @@
         class="w-full rounded-lg border border-line bg-surface py-2 pl-9 pr-3 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
       >
     </div>
-    <select name="type" onchange="this.form.submit()" class="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
-      <option value="">All categories</option>
-      {% for category in overview.categories %}
-        <option value="{{ category.entity_type }}" {% if selected_type == category.entity_type %}selected{% endif %}>{{ category.entity_type }} ({{ category.count }})</option>
-      {% endfor %}
-    </select>
-    <button type="submit" class="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">Filter</button>
+    <input type="hidden" name="type" value="{{ selected_type }}">
+    <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+      <i data-lucide="search" class="h-4 w-4"></i> Search
+    </button>
     {% if query or selected_type %}
       <a href="{% url 'knowledge_base' %}" class="text-sm font-medium text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark">Clear</a>
     {% endif %}
   </form>
+
+  {% if overview.categories %}
+    {% comment %}
+    Category pills, not a <select> - every category is one click away
+    (with its live count) instead of hidden inside a dropdown, and the
+    active one reads at a glance via its own entity-type color
+    (get_entity_type_color(), the same palette the Knowledge Graph
+    page colors nodes with) rather than one repeated primary tone.
+    {% endcomment %}
+    <div class="mt-3 flex flex-wrap gap-1.5 border-t border-line pt-3 dark:border-line-dark">
+      <a href="?q={{ query|urlencode }}" class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors {% if not selected_type %}border-primary bg-primary text-white{% else %}border-line text-muted hover:border-primary/40 hover:text-ink dark:border-line-dark dark:text-muted-dark dark:hover:text-ink-dark{% endif %}">
+        All <span class="{% if not selected_type %}text-white/70{% else %}text-muted dark:text-muted-dark{% endif %}">{{ overview.total_entities }}</span>
+      </a>
+      {% for category in overview.categories %}
+        <a href="?type={{ category.entity_type|urlencode }}&q={{ query|urlencode }}" class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors {% if selected_type == category.entity_type %}text-white{% else %}border-line text-muted hover:border-primary/40 hover:text-ink dark:border-line-dark dark:text-muted-dark dark:hover:text-ink-dark{% endif %}"
+          {% if selected_type == category.entity_type %}style="background-color: {{ category.color }}; border-color: {{ category.color }}"{% endif %}>
+          <span class="h-1.5 w-1.5 shrink-0 rounded-full" style="background-color: {% if selected_type == category.entity_type %}#fff{% else %}{{ category.color }}{% endif %}"></span>
+          {{ category.entity_type|lower }} <span class="{% if selected_type == category.entity_type %}text-white/70{% else %}text-muted dark:text-muted-dark{% endif %}">{{ category.count }}</span>
+        </a>
+      {% endfor %}
+    </div>
+  {% endif %}
 </div>
 
 {% if topics_page.object_list %}
   <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
     {% for topic in topics_page %}
-      <a href="{% url 'entity_detail' topic.id %}" class="group rounded-xl border border-line bg-card p-4 shadow-soft transition-colors hover:border-primary/40 dark:border-line-dark dark:bg-card-dark dark:hover:border-primary-soft/40">
-        <div class="flex items-start justify-between gap-2">
-          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style="background-color: {{ topic.color }}22; color: {{ topic.color }}">
-            <i data-lucide="compass" class="h-4 w-4"></i>
+      <a href="{% url 'entity_detail' topic.id %}" class="group relative overflow-hidden rounded-xl border border-line bg-card p-4 shadow-soft transition-all duration-200 hover:-translate-y-0.5 hover:border-transparent hover:shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <span class="absolute inset-y-0 left-0 w-1 opacity-80 transition-opacity duration-200 group-hover:opacity-100" style="background-color: {{ topic.color }}"></span>
+        <div class="flex items-start justify-between gap-2 pl-1.5">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-105" style="background-color: {{ topic.color }}22; color: {{ topic.color }}">
+            <i data-lucide="compass" class="h-5 w-5"></i>
           </div>
-          <span class="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium capitalize text-muted dark:border-line-dark dark:text-muted-dark">{{ topic.entity_type|lower }}</span>
+          <span class="rounded-full px-2 py-0.5 text-[11px] font-medium capitalize" style="background-color: {{ topic.color }}22; color: {{ topic.color }}">{{ topic.entity_type|lower }}</span>
         </div>
-        <p class="mt-3 truncate text-sm font-semibold text-ink group-hover:text-primary dark:text-ink-dark dark:group-hover:text-primary-soft">{{ topic.display_name }}</p>
-        <p class="mt-1 flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
-          <span>{{ topic.document_count }} document{{ topic.document_count|pluralize }}</span>
+        <p class="mt-3 truncate pl-1.5 text-sm font-semibold text-ink group-hover:text-primary dark:text-ink-dark dark:group-hover:text-primary-soft">{{ topic.display_name }}</p>
+        <p class="mt-1 flex items-center gap-2 pl-1.5 text-xs text-muted dark:text-muted-dark">
+          <span class="inline-flex items-center gap-1"><i data-lucide="file-text" class="h-3 w-3"></i> {{ topic.document_count }} document{{ topic.document_count|pluralize }}</span>
           <span aria-hidden="true">·</span>
-          <span>{{ topic.mention_count }} mention{{ topic.mention_count|pluralize }}</span>
+          <span class="inline-flex items-center gap-1"><i data-lucide="tag" class="h-3 w-3"></i> {{ topic.mention_count }} mention{{ topic.mention_count|pluralize }}</span>
         </p>
       </a>
     {% endfor %}
@@ -90,10 +110,10 @@
       <p class="text-xs text-muted dark:text-muted-dark">Page {{ topics_page.number }} of {{ topics_page.paginator.num_pages }}</p>
       <div class="flex gap-1.5">
         {% if topics_page.has_previous %}
-          <a href="?page={{ topics_page.previous_page_number }}&q={{ query }}&type={{ selected_type }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Previous</a>
+          <a href="?page={{ topics_page.previous_page_number }}&q={{ query|urlencode }}&type={{ selected_type|urlencode }}" class="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5"><i data-lucide="chevron-left" class="h-3.5 w-3.5"></i> Previous</a>
         {% endif %}
         {% if topics_page.has_next %}
-          <a href="?page={{ topics_page.next_page_number }}&q={{ query }}&type={{ selected_type }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Next</a>
+          <a href="?page={{ topics_page.next_page_number }}&q={{ query|urlencode }}&type={{ selected_type|urlencode }}" class="inline-flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Next <i data-lucide="chevron-right" class="h-3.5 w-3.5"></i></a>
         {% endif %}
       </div>
     </div>

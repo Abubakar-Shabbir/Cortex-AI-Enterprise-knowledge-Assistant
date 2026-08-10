@@ -50,6 +50,7 @@ class SettingsValidationError(Exception):
 # where these codenames are defined.
 MANAGED_SETTINGS_FIELDS = [
     ("llm_provider", "LLM_PROVIDER", "settings.manage_llm"),
+    ("enable_fallback", "LLM_FALLBACK_ENABLED", "settings.manage_llm"),
     ("openrouter_model", "OPENROUTER_MODEL", "settings.manage_llm"),
     ("groq_model", "GROQ_MODEL", "settings.manage_llm"),
     ("gemini_model", "LLM_MODEL", "settings.manage_llm"),
@@ -101,6 +102,7 @@ def get_config():
         pk=1,
         defaults={
             "llm_provider": settings.LLM_PROVIDER,
+            "enable_fallback": settings.LLM_FALLBACK_ENABLED,
             "openrouter_model": settings.OPENROUTER_MODEL,
             "groq_model": settings.GROQ_MODEL,
             "gemini_model": settings.LLM_MODEL,

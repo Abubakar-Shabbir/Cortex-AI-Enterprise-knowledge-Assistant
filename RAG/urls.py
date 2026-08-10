@@ -64,6 +64,8 @@ urlpatterns = [
     path("ai-tasks/create/", views.ai_task_create, name="ai_task_create"),
     path("ai-tasks/history/", views.ai_task_history, name="ai_task_history"),
     path("ai-tasks/<int:run_id>/status/", views.ai_task_status, name="ai_task_status"),
+    path("ai-tasks/<int:run_id>/cancel/", views.ai_task_cancel, name="ai_task_cancel"),
+    path("ai-tasks/<int:run_id>/delete/", views.ai_task_delete, name="ai_task_delete"),
     path("ai-tasks/<int:run_id>/results/", views.ai_task_results, name="ai_task_results"),
     path("ai-tasks/<int:run_id>/export.csv", views.ai_task_export, name="ai_task_export"),
 

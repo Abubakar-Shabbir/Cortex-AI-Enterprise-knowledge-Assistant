@@ -386,7 +386,7 @@
   if (aiTaskStatusCanvas) {
     const statusLabels = read('ai-task-status-labels-data');
     const statusValues = read('ai-task-status-values-data');
-    const statusColorMap = { Completed: success, Failed: primary, Running: warning, Pending: tickColor };
+    const statusColorMap = { Completed: success, Failed: primary, Running: warning, Pending: tickColor, Cancelled: '#A9989A' };
     new Chart(aiTaskStatusCanvas, {
       type: 'doughnut',
       data: {

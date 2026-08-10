@@ -33,7 +33,7 @@ user-agents==2.2.0
 markdown==3.10.3
 nh3==0.3.6
 
-# Async tasks / caching (Sprint 10)
-celery==5.6.3
-redis==8.1.0
-django-redis==7.0.0
+# Background document processing and AI Tasks run on an in-process
+# concurrent.futures.ThreadPoolExecutor (RAG/services/task_runner.py) -
+# stdlib, no dependency needed. Celery/Redis were removed in the
+# free-tier refactor.

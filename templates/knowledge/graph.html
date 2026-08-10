@@ -4,19 +4,27 @@
 
 {% block content %}
 
-{% include "partials/_page_header.html" with title="Knowledge Graph" subtitle="A visual map of how topics connect across everything you can access. Click a node or connection to explore it in place." %}
+{% include "partials/_page_header.html" with icon="share-2" title="Knowledge Graph" subtitle="A visual map of how topics connect across everything you can access. Click a node or connection to explore it in place." %}
 
 {% include "partials/_kb_tabs.html" with active="graph" %}
 
-<div class="mb-4 flex flex-wrap gap-3">
-  <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="tag" label="Entities" value=insights.total_entities %}</div>
-  <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="git-branch" label="Relationships" value=insights.total_relationships %}</div>
-  <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="star" label="Most Mentioned" value=insights.most_mentioned_entity.display_name|default:"—" sublabel=insights.most_mentioned_entity.mention_count|default:"" %}</div>
-  <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="network" label="Most Connected" value=insights.most_connected.entity.display_name|default:"—" sublabel=insights.most_connected.degree|default:"" %}</div>
+{% comment %}
+A 4-up equal-width grid, not flex-wrap + min-w-[190px] - two of these
+cards (Most Mentioned / Most Connected) show an entity display_name
+instead of a short number, so with flex-basis sizing they'd grow wider
+than their siblings on a long name. A grid keeps all four the same
+size regardless of content; _stat_card.html's value now truncates too,
+so a very long name still can't stretch its own card's height.
+{% endcomment %}
+<div class="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+  {% include "partials/_stat_card.html" with icon="tag" label="Entities" value=insights.total_entities icon_bg="bg-primary/10" icon_color="text-primary dark:text-primary-soft" %}
+  {% include "partials/_stat_card.html" with icon="git-branch" label="Relationships" value=insights.total_relationships icon_bg="bg-info/10" icon_color="text-info" %}
+  {% include "partials/_stat_card.html" with icon="star" label="Most Mentioned" value=insights.most_mentioned_entity.display_name|default:"—" sublabel=insights.most_mentioned_entity.mention_count|default:"" icon_bg="bg-warning/10" icon_color="text-warning" %}
+  {% include "partials/_stat_card.html" with icon="network" label="Most Connected" value=insights.most_connected.entity.display_name|default:"—" sublabel=insights.most_connected.degree|default:"" icon_bg="bg-accent/10" icon_color="text-accent" %}
 </div>
 
 {% if graph_data.nodes %}
-<div x-data="knowledgeGraphExplorer()" x-init="init()" class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+<div x-data="knowledgeGraphExplorer()" x-init="init()" @keydown.escape.window="if (isFullscreen) toggleFullscreen()" :class="isFullscreen && 'fixed inset-0 z-50 overflow-y-auto rounded-none'" class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
 
   {# ---- Toolbar ---- #}
   <div class="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2.5 dark:border-line-dark">
@@ -34,21 +42,36 @@
       <i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i> Filters
     </button>
 
-    <div class="flex items-center gap-1">
-      <button type="button" @click="zoomOut()" title="Zoom out" class="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface hover:text-ink dark:text-muted-dark dark:hover:bg-white/5 dark:hover:text-ink-dark">
+    <div class="flex items-center gap-0.5 rounded-lg border border-line p-0.5 dark:border-line-dark">
+      <button type="button" @click="zoomOut()" title="Zoom out" class="rounded-md p-1.5 text-muted transition-colors hover:bg-surface hover:text-ink dark:text-muted-dark dark:hover:bg-white/5 dark:hover:text-ink-dark">
         <i data-lucide="zoom-out" class="h-4 w-4"></i>
       </button>
-      <button type="button" @click="zoomIn()" title="Zoom in" class="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface hover:text-ink dark:text-muted-dark dark:hover:bg-white/5 dark:hover:text-ink-dark">
+      <button type="button" @click="zoomIn()" title="Zoom in" class="rounded-md p-1.5 text-muted transition-colors hover:bg-surface hover:text-ink dark:text-muted-dark dark:hover:bg-white/5 dark:hover:text-ink-dark">
         <i data-lucide="zoom-in" class="h-4 w-4"></i>
       </button>
-      <button type="button" @click="fit()" title="Fit to view" class="rounded-lg p-1.5 text-muted transition-colors hover:bg-surface hover:text-ink dark:text-muted-dark dark:hover:bg-white/5 dark:hover:text-ink-dark">
+      <span class="h-4 w-px bg-line dark:bg-line-dark"></span>
+      <button type="button" @click="fit()" title="Fit to view" class="rounded-md p-1.5 text-muted transition-colors hover:bg-surface hover:text-ink dark:text-muted-dark dark:hover:bg-white/5 dark:hover:text-ink-dark">
         <i data-lucide="maximize" class="h-4 w-4"></i>
+      </button>
+      <button type="button" @click="toggleFullscreen()" :title="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'" class="rounded-md p-1.5 text-muted transition-colors hover:bg-surface hover:text-ink dark:text-muted-dark dark:hover:bg-white/5 dark:hover:text-ink-dark">
+        <i data-lucide="minimize-2" class="h-4 w-4" x-show="isFullscreen" x-cloak></i>
+        <i data-lucide="expand" class="h-4 w-4" x-show="!isFullscreen"></i>
       </button>
     </div>
 
     <button type="button" x-show="focusedId" x-cloak @click="clearFocus()" class="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">
       <i data-lucide="x" class="h-3.5 w-3.5"></i> Clear focus
     </button>
+  </div>
+
+  {# ---- Legend: always-visible entity-type color key, independent of the toggleable Filters panel ---- #}
+  <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface/60 px-3 py-1.5 text-xs dark:border-line-dark dark:bg-white/[0.02]">
+    <template x-for="type in entityTypes" :key="'legend-' + type.name">
+      <span class="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
+        <span class="h-2 w-2 rounded-full" :style="'background-color: ' + type.color"></span>
+        <span class="capitalize" x-text="type.name.toLowerCase()"></span>
+      </span>
+    </template>
   </div>
 
   {# ---- Filters panel ---- #}
@@ -85,7 +108,17 @@
   {# ---- Canvas + side panel ---- #}
   <div class="flex flex-col lg:flex-row">
     <div class="relative flex-1 p-2">
-      <div id="knowledgeGraph" class="h-[560px] w-full rounded-lg bg-surface dark:bg-white/[0.02]"></div>
+      {% comment %}
+      Dot-grid backdrop (a repeating radial-gradient, not an image) -
+      the same "graph editor" visual cue Figma/Miro-style canvases use,
+      so this reads as a workspace to drag/zoom around in rather than a
+      plain chart. Purely decorative background-image, no effect on
+      vis-network's own hit-testing/coordinates.
+      {% endcomment %}
+      <div id="knowledgeGraph"
+        :class="isFullscreen ? 'h-[calc(100vh-7.5rem)]' : 'h-[620px]'"
+        class="w-full rounded-lg bg-surface transition-[height] duration-200 dark:bg-white/[0.02] [background-image:radial-gradient(circle,rgba(109,102,101,0.16)_1px,transparent_1px)] [background-size:20px_20px] dark:[background-image:radial-gradient(circle,rgba(169,152,154,0.14)_1px,transparent_1px)]"
+      ></div>
     </div>
 
     <div x-show="panelOpen" x-cloak x-transition class="w-full shrink-0 border-t border-line p-4 dark:border-line-dark lg:w-80 lg:border-l lg:border-t-0">
@@ -105,14 +138,14 @@
       {# ---- Node detail ---- #}
       <template x-if="!loading && selectedNode">
         <div class="space-y-4">
-          <div>
-            <div class="flex items-center gap-2">
-              <span class="h-2.5 w-2.5 rounded-full" :style="'background-color: ' + selectedNode.color"></span>
-              <h3 class="text-sm font-semibold text-ink dark:text-ink-dark" x-text="selectedNode.display_name"></h3>
+          <div class="-mx-4 -mt-4 flex items-center gap-3 rounded-t-lg px-4 py-3.5" :style="'background-color: ' + selectedNode.color + '14'">
+            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white shadow-soft" :style="'background-color: ' + selectedNode.color" x-text="selectedNode.display_name.charAt(0).toUpperCase()"></span>
+            <div class="min-w-0">
+              <h3 class="truncate text-sm font-semibold text-ink dark:text-ink-dark" x-text="selectedNode.display_name"></h3>
+              <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">
+                <span x-text="selectedNode.entity_type"></span> · <span x-text="selectedNode.mention_count"></span> mentions · <span x-text="selectedNode.document_count"></span> document<span x-show="selectedNode.document_count !== 1">s</span>
+              </p>
             </div>
-            <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">
-              <span x-text="selectedNode.entity_type"></span> · <span x-text="selectedNode.mention_count"></span> mentions · <span x-text="selectedNode.document_count"></span> document<span x-show="selectedNode.document_count !== 1">s</span>
-            </p>
           </div>
 
           <div class="flex flex-wrap gap-1.5">
@@ -206,6 +239,7 @@ function knowledgeGraphExplorer() {
     filtersOpen: false,
     panelOpen: false,
     loading: false,
+    isFullscreen: false,
     selectedNode: null,
     selectedEdge: null,
     focusedId: null,
@@ -235,7 +269,7 @@ function knowledgeGraphExplorer() {
       this.relationTypes.forEach((r) => { this.activeRelations[r.name] = true; });
 
       const groups = {};
-      this.entityTypes.forEach((t) => { groups[t.name] = { color: { border: t.color, background: t.color + '33' } }; });
+      this.entityTypes.forEach((t) => { groups[t.name] = { color: { border: t.color, background: t.color + '33', highlight: { border: t.color, background: t.color + '55' }, hover: { border: t.color, background: t.color + '44' } } }; });
 
       this.nodes = new vis.DataSet(this.rawNodes.map((n) => ({
         ...n,
@@ -245,19 +279,32 @@ function knowledgeGraphExplorer() {
       this.edges = new vis.DataSet(this.rawEdges.map((e, idx) => ({
         ...e,
         id: idx,
-        arrows: 'to',
-        color: { color: idleEdgeColor, highlight: highlightEdgeColor },
+        arrows: { to: { scaleFactor: 0.6 } },
+        color: { color: idleEdgeColor, highlight: highlightEdgeColor, hover: highlightEdgeColor },
         font: { color: '#8a7d7d', size: 10, strokeWidth: 0, align: 'middle' },
       })));
 
       const container = document.getElementById('knowledgeGraph');
 
+      {% comment %}
+      shadow + a wider chosen-state border are the two settings doing
+      most of the "attractive" work here - depth on nodes (so the dot-
+      grid backdrop reads as behind them, not flush with them) and a
+      visibly thicker ring on hover/selection instead of vis-network's
+      default (barely perceptible) highlight.
+      {% endcomment %}
       this.network = new vis.Network(container, { nodes: this.nodes, edges: this.edges }, {
         groups,
-        nodes: { shape: 'dot', scaling: { min: 10, max: 34 }, borderWidth: 2 },
-        edges: { smooth: { type: 'continuous' }, width: 1.5 },
-        physics: { stabilization: { iterations: 120 }, barnesHut: { gravitationalConstant: -6000, springLength: 140 } },
-        interaction: { hover: true, tooltipDelay: 150 },
+        nodes: {
+          shape: 'dot', scaling: { min: 10, max: 36 }, borderWidth: 2, borderWidthSelected: 4,
+          shadow: { enabled: true, color: 'rgba(31,27,27,0.18)', size: 8, x: 0, y: 2 },
+        },
+        edges: {
+          smooth: { type: 'continuous', roundness: 0.55 }, width: 1.5, hoverWidth: 0.5, selectionWidth: 1,
+          shadow: { enabled: true, color: 'rgba(31,27,27,0.06)', size: 4, x: 0, y: 1 },
+        },
+        physics: { stabilization: { iterations: 120 }, barnesHut: { gravitationalConstant: -6500, springLength: 150 } },
+        interaction: { hover: true, tooltipDelay: 150, hideEdgesOnDrag: true },
       });
 
       this.network.once('stabilizationIterationsDone', () => {
@@ -299,6 +346,21 @@ function knowledgeGraphExplorer() {
     zoomIn() { this.network.moveTo({ scale: this.network.getScale() * 1.25, animation: true }); },
     zoomOut() { this.network.moveTo({ scale: this.network.getScale() * 0.8, animation: true }); },
     fit() { this.network.fit({ animation: true }); },
+
+    toggleFullscreen() {
+      // A CSS-only "fake fullscreen" (fixed inset-0 overlay, toggled via
+      // the isFullscreen class binding above) rather than the browser
+      // Fullscreen API - no permission prompt, works the same inside a
+      // sandboxed iframe, and the canvas resize handling below is the
+      // same either way. vis-network sizes off the container's actual
+      // pixel box, not a CSS class, so a redraw+fit has to be kicked off
+      // manually after the height transition finishes.
+      this.isFullscreen = !this.isFullscreen;
+      setTimeout(() => {
+        this.network.redraw();
+        this.network.fit({ animation: true });
+      }, 220);
+    },
 
     focusNode(id) {
       this.focusedId = id;

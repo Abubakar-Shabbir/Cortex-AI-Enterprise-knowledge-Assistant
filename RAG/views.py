@@ -2,6 +2,7 @@ import csv
 import json
 import logging
 import os
+from datetime import timedelta
 
 import django
 
@@ -15,7 +16,8 @@ from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Count, Q, Sum
 from django.http import (
-    FileResponse, Http404, HttpResponse, HttpResponseBadRequest, JsonResponse, StreamingHttpResponse,
+    FileResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseNotAllowed, JsonResponse,
+    StreamingHttpResponse,
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -64,6 +66,7 @@ from .services.knowledge_service import (
     get_graph_insights,
     get_knowledge_insights,
     get_knowledge_overview,
+    get_related_topics_for_citations,
     get_relation_types,
     get_relationships,
     get_topic_detail,
@@ -108,6 +111,7 @@ from .services.permission_service import (
     get_dashboard_url_for_user,
     get_permission_modules,
     get_user_permission_set,
+    has_admin_area_access,
     has_any_settings_permission,
     is_admin,
     is_last_admin,
@@ -425,16 +429,35 @@ def ask_ai(request):
 
         if log:
             sources = log.sources or []
+            citations = [source for source in sources if source.get("citation_number")]
+            structured = log.structured_data or {}
+            # AIRequestTrace, not QueryLog, is the record of which
+            # provider/model actually answered (QueryLog predates that
+            # tracking) - looked up via the same FK save_trace()
+            # attaches at answer time, so a past answer's "Answered by"
+            # badge is exactly what generated it, not a guess.
+            trace = AIRequestTrace.objects.filter(query_log=log).only("provider", "model", "providers_attempted").first()
             result = {
                 "id": log.id,
                 "question": log.question,
                 "answer": log.answer,
                 "sources": sources,
-                "citations": [source for source in sources if source.get("citation_number")],
+                "citations": citations,
                 "response_time_ms": log.response_time_ms,
                 "confidence": log.confidence,
                 "search_method": log.search_method,
+                "llm_provider": trace.provider if trace else "",
+                "llm_model": trace.model if trace else "",
+                "llm_fallback_used": bool(trace and len(trace.providers_attempted or []) > 1),
                 "from_history": True,
+                # Same shape answer_question() returns (see query_service.py) -
+                # key_points/table come from the QueryLog row itself (written
+                # at answer time), related_topics is recomputed here since
+                # it's cheap (a knowledge-graph lookup, no LLM call) and
+                # wasn't worth persisting a second time alongside `sources`.
+                "key_points": structured.get("key_points", []),
+                "table": structured.get("table"),
+                "related_topics": get_related_topics_for_citations(request.user, citations),
             }
 
     if result is not None:
@@ -1303,7 +1326,7 @@ def document_version_upload(request, doc_id):
     """
     Owner-only, like document_embed - uploading a new version is a
     mutation, never granted by sharing/org-library membership. Reuses
-    document_embed's exact sync-vs-Celery dispatch so a large
+    document_embed's exact sync-vs-background-thread dispatch so a large
     re-processing pass behaves identically either way.
     """
 
@@ -1324,19 +1347,20 @@ def document_version_upload(request, doc_id):
         return redirect("documents")
 
     if settings.ENABLE_ASYNC_PROCESSING:
+        from .services import task_runner
         from .tasks import process_document_task
 
         try:
-            process_document_task.delay(document.id)
+            task_runner.submit(process_document_task, document.id)
             messages.success(request, f'New version of "{document.title}" is processing in the background.')
         except Exception:
             # See document_embed's matching comment - graceful fallback
             # to the inline path already used when async processing is
             # off, rather than just surfacing an error.
-            logger.exception("[INFRA] document_version_upload: Celery dispatch failed for document %s, falling back to inline processing", document.id)
+            logger.exception("[INFRA] document_version_upload: background dispatch failed for document %s, falling back to inline processing", document.id)
             try:
                 process_uploaded_document(document)
-                messages.success(request, f'"{document.title}" updated to version {document.version_number} (background worker was unavailable, so this ran immediately instead).')
+                messages.success(request, f'"{document.title}" updated to version {document.version_number} (background dispatch failed, so this ran immediately instead).')
             except Exception:
                 messages.error(request, f'Processing the new version of "{document.title}" failed - check the server logs.')
     else:
@@ -1460,11 +1484,12 @@ def document_embed(request, doc_id):
     Triggers processing (extract/chunk/embed/graph-enrich) for one
     PENDING or previously-FAILED document - the explicit, per-document
     counterpart to what upload_document() used to run automatically at
-    upload time. Dispatches to a Celery worker when
-    settings.ENABLE_ASYNC_PROCESSING is on, so this request returns
-    immediately and documents.html's per-row progress bar polls
-    document_status below; otherwise runs inline and blocks only this
-    one request until done (same as the pre-Sprint-10 default).
+    upload time. Dispatches to the background thread pool
+    (RAG.services.task_runner) when settings.ENABLE_ASYNC_PROCESSING is
+    on, so this request returns immediately and documents.html's
+    per-row progress bar polls document_status below; otherwise runs
+    inline and blocks only this one request until done (same as the
+    pre-Sprint-10 default).
     """
 
     if request.method != "POST":
@@ -1488,23 +1513,25 @@ def document_embed(request, doc_id):
 
     if settings.ENABLE_ASYNC_PROCESSING:
 
+        from .services import task_runner
         from .tasks import process_document_task
 
         try:
-            process_document_task.delay(document.id)
+            task_runner.submit(process_document_task, document.id)
             messages.success(request, f'"{document.title}" is processing in the background.')
         except Exception:
-            # The broker (Redis) being unreachable is an infrastructure
-            # failure, not a user error - and unlike AI Tasks, there's
-            # already a working inline path right below (the `else`
-            # branch this mirrors), so fall back to running it
-            # synchronously right here instead of just showing an
-            # error. The document still gets processed, just not in
-            # the background for this one request.
-            logger.exception("[INFRA] document_embed: Celery dispatch failed for document %s, falling back to inline processing", document.id)
+            # Submitting to the in-process thread pool has no
+            # network/broker to fail on, but this stays defensive - and
+            # unlike AI Tasks, there's already a working inline path
+            # right below (the `else` branch this mirrors), so fall
+            # back to running it synchronously right here instead of
+            # just showing an error. The document still gets
+            # processed, just not in the background for this one
+            # request.
+            logger.exception("[INFRA] document_embed: background dispatch failed for document %s, falling back to inline processing", document.id)
             try:
                 process_uploaded_document(document)
-                messages.success(request, f'"{document.title}" processed (background worker was unavailable, so this ran immediately instead).')
+                messages.success(request, f'"{document.title}" processed (background dispatch failed, so this ran immediately instead).')
             except Exception:
                 messages.error(request, f'Processing "{document.title}" failed - check the server logs.')
 
@@ -1740,8 +1767,8 @@ def profile_view(request):
 def monitoring_view(request):
     """
     Admin-only system/infra monitoring - RAG pipeline configuration,
-    database/pgvector status, and (Sprint 10) Redis/Celery health.
-    Gated by the "system.view_health" RBAC permission (see
+    database/pgvector status, and background task pool health. Gated
+    by the "system.view_health" RBAC permission (see
     RAG/decorators.py, RAG/services/permission_service.py) rather than
     request.user.is_staff - a role's permission set can now be changed
     without touching this view.
@@ -1779,7 +1806,6 @@ def monitoring_view(request):
             "chunk_overlap": settings.CHUNK_OVERLAP,
             "top_k": settings.TOP_K,
             "django_version": django.get_version(),
-            "settings_use_redis_cache": settings.USE_REDIS_CACHE,
             "uptime_display": uptime_display,
         },
     )
@@ -1795,6 +1821,8 @@ _ACTIVITY_ICONS = {
     "user.role_changed": "shield",
     "user.login": "log-in",
     "user.logout": "log-out",
+    "ai_task.created": "sparkles",
+    "ai_task.deleted": "trash-2",
 }
 
 # Visual category per action codename - drives the Activity tab's badge
@@ -1811,6 +1839,8 @@ _ACTIVITY_CATEGORY = {
     "user.suspended": "danger",
     "user.deleted": "danger",
     "user.role_changed": "warning",
+    "ai_task.created": "neutral",
+    "ai_task.deleted": "danger",
 }
 
 
@@ -1969,6 +1999,30 @@ def admin_system_logs_view(request):
             "ai_task": AIRequestTrace.objects.filter(source=AIRequestTrace.Source.AI_TASK).count(),
         }
 
+        # Pending/running AI Task runs, admin-wide (not scoped to
+        # request.user, unlike ai_task_status/ai_task_results) - the one
+        # gap AIRequestTrace can't fill on its own: save_trace() for a
+        # run only happens after execute_run() finishes (see
+        # RAG.tasks.run_ai_task), so a run stuck at PENDING (e.g. the
+        # process restarted mid-task, orphaning it) never produces a
+        # trace row and is otherwise invisible here.
+        active_ai_task_runs = list(
+            AITaskRun.objects.filter(status__in=[AITaskRun.Status.PENDING, AITaskRun.Status.RUNNING])
+            .select_related("user")
+            .order_by("created_at")[:50]
+        )
+
+        # A run stuck at PENDING for a while almost always means the
+        # process restarted mid-task and orphaned it (run_ai_task has
+        # no inline fallback and nothing resumes an interrupted run
+        # automatically - see RAG.views.ai_task_create's own
+        # docstring) rather than one being merely slow, so this is
+        # surfaced as an explicit hint rather than making an admin
+        # guess from a bare "Pending" badge and a stopwatch.
+        now = timezone.now()
+        for run in active_ai_task_runs:
+            run.stuck_pending = run.status == AITaskRun.Status.PENDING and (now - run.created_at) > timedelta(minutes=2)
+
         eg_filters = {
             "logger_name": request.GET.get("eg_logger", ""),
             "level": request.GET.get("eg_level", ""),
@@ -1992,6 +2046,7 @@ def admin_system_logs_view(request):
             "filters": request.GET,
             "filter_options": observability_service.get_filter_options(),
             "summary": summary,
+            "active_ai_task_runs": active_ai_task_runs,
             "error_groups": eg_listing["results"],
             "eg_total": eg_listing["total"],
             "eg_page": eg_listing["page"],
@@ -2553,6 +2608,7 @@ def admin_settings_view(request):
         try:
             data = {
                 "llm_provider": request.POST.get("llm_provider", config.llm_provider),
+                "enable_fallback": request.POST.get("enable_fallback") == "on",
                 "openrouter_model": request.POST.get("openrouter_model", config.openrouter_model).strip() or config.openrouter_model,
                 "groq_model": request.POST.get("groq_model", config.groq_model).strip() or config.groq_model,
                 "gemini_model": request.POST.get("gemini_model", config.gemini_model).strip() or config.gemini_model,
@@ -3103,10 +3159,12 @@ def ai_tasks_view(request):
 def ai_task_create(request):
     """
     Creates and dispatches one AITaskRun. Unlike document_embed, this
-    always dispatches to Celery (run_ai_task.delay) regardless of
+    always dispatches to the in-process background thread pool
+    (RAG.services.task_runner.submit) regardless of
     settings.ENABLE_ASYNC_PROCESSING - AI Task runs have no inline
-    execution path. A Celery worker (celery -A myproject worker) must
-    be running for this feature to work at all.
+    execution path. Unlike the old Celery-based design, there's no
+    missing-worker failure mode here: the pool lives in this same
+    process.
     """
 
     if request.method != "POST":
@@ -3186,22 +3244,119 @@ def ai_task_create(request):
         request=request,
     )
 
+    from .services import task_runner
     from .tasks import run_ai_task
 
     try:
-        run_ai_task.delay(run.id)
+        task_runner.submit(run_ai_task, run.id, key=run.id)
     except Exception:
-        # The broker itself (Redis) being unreachable is an
-        # infrastructure failure, not a user error - never let it
-        # surface as a raw 500. The run row already exists, so mark it
-        # FAILED with a clear explanation rather than leaving it
-        # silently stuck at PENDING forever.
-        logger.exception("ai_task_create: failed to dispatch run %s to Celery", run.id)
+        # Submitting to the in-process thread pool has no
+        # network/broker to fail on, but this stays defensive - never
+        # let an unexpected failure surface as a raw 500. The run row
+        # already exists, so mark it FAILED with a clear explanation
+        # rather than leaving it silently stuck at PENDING forever.
+        logger.exception("ai_task_create: failed to dispatch run %s to the background thread pool", run.id)
         run.status = AITaskRun.Status.FAILED
-        run.error_message = "Could not start this task - the background worker is unavailable. Contact your administrator."
+        run.error_message = "Could not start this task due to an unexpected server error. Contact your administrator."
         run.save(update_fields=["status", "error_message"])
 
     return redirect("ai_task_results", run_id=run.id)
+
+
+@login_required
+def ai_task_cancel(request, run_id):
+    """
+    Stops a pending/running AITaskRun. Owner or admin-area access (an
+    admin clearing a run that's stuck or blocking others from Admin >
+    System Logs) - everything else on this run's pages is owner-only,
+    gated on the "pages.ai_tasks" permission (ai_task_status/
+    ai_task_results), but an admin acting from System Logs is gated on
+    "system.view_ai_logs" instead and may not hold "pages.ai_tasks" at
+    all - so unlike its siblings, this view is @login_required only,
+    with authorization entirely in the owner-or-admin check below.
+
+    Sets cancel_requested=True (the cooperative stop
+    ai_tasks_engine_service._call_llm_json() polls between LLM calls -
+    see its docstring) and best-effort cancels the background thread
+    pool task via task_runner.cancel(), which only actually prevents a
+    still-*queued* run from ever starting - once a pool thread has
+    picked it up, Future.cancel() can't interrupt it (the same
+    real-world limitation the old Celery revoke(terminate=True) had
+    without a prefork worker pool). A run that's already mid-LLM-call
+    stops at the next call, not immediately - the status badge reflects
+    that ("Stopping…" until it actually lands on CANCELLED).
+
+    A COMPLETED/FAILED/CANCELLED run can't be cancelled - returns 400,
+    not a silent no-op, so a stale "Stop" click (e.g. a second tab)
+    surfaces as an explicit "already finished" rather than looking like
+    it did something.
+    """
+
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    run = get_object_or_404(AITaskRun, id=run_id)
+
+    if run.user_id != request.user.id and not has_admin_area_access(request.user):
+        raise PermissionDenied("You don't have access to this run.")
+
+    if run.status not in (AITaskRun.Status.PENDING, AITaskRun.Status.RUNNING):
+        return JsonResponse({"error": "This run has already finished."}, status=400)
+
+    run.cancel_requested = True
+    run.save(update_fields=["cancel_requested"])
+
+    from .services import task_runner
+    task_runner.cancel(run.id)
+
+    return JsonResponse({"status": run.status, "cancel_requested": True})
+
+
+@login_required
+def ai_task_delete(request, run_id):
+    """
+    Deletes a finished AITaskRun and everything under it -
+    AITaskRunDocument/AITaskResult both CASCADE off `run`, so this is a
+    single row delete, not manual cleanup. AIRequestTrace.ai_task_run is
+    SET_NULL, so the run's entry in AI Logs/Analytics survives the
+    delete (matching AITaskResult.document's own "don't erase review
+    history" SET_NULL rationale) - only the run and its results/document
+    links disappear, not its trace/performance history.
+
+    Same owner-or-admin authorization shape as ai_task_cancel, for the
+    same reason (an admin clearing clutter from Admin > System Logs may
+    not hold "pages.ai_tasks").
+
+    A PENDING/RUNNING run must be cancelled first (400, not a silent
+    no-op) rather than deleted out from under a background thread that
+    might still be calling AITaskResult.objects.create(run=run, ...) -
+    deleting the row mid-write would hit a foreign-key error instead of
+    cleanly stopping anything.
+    """
+
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    run = get_object_or_404(AITaskRun, id=run_id)
+
+    if run.user_id != request.user.id and not has_admin_area_access(request.user):
+        raise PermissionDenied("You don't have access to this run.")
+
+    if run.status in (AITaskRun.Status.PENDING, AITaskRun.Status.RUNNING):
+        return JsonResponse({"error": "Cancel this run before deleting it."}, status=400)
+
+    task_type_display = run.get_task_type_display()
+
+    log_activity(
+        actor=request.user,
+        action="ai_task.deleted",
+        description=f'{request.user.username} deleted an AI Task ({task_type_display})',
+        request=request,
+    )
+
+    run.delete()
+
+    return JsonResponse({"deleted": True})
 
 
 @permission_required("pages.ai_tasks")
@@ -3210,6 +3365,7 @@ def ai_task_status(request, run_id):
 
     return JsonResponse({
         "status": run.status,
+        "cancel_requested": run.cancel_requested,
         "result_count": run.results.count(),
         "document_count": run.document_count,
         "error_message": run.error_message,
@@ -3269,13 +3425,24 @@ def health_check(request):
     has to work before anyone can log in) and deliberately minimal:
     see health_service.get_health_status() vs. settings_view's full
     system_status for the detailed, admin-only view.
+
+    Excludes `recent_errors` from the JSON payload - it's a dict of raw
+    RAG.models.ErrorGroup instances (health_service._recent_errors()),
+    not JSON-serializable, and was never meant for this endpoint anyway:
+    monitoring.html's auto-refresh only reads `data.status` from this
+    response, and renders recent-errors panels straight from
+    monitoring_view's own template context (a real get_health_status()
+    call, not this JSON endpoint) where ErrorGroup attribute access
+    works fine.
     """
 
     health = get_health_status()
 
     status_code = 200 if health["status"] == "ok" else 503
 
-    return JsonResponse(health, status=status_code)
+    payload = {key: value for key, value in health.items() if key != "recent_errors"}
+
+    return JsonResponse(payload, status=status_code)
 
 
 # ==========================

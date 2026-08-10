@@ -71,11 +71,14 @@ _last_llm_meta_var: ContextVar[Optional[dict]] = ContextVar("last_llm_meta", def
 def get_last_llm_meta() -> Optional[dict]:
     """
     {"provider", "model", "providers_attempted", "retry_count",
-    "latency_ms", "prompt_tokens", "completion_tokens", "total_tokens",
-    "time_to_first_token_ms", "error_type", "error_message"} for the
-    most recent generate()/generate_stream() call in this context, or
-    None if none has run yet. Token fields are None when the provider
-    didn't report usage (e.g. most streamed responses).
+    "fallback_enabled", "fallback_used", "latency_ms", "prompt_tokens",
+    "completion_tokens", "total_tokens", "time_to_first_token_ms",
+    "error_type", "error_message"} for the most recent generate()/
+    generate_stream() call in this context, or None if none has run
+    yet. Token fields are None when the provider didn't report usage
+    (e.g. most streamed responses). "fallback_used" is True only when
+    more than one provider was actually attempted - "fallback_enabled"
+    reflects the setting regardless of whether a fallback was needed.
     """
 
     return _last_llm_meta_var.get()
@@ -459,16 +462,13 @@ PROVIDER_REGISTRY = {
     },
 }
 
-# Default fallback order when the admin hasn't changed anything - Groq
-# first (live-benchmarked as dramatically faster free-tier inference
-# than OpenRouter's free model - see CLAUDE.md's performance audit),
-# then OpenRouter, then Gemini. Inert until GROQ_API_KEY is actually
-# set (_is_configured() skips any provider without a key), so this is
-# a no-op today and takes effect the moment a real key is added - see
-# the comment above GROQ_API_KEY in .env. The configured primary
-# provider (settings.LLM_PROVIDER) always goes first regardless of
-# this order; this is only the order the *remaining* providers are
-# tried in.
+# Order the *remaining* providers are tried in when
+# settings.LLM_FALLBACK_ENABLED is True (off by default - see that
+# setting) - Groq first (live-benchmarked as dramatically faster
+# free-tier inference than OpenRouter's free model - see CLAUDE.md's
+# performance audit), then OpenRouter, then Gemini. The configured
+# primary provider (settings.LLM_PROVIDER) always goes first
+# regardless of this order and regardless of the flag.
 FALLBACK_PRIORITY = ["groq", "openrouter", "gemini"]
 
 
@@ -494,16 +494,27 @@ class LLMClient:
     """
 
     def _build_chain(self) -> list:
+        """
+        Primary provider first, then - only when settings.LLM_FALLBACK_ENABLED
+        is True - the rest of FALLBACK_PRIORITY that have an API key
+        configured. With fallback disabled (the default), this returns
+        at most one entry: the configured primary, or an empty list if
+        it has no API key - never silently substitutes a different
+        provider the admin didn't select.
+        """
 
         primary = settings.LLM_PROVIDER.lower()
         chain = []
 
         if primary not in PROVIDER_REGISTRY:
-            logger.warning("Unknown LLM_PROVIDER '%s' - ignoring it, using priority order instead.", primary)
+            logger.warning("Unknown LLM_PROVIDER '%s' - ignoring it.", primary)
         elif _is_configured(primary):
             chain.append(primary)
         else:
-            logger.warning("Primary provider '%s' has no API key configured - trying other providers instead.", primary)
+            logger.warning("Primary provider '%s' has no API key configured.", primary)
+
+        if not settings.LLM_FALLBACK_ENABLED:
+            return chain
 
         for provider in FALLBACK_PRIORITY:
             if provider not in chain and _is_configured(provider):
@@ -516,13 +527,20 @@ class LLMClient:
         chain = self._build_chain()
 
         if not chain:
+            reason = (
+                f"Configured provider '{settings.LLM_PROVIDER}' has no API key, and fallback is disabled "
+                "(Admin > Settings > Enable Fallback)."
+                if not settings.LLM_FALLBACK_ENABLED
+                else "No LLM provider is configured - add an API key to .env."
+            )
             _last_llm_meta_var.set({
                 "provider": "", "model": "", "providers_attempted": [], "retry_count": 0,
+                "fallback_enabled": settings.LLM_FALLBACK_ENABLED, "fallback_used": False,
                 "latency_ms": None, "prompt_tokens": None, "completion_tokens": None, "total_tokens": None,
                 "time_to_first_token_ms": None,
-                "error_type": "AllProvidersFailedError", "error_message": "No LLM provider is configured.",
+                "error_type": "AllProvidersFailedError", "error_message": reason,
             })
-            raise AllProvidersFailedError("No LLM provider is configured - add an API key to .env.")
+            raise AllProvidersFailedError(reason)
 
         last_exc = None
         providers_attempted = []
@@ -567,6 +585,7 @@ class LLMClient:
                     _last_llm_meta_var.set({
                         "provider": provider, "model": model,
                         "providers_attempted": providers_attempted, "retry_count": total_attempts - 1,
+                        "fallback_enabled": settings.LLM_FALLBACK_ENABLED, "fallback_used": len(providers_attempted) > 1,
                         "latency_ms": latency_ms,
                         "prompt_tokens": usage.get("prompt_tokens"),
                         "completion_tokens": usage.get("completion_tokens"),
@@ -584,6 +603,7 @@ class LLMClient:
             "provider": providers_attempted[-1] if providers_attempted else "",
             "model": _provider_model(providers_attempted[-1]) if providers_attempted else "",
             "providers_attempted": providers_attempted, "retry_count": total_attempts,
+            "fallback_enabled": settings.LLM_FALLBACK_ENABLED, "fallback_used": len(providers_attempted) > 1,
             "latency_ms": None, "prompt_tokens": None, "completion_tokens": None, "total_tokens": None,
             "time_to_first_token_ms": None,
             "error_type": type(last_exc).__name__ if last_exc else "AllProvidersFailedError",
@@ -604,7 +624,13 @@ class LLMClient:
         chain = self._build_chain()
 
         if not chain:
-            raise AllProvidersFailedError("No LLM provider is configured - add an API key to .env.")
+            reason = (
+                f"Configured provider '{settings.LLM_PROVIDER}' has no API key, and fallback is disabled "
+                "(Admin > Settings > Enable Fallback)."
+                if not settings.LLM_FALLBACK_ENABLED
+                else "No LLM provider is configured - add an API key to .env."
+            )
+            raise AllProvidersFailedError(reason)
 
         last_exc = None
         providers_attempted = []
@@ -643,6 +669,7 @@ class LLMClient:
             _last_llm_meta_var.set({
                 "provider": provider, "model": model,
                 "providers_attempted": providers_attempted, "retry_count": len(providers_attempted) - 1,
+                "fallback_enabled": settings.LLM_FALLBACK_ENABLED, "fallback_used": len(providers_attempted) > 1,
                 "latency_ms": total_latency_ms,
                 # Streamed responses don't carry a usage block (no
                 # provider here sends one over SSE) - tokens stay
@@ -658,6 +685,7 @@ class LLMClient:
             "provider": providers_attempted[-1] if providers_attempted else "",
             "model": _provider_model(providers_attempted[-1]) if providers_attempted else "",
             "providers_attempted": providers_attempted, "retry_count": len(providers_attempted),
+            "fallback_enabled": settings.LLM_FALLBACK_ENABLED, "fallback_used": len(providers_attempted) > 1,
             "latency_ms": None, "prompt_tokens": None, "completion_tokens": None, "total_tokens": None,
             "time_to_first_token_ms": None,
             "error_type": type(last_exc).__name__ if last_exc else "AllProvidersFailedError",

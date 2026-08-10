@@ -1,13 +1,14 @@
 """
-Health checks (Sprint 10).
+Health checks (Sprint 10, background-pool check replaced Redis/Celery in
+the free-tier refactor).
 
 Backs the public /health/ endpoint (RAG.views.health_check) used by
 Docker/orchestrator liveness and readiness probes. Reuses
 stats_service.get_system_status() for the DB/pgvector checks it
 already performs rather than duplicating that SELECT 1 / pg_extension
-lookup, and adds the one infra check Sprint 10 introduces: Redis
-(the same instance backs both the Celery broker and, when
-USE_REDIS_CACHE is on, Django's cache - see settings.REDIS_URL).
+lookup, and adds a check against the in-process background thread pool
+(RAG.services.task_runner) that now runs document processing and AI
+Tasks instead of a separate Celery worker.
 """
 
 import logging
@@ -34,8 +35,7 @@ _PROCESS_STARTED_AT = time.time()
 # logger.exception()/warning() calls, no new instrumentation needed.
 _SERVICE_MODULE_PREFIXES = {
     "database": ("RAG.services.stats_service", "django.db"),
-    "redis": ("RAG.services.health_service",),
-    "celery": ("RAG.tasks", "RAG.services.health_service"),
+    "background_jobs": ("RAG.tasks", "RAG.services.task_runner"),
     "llm_providers": ("RAG.services.llm_client", "RAG.services.llm_service"),
 }
 
@@ -67,8 +67,8 @@ def _check_storage() -> dict:
     """
     Free/total disk space on the filesystem backing MEDIA_ROOT (where
     uploaded documents live) - a pure local syscall (shutil.disk_usage),
-    no network, so unlike _check_redis()/_check_celery_workers() this
-    can't hang and needs no timeout. Never raises: an unreadable/missing
+    no network, so unlike a reachability check this can't hang and needs
+    no timeout. Never raises: an unreadable/missing
     path (e.g. MEDIA_ROOT not yet created) reports as unavailable
     instead of taking the health endpoint down.
     """
@@ -90,48 +90,26 @@ def _uptime_seconds() -> int:
     return round(time.time() - _PROCESS_STARTED_AT)
 
 
-def _check_redis() -> bool:
+def _check_background_jobs() -> dict:
     """
-    True if Redis at settings.REDIS_URL answers a PING within a short
-    timeout. Never raises or hangs the health endpoint: connection
-    errors and timeouts are caught and logged, not propagated.
-    """
-
-    try:
-        import redis
-
-        client = redis.from_url(
-            settings.REDIS_URL,
-            socket_connect_timeout=1,
-            socket_timeout=1,
-        )
-
-        return bool(client.ping())
-
-    except Exception:
-        logger.warning("Health check: Redis unreachable", exc_info=True)
-        return False
-
-
-def _check_celery_workers() -> int:
-    """
-    Number of Celery workers that responded to a broker PING within a
-    short timeout, or 0 if none did / the broker is unreachable. Only
-    called when settings.ENABLE_ASYNC_PROCESSING is on (see
-    get_health_status()) - skipped otherwise so the common default-off
-    case never pays for a broker round trip on the health-check path.
+    Status of the in-process background thread pool
+    (RAG.services.task_runner) that runs document processing (when
+    settings.ENABLE_ASYNC_PROCESSING is on) and AI Task execution
+    (always). Unlike the old Celery-worker check this replaced, there's
+    no "is it reachable" question - the pool lives in this same
+    process, so it's available whenever this process is up. Never
+    raises: any failure reports unavailable rather than taking the
+    health endpoint down.
     """
 
     try:
-        from myproject.celery import app as celery_app
+        from .task_runner import get_status
 
-        replies = celery_app.control.inspect(timeout=1.0).ping() or {}
-
-        return len(replies)
+        return get_status()
 
     except Exception:
-        logger.warning("Health check: Celery broker unreachable", exc_info=True)
-        return 0
+        logger.warning("Health check: background task pool status unavailable", exc_info=True)
+        return {"available": False, "max_workers": None, "active": None, "pending": None}
 
 
 def _check_llm_providers() -> dict:
@@ -143,7 +121,7 @@ def _check_llm_providers() -> dict:
     is a real minimal generate() call per provider, not just a
     key-presence check. Never raises: a provider erroring out just
     reports ok=False for that provider, same never-fail-the-whole-check
-    contract as _check_redis()/_check_celery_workers() below. An
+    contract as _check_background_jobs() above. An
     unconfigured provider (no key) is omitted entirely rather than
     reported False - "not set up" and "set up but broken" are different
     situations, and only the latter should look like a problem here.
@@ -198,10 +176,10 @@ def _recent_llm_provider_status() -> dict:
 def _recent_errors(minutes: int = 60) -> dict:
     """
     {service_key: [ErrorGroup, ...]} for each entry in
-    _SERVICE_MODULE_PREFIXES - Redis/Celery/DB/LLM-provider failures
+    _SERVICE_MODULE_PREFIXES - background-job/DB/LLM-provider failures
     that already flow into ErrorGroup via their own existing
-    logger.exception()/warning() calls (this module's own _check_redis()/
-    _check_celery_workers(), llm_client.py's provider clients, etc.) -
+    logger.exception()/warning() calls (this module's own
+    _check_background_jobs(), llm_client.py's provider clients, etc.) -
     no new instrumentation needed. Never raises: a lookup failure for
     one service reports an empty list for that card rather than
     breaking the whole health page.
@@ -269,12 +247,6 @@ def get_health_status(live_llm_check: bool = False) -> dict:
       live synchronous generate() call per provider
       (_check_llm_providers()) - a real-time answer, on demand.
 
-    Redis is only load-bearing to the overall "ok"/"degraded" verdict
-    when a feature that actually depends on it is enabled
-    (settings.USE_REDIS_CACHE or settings.ENABLE_ASYNC_PROCESSING) -
-    an unreachable Redis shouldn't fail the health check on a
-    deployment that never turned either on.
-
     Every *configured* LLM provider (an API key present in .env) is
     also checked - at least one of them must show a real success signal
     (ok=True, from either check) for the overall verdict, since no
@@ -291,9 +263,7 @@ def get_health_status(live_llm_check: bool = False) -> dict:
 
     db_online, pgvector_enabled, embeddings_complete = _check_database()
 
-    redis_reachable = _check_redis()
-
-    celery_workers = _check_celery_workers() if settings.ENABLE_ASYNC_PROCESSING else None
+    background_jobs = _check_background_jobs()
 
     llm_providers = _check_llm_providers() if live_llm_check else _recent_llm_provider_status()
 
@@ -304,18 +274,12 @@ def get_health_status(live_llm_check: bool = False) -> dict:
     checks = {
         "database": db_online,
         "pgvector": pgvector_enabled,
-        "redis": redis_reachable,
+        "background_jobs": background_jobs["available"],
         "llm_providers": llm_providers,
         "storage": storage["available"],
     }
 
-    healthy = checks["database"] and checks["pgvector"]
-
-    if settings.USE_REDIS_CACHE or settings.ENABLE_ASYNC_PROCESSING:
-        healthy = healthy and redis_reachable
-
-    if settings.ENABLE_ASYNC_PROCESSING:
-        healthy = healthy and bool(celery_workers)
+    healthy = checks["database"] and checks["pgvector"] and checks["background_jobs"]
 
     llm_ok_signals = [result["ok"] for result in llm_providers.values() if result["ok"] is not None]
     if llm_ok_signals:
@@ -333,7 +297,7 @@ def get_health_status(live_llm_check: bool = False) -> dict:
     return {
         "status": status,
         "checks": checks,
-        "celery_workers": celery_workers,
+        "background_jobs": background_jobs,
         "embeddings_complete": embeddings_complete,
         "storage": storage,
         "resources": resources,

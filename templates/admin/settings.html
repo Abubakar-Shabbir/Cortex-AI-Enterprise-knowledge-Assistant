@@ -19,7 +19,7 @@
       <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
         <i data-lucide="bot" class="h-4 w-4 text-primary dark:text-primary-soft"></i> LLM Configuration
       </h2>
-      <p class="mb-3 text-xs text-muted dark:text-muted-dark">Automatic fallback chain: the active provider is tried first; if it fails, times out, or hits a rate limit, the request falls through to the other configured providers.</p>
+      <p class="mb-3 text-xs text-muted dark:text-muted-dark">The active provider below is what actually answers every request. By default there is no fallback — if it fails, times out, or hits a rate limit, the request fails with a clear error instead of silently switching providers. Turn on "Allow fallback" if you'd rather the request fall through to another configured provider than fail outright.</p>
 
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
@@ -57,6 +57,15 @@
         <input type="range" step="0.05" min="0" max="1" name="answer_temperature" x-model.number="temperature"
           class="h-1.5 w-full max-w-xs cursor-pointer appearance-none rounded-full bg-line accent-primary dark:bg-line-dark">
         <div class="mt-0.5 flex max-w-xs justify-between text-[10px] text-muted dark:text-muted-dark"><span>0 — deterministic</span><span>1 — creative</span></div>
+      </div>
+
+      <div class="mt-3 flex items-start gap-2">
+        <input type="checkbox" id="enable_fallback" name="enable_fallback" {% if config.enable_fallback %}checked{% endif %}
+          class="mt-0.5 h-4 w-4 rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark">
+        <label for="enable_fallback" class="text-xs text-ink dark:text-ink-dark">
+          <span class="font-medium">Allow fallback to another provider</span>
+          <span class="block text-muted dark:text-muted-dark">Off by default. When off, a failure on the active provider fails the request instead of silently answering via a different provider/model.</span>
+        </label>
       </div>
 
       <div class="mt-3 border-t border-line pt-3 dark:border-line-dark">

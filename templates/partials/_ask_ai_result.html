@@ -36,6 +36,16 @@
         <i data-lucide="git-merge" class="h-3.5 w-3.5"></i> Search Method
         <span class="font-semibold text-ink dark:text-ink-dark">{{ result.search_method }}</span>
       </div>
+      {% if result.llm_provider %}
+        <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark" title="{{ result.llm_model }}">
+          <i data-lucide="cpu" class="h-3.5 w-3.5"></i> Answered by
+          <span class="font-semibold capitalize text-ink dark:text-ink-dark">{{ result.llm_provider }}</span>
+          <span class="font-mono text-[11px] text-muted dark:text-muted-dark">{{ result.llm_model }}</span>
+          {% if result.llm_fallback_used %}
+            <span class="rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning dark:text-warning-dark">Fallback</span>
+          {% endif %}
+        </div>
+      {% endif %}
     </div>
 
     {% if applied_filter_labels %}

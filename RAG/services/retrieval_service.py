@@ -38,63 +38,82 @@ def _vector_similarity_search(embedding, top_k, search_type="vector", filters=No
     must never silently mean "everyone". Scoped to `user`'s full
     accessible set (owned + Organization Library + shared-with-them),
     not just documents they own - see document_access_service.
+
+    Never raises, matching graph_search()/hyde_search()'s "a failed
+    source degrades to no contribution" contract - previously this had
+    no try/except at all, unlike every other retrieval source, so a DB
+    hiccup here propagated uncaught through retrieve_chunks()'s thread
+    pool and answer_question() into a raw 500 for the whole request.
     """
 
     if user is None:
         return []
 
-    accessible_ids = get_accessible_document_ids(user)
+    try:
+        accessible_ids = get_accessible_document_ids(user)
 
-    if not accessible_ids:
-        return []
+        if not accessible_ids:
+            return []
 
-    # select_related avoids an N+1: without it, every result row below
-    # triggers 2 extra queries the moment the loop touches
-    # item.chunk.content / item.chunk.document.title (live-profiled:
-    # 13 queries for a 5-result search instead of the 3 this produces).
-    queryset = ChunkEmbedding.objects.filter(chunk__document_id__in=accessible_ids).select_related(
-        "chunk", "chunk__document"
-    ).annotate(
-        distance=L2Distance("embedding", embedding)
-    )
-
-    queryset = apply_document_filters(
-        queryset, filters, document_field="chunk__document"
-    )
-
-    similar_chunks = queryset.order_by("distance")[:top_k]
-
-    results = []
-
-    for item in similar_chunks:
-
-        results.append(
-
-            {
-
-                "content": item.chunk.content,
-
-                "document": item.chunk.document.title,
-
-                "chunk_number": item.chunk.chunk_number,
-
-                "score": round(item.distance, 4),
-
-                "search_type": search_type,
-
-            }
-
+        # select_related avoids an N+1: without it, every result row below
+        # triggers 2 extra queries the moment the loop touches
+        # item.chunk.content / item.chunk.document.title (live-profiled:
+        # 13 queries for a 5-result search instead of the 3 this produces).
+        queryset = ChunkEmbedding.objects.filter(chunk__document_id__in=accessible_ids).select_related(
+            "chunk", "chunk__document"
+        ).annotate(
+            distance=L2Distance("embedding", embedding)
         )
 
-    return results
+        queryset = apply_document_filters(
+            queryset, filters, document_field="chunk__document"
+        )
+
+        similar_chunks = queryset.order_by("distance")[:top_k]
+
+        results = []
+
+        for item in similar_chunks:
+
+            results.append(
+
+                {
+
+                    "content": item.chunk.content,
+
+                    "document": item.chunk.document.title,
+
+                    "chunk_number": item.chunk.chunk_number,
+
+                    "score": round(item.distance, 4),
+
+                    "search_type": search_type,
+
+                }
+
+            )
+
+        return results
+
+    except Exception:
+        logger.exception("Vector similarity search failed (search_type=%s)", search_type)
+        return []
 
 
 def vector_search(question, top_k=None, filters=None, user=None):
     """
     Semantic Vector Search
+
+    Never raises: generate_embedding() failure (e.g. the embedding
+    model unavailable) degrades to no vector contribution rather than
+    failing the whole hybrid retrieval call.
     """
 
-    query_embedding = generate_embedding(question)
+    try:
+        query_embedding = generate_embedding(question)
+    except Exception:
+        logger.exception("Query embedding failed in vector_search")
+        return []
 
     return _vector_similarity_search(
         query_embedding,
@@ -121,7 +140,11 @@ def hyde_search(question, top_k=None, filters=None, user=None):
     if not hypothetical_document:
         return []
 
-    hypothetical_embedding = generate_embedding(hypothetical_document)
+    try:
+        hypothetical_embedding = generate_embedding(hypothetical_document)
+    except Exception:
+        logger.exception("Query embedding failed in hyde_search")
+        return []
 
     return _vector_similarity_search(
         hypothetical_embedding,
@@ -180,9 +203,30 @@ def _submit_timed(executor, label, fn, *args, **kwargs):
 
 
 def _retrieval_cache_key(question, user, filters, effective_top_k):
-    """Cache key for a full retrieve_chunks() result - identical (question, user, filters, top_k) reuses it rather than recomputing embed+BM25+graph from scratch."""
+    """
+    Cache key for a full retrieve_chunks() result - identical (question,
+    user, filters, top_k) reuses it rather than recomputing embed+BM25+
+    graph from scratch.
 
-    raw = f"{question}|{user.id if user else 'anon'}|{filters!r}|{effective_top_k}"
+    Also fingerprints every settings flag retrieve_chunks() actually
+    branches on below (query expansion/HyDE/multi-query/reranker, plus
+    the two knobs that change what those produce even when still on:
+    MULTI_QUERY_VARIANTS, RERANKER_CANDIDATE_MULTIPLIER). These are
+    live-editable per-process via system_config_service.py
+    (apply_config_to_settings() monkey-patches settings.* directly, so
+    `settings.ENABLE_RERANKER` here already reflects the latest saved
+    value) - without them in the key, an Admin toggling e.g. ENABLE_RERANKER
+    had no visible effect on a repeated question until the previous
+    (pre-toggle) cached entry aged out past settings.RETRIEVAL_CACHE_TTL.
+    """
+
+    flag_fingerprint = (
+        f"{settings.ENABLE_QUERY_EXPANSION}"
+        f"|{settings.ENABLE_HYDE}"
+        f"|{settings.ENABLE_MULTI_QUERY}:{settings.MULTI_QUERY_VARIANTS}"
+        f"|{settings.ENABLE_RERANKER}:{settings.RERANKER_CANDIDATE_MULTIPLIER}"
+    )
+    raw = f"{question}|{user.id if user else 'anon'}|{filters!r}|{effective_top_k}|{flag_fingerprint}"
 
     return "retrieve_chunks:" + hashlib.sha256(raw.encode()).hexdigest()
 

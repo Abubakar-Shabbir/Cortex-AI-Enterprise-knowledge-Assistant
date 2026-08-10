@@ -6,7 +6,7 @@ system instead of re-instrumenting the app" design: ErrorCaptureHandler
 is a standard logging.Handler wired into settings.LOGGING (see that
 file's LOGGING dict), so every logger.warning()/error()/exception() call
 already scattered across ~25 files (auth, RBAC, documents, retrieval
-stages, Redis, Celery, LLM providers, unhandled exceptions) starts
+stages, background jobs, LLM providers, unhandled exceptions) starts
 flowing into RAG.models.ErrorGroup automatically, with zero changes to
 any individual call site - the same "wrap once, capture everywhere"
 approach RAG.services.perf.timed_stage() already uses for stage timing.
@@ -183,8 +183,8 @@ def recent_errors_for_module(module_prefix: str, minutes: int = 60, limit: int =
     ErrorGroups whose logger_name starts with `module_prefix` and were
     last seen within the last `minutes` - System Health's per-service
     "recent errors" panel (health_service._recent_errors()) uses this
-    to show Redis/Celery/DB failures that already flow into ErrorGroup
-    via their own existing logger.exception() calls, no new
+    to show background-job/DB failures that already flow into
+    ErrorGroup via their own existing logger.exception() calls, no new
     instrumentation needed.
     """
 

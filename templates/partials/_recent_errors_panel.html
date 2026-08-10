@@ -1,5 +1,5 @@
 {% comment %}
-Usage: {% include "partials/_recent_errors_panel.html" with errors=health.recent_errors.redis %}
+Usage: {% include "partials/_recent_errors_panel.html" with errors=health.recent_errors.background_jobs %}
 Compact expandable "N recent issue(s)" indicator for one Monitoring
 service card - errors is a list of RAG.models.ErrorGroup, already
 scoped to that service and a recent time window by

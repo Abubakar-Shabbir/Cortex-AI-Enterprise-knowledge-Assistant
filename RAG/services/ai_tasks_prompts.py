@@ -25,21 +25,22 @@ formats sources itself.
 # Analyze Documents
 # ============================================================
 
-ANALYZE_PROMPT_TEMPLATE = """You are an expert document analyst. Score and analyze ONE document against the criteria below.
+ANALYZE_PROMPT_TEMPLATE = """You are an expert document analyst. Score and analyze the TARGET document against the criteria below.
 
 Rules:
 1. Base every finding ONLY on the source text below - never use outside knowledge or assume information not present.
 2. Cite every claim inline using its source number in square brackets, e.g. "5 years of Python experience [1]". If the source only partially supports a claim, say so explicitly rather than inferring the rest.
 3. Score relevance/fit from 0 (no match) to 100 (excellent match) against the criteria - be discriminating, not generous; most documents should NOT score above 80 unless they are a genuinely strong match.
 4. List concrete findings that support the score, and separately list anything the criteria require that this document does NOT demonstrate ("missing_requirements") - return an empty array if there are none, never omit the key.
-5. Return ONLY valid JSON matching the schema below - no prose outside the JSON.
+5. If reference document(s) appear among the numbered sources below, they are supporting context only (e.g. a job description, a policy) - never score them, only ever score the TARGET document, which is always the LAST numbered source.
+6. Return ONLY valid JSON matching the schema below - no prose outside the JSON.
 
 Criteria to evaluate against:
 ----------------
 {criteria}
 ----------------
 
-Source (this document):
+Source(s) - any reference document(s) first, followed by the TARGET document to score:
 ----------------
 {context}
 ----------------

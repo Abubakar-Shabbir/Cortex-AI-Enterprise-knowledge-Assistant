@@ -22,9 +22,9 @@ class RagConfig(AppConfig):
         does it on every web request (before this process's very first
         view runs), and RAG.tasks.process_document_task/run_ai_task
         each call apply_config_to_settings_cached() at the top of the
-        task body for the Celery worker case, which never goes through
-        that middleware. Both reuse the same 15s cache TTL, so neither
-        pays a DB round trip on every call.
+        task body for the background thread pool case, which never goes
+        through that middleware. Both reuse the same 15s cache TTL, so
+        neither pays a DB round trip on every call.
         """
 
         post_save.connect(_attach_new_permission_to_admin_role, sender="RAG.Permission")

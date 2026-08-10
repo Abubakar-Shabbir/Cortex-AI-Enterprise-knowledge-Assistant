@@ -74,15 +74,14 @@
 
     <div class="rounded-xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
       <div class="flex items-center justify-between">
-        <span class="text-xs font-medium text-muted dark:text-muted-dark">Redis</span>
+        <span class="text-xs font-medium text-muted dark:text-muted-dark">Cache</span>
         <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft"><i data-lucide="zap" class="h-3.5 w-3.5"></i></div>
       </div>
       <div class="mt-2.5 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
-        <span class="h-1.5 w-1.5 rounded-full {% if health.checks.redis %}bg-success{% else %}bg-danger{% endif %}"></span>
-        {% if health.checks.redis %}Reachable{% else %}Unreachable{% endif %}
+        <span class="h-1.5 w-1.5 rounded-full bg-success"></span>
+        Active
       </div>
-      <p class="mt-1 text-xs text-muted dark:text-muted-dark">Cache: {% if settings_use_redis_cache %}Redis{% else %}In-memory{% endif %}</p>
-      {% include "partials/_recent_errors_panel.html" with errors=health.recent_errors.redis %}
+      <p class="mt-1 text-xs text-muted dark:text-muted-dark">In-memory (process-local)</p>
     </div>
 
     <div class="rounded-xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
@@ -90,19 +89,12 @@
         <span class="text-xs font-medium text-muted dark:text-muted-dark">Background Jobs</span>
         <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft"><i data-lucide="cog" class="h-3.5 w-3.5"></i></div>
       </div>
-      {% if health.celery_workers is None %}
-        <div class="mt-2.5 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
-          <span class="h-1.5 w-1.5 rounded-full bg-muted"></span> Disabled
-        </div>
-        <p class="mt-1 text-xs text-muted dark:text-muted-dark">Uploads process inline</p>
-      {% else %}
-        <div class="mt-2.5 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
-          <span class="h-1.5 w-1.5 rounded-full {% if health.celery_workers %}bg-success{% else %}bg-danger{% endif %}"></span>
-          {{ health.celery_workers }} worker{{ health.celery_workers|pluralize }}
-        </div>
-        <p class="mt-1 text-xs text-muted dark:text-muted-dark">Async processing enabled</p>
-      {% endif %}
-      {% include "partials/_recent_errors_panel.html" with errors=health.recent_errors.celery %}
+      <div class="mt-2.5 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+        <span class="h-1.5 w-1.5 rounded-full {% if health.checks.background_jobs %}bg-success{% else %}bg-danger{% endif %}"></span>
+        {% if health.checks.background_jobs %}Available{% else %}Unavailable{% endif %}
+      </div>
+      <p class="mt-1 text-xs text-muted dark:text-muted-dark">{{ health.background_jobs.active }} active · {{ health.background_jobs.max_workers }} worker threads</p>
+      {% include "partials/_recent_errors_panel.html" with errors=health.recent_errors.background_jobs %}
     </div>
 
     <div class="rounded-xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">

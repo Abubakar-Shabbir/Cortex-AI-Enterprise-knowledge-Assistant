@@ -319,6 +319,17 @@ class QueryLog(models.Model):
         blank=True
     )
 
+    structured_data = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Non-plain-text answer extras at the time this question was asked - "
+                   "{'key_points': [...], 'table': {...} or None}. Persisted so replaying "
+                   "a question from Search History (RAG.views.ask_ai's ?log_id= path) can "
+                   "show the same structured findings the live answer did, instead of just "
+                   "the answer text. A streamed answer (RAG.views.ask_ai_stream) always "
+                   "writes {'key_points': [], 'table': None} here since it's plain text.",
+    )
+
     search_method = models.CharField(
         max_length=50,
         default="Hybrid (Vector + BM25)"
@@ -726,6 +737,13 @@ class SystemConfiguration(models.Model):
 
     llm_provider = models.CharField(max_length=20, choices=LLM_PROVIDER_CHOICES, default="openrouter")
 
+    # Off by default: the configured provider above must be the one
+    # that actually answers, or the request fails outright - see
+    # settings.LLM_FALLBACK_ENABLED and llm_client._build_chain() for
+    # why this can never be a silent, invisible switch to another
+    # provider unless an admin explicitly opts in here.
+    enable_fallback = models.BooleanField(default=False)
+
     # Per-provider model selection - kept independent per provider
     # (rather than one shared "model" field) since a model name from
     # one provider is meaningless to another. See
@@ -780,8 +798,9 @@ class SystemConfiguration(models.Model):
 class AITaskRun(models.Model):
     """
     One guided AI Task run (Select Task -> Select Documents -> Configure
-    -> Run -> Review -> Export). Always processed by a Celery worker
-    (RAG.tasks.run_ai_task) - unlike document processing, there is no
+    -> Run -> Review -> Export). Always processed on the in-process
+    background thread pool (RAG.tasks.run_ai_task, dispatched via
+    RAG.services.task_runner) - unlike document processing, there is no
     inline/synchronous path, since a run can span up to
     settings.AI_TASKS_MAX_DOCUMENTS documents.
     """
@@ -801,6 +820,7 @@ class AITaskRun(models.Model):
         RUNNING = "running", "Running"
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
 
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="ai_task_runs"
@@ -827,6 +847,15 @@ class AITaskRun(models.Model):
     )
 
     error_message = models.TextField(blank=True, default="")
+
+    cancel_requested = models.BooleanField(
+        default=False,
+        help_text="Set by ai_task_cancel() when a user stops a pending/running run. "
+                   "execute_run() checks this in _call_llm_json() (the one choke point "
+                   "every task handler's LLM calls go through) between calls and unwinds "
+                   "to status=CANCELLED - so a stop takes effect within one LLM call's "
+                   "worth of latency, not instantly, and never mid-write of a result row.",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     started_at = models.DateTimeField(null=True, blank=True)
@@ -902,9 +931,10 @@ class AITaskResult(models.Model):
 
     score = models.FloatField(
         null=True, blank=True,
-        help_text="Task-specific numeric score - Analyze relevance, Validate "
-                   "compliance percent, Find Similar similarity. NULL where "
-                   "not applicable.",
+        help_text="Task-specific numeric score on a consistent 0-100 scale - "
+                   "Analyze relevance, Validate compliance percent, Find "
+                   "Similar/Organize similarity (cosine similarity * 100). "
+                   "NULL where not applicable.",
     )
 
     title = models.CharField(
@@ -969,6 +999,7 @@ class AIRequestTrace(models.Model):
         RUNNING = "running", "Running"
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
 
     trace_id = models.CharField(max_length=32, unique=True, db_index=True)
 
@@ -1061,11 +1092,11 @@ class ErrorGroup(models.Model):
     .ErrorCaptureHandler, wired into settings.LOGGING) - every
     logger.warning()/error()/exception() call already made throughout
     RAG/services/*.py, RAG/views.py, RAG/tasks.py (auth, documents,
-    retrieval, LLM providers, Redis, Celery, unhandled exceptions) flows
-    into this model with zero changes to any of those call sites.
+    retrieval, LLM providers, background jobs, unhandled exceptions)
+    flows into this model with zero changes to any of those call sites.
 
     One row per *distinct* error shape (see `fingerprint`), not one row
-    per occurrence - a Redis outage that logs the same warning 500 times
+    per occurrence - an outage that logs the same warning 500 times
     increments one row's occurrence_count/last_seen/recent_occurrences
     rather than creating 500 rows. This is deliberately read-only
     observability, not a ticketing system - no resolved/acknowledged

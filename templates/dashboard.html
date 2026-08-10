@@ -62,10 +62,21 @@ pattern for consistency between the two dashboards.
   {% include "dashboard/_quick_actions.html" %}
 </div>
 
-<div class="mt-2 grid grid-cols-1 items-start gap-2 sm:grid-cols-2 sm:[&>*:last-child:nth-child(odd)]:col-span-2">
+{% comment %}
+items-stretch (the grid default, no items-* override) rather than
+items-start deliberately here - a shorter card next to a taller row
+sibling (System Status vs. Knowledge Center is the common case) would
+otherwise stop at its own content height while the grid row itself
+stays as tall as the tallest card, leaving a dead page-colored gap
+below the short card instead of its own background/border. Stretching
++ each card being h-full flex flex-col (with its footer CTA on
+mt-auto) turns that gap into the card's own extended background - see
+_system_status.html / _knowledge_snapshot.html.
+{% endcomment %}
+<div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 sm:[&>*:last-child:nth-child(odd)]:col-span-2">
   {% include "dashboard/_system_status.html" %}
   {% if "pages.knowledge_base" in user_permissions %}
-    {% include "dashboard/_knowledge_snapshot.html" %}
+    {% include "dashboard/_knowledge_snapshot.html" with show_chart=True %}
   {% endif %}
   {% if "pages.documents" in user_permissions %}
     {% include "dashboard/_recent_uploads.html" %}
@@ -207,6 +218,52 @@ pattern for consistency between the two dashboards.
                 return ` ${entry.type}: ${entry.count} (${entry.percent}%)`;
               },
             },
+          },
+        },
+      },
+    });
+  }
+
+  // ---- Topics by Category (Knowledge Center card): a polar-area
+  // chart, not a plain donut - deliberately a different chart "shape"
+  // from the Document Types donut above so the Knowledge Center card
+  // reads as its own thing, while still drawn from the same brand
+  // palette (get_entity_type_color()) everything else in the graph
+  // uses. Own legend is rendered server-side (the colored rows next to
+  // the canvas), so Chart.js's built-in legend stays off.
+  const categoryData = read('knowledge-category-data');
+  const categoryCanvas = document.getElementById('knowledgeCategoryChart');
+
+  if (categoryCanvas && categoryData && categoryData.length) {
+    new Chart(categoryCanvas, {
+      type: 'polarArea',
+      data: {
+        labels: categoryData.map((item) => item.entity_type),
+        datasets: [{
+          data: categoryData.map((item) => item.count),
+          backgroundColor: categoryData.map((item) => item.color + '55'),
+          borderColor: categoryData.map((item) => item.color),
+          borderWidth: 1.5,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { animateRotate: true, animateScale: true },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label(item) {
+                const entry = categoryData[item.dataIndex];
+                return ` ${entry.entity_type}: ${entry.count} (${entry.percent}%)`;
+              },
+            },
+          },
+        },
+        scales: {
+          r: {
+            grid: { color: gridColor },
+            ticks: { display: false, backdropColor: 'transparent' },
           },
         },
       },

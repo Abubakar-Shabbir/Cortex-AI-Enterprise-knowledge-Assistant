@@ -1,4 +1,5 @@
 import hashlib
+import logging
 
 from django.conf import settings
 from django.core.cache import cache
@@ -8,6 +9,8 @@ from ..models import DocumentChunk
 from .document_access_service import get_accessible_document_ids
 from .perf import timed_stage
 from .retrieval_filters import apply_document_filters
+
+logger = logging.getLogger(__name__)
 
 
 def _bm25_cache_key(accessible_ids, filters):
@@ -63,11 +66,25 @@ def bm25_search(
     accessible-scope for settings.RETRIEVAL_CACHE_TTL seconds -
     previously this rebuilt from scratch on every single call
     regardless of whether the underlying documents had changed at all.
+
+    Never raises - delegates to _bm25_search_impl() inside a try/except
+    so a failure (e.g. a corrupt cached index) degrades to no BM25
+    contribution, matching vector_search()/graph_search()'s contract,
+    instead of propagating uncaught through retrieve_chunks()'s thread
+    pool into a raw 500 for the whole request.
     """
 
     if user is None:
         return []
 
+    try:
+        return _bm25_search_impl(question, top_k, filters, user)
+    except Exception:
+        logger.exception("BM25 search failed")
+        return []
+
+
+def _bm25_search_impl(question, top_k, filters, user):
     accessible_ids = get_accessible_document_ids(user)
 
     if not accessible_ids:

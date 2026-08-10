@@ -22,7 +22,6 @@ from .services import query_service
 from .services import query_transform_service as transform
 from .services import reranker_service as reranker
 from .services import retrieval_service as retrieval
-from .services import upload_service
 from .services.graph_extraction_service import (
     ExtractedEntity,
     ExtractedRelationship,
@@ -1143,14 +1142,14 @@ class AnswerQuestionCitationTests(unittest.TestCase):
 
 class HealthServiceTests(unittest.TestCase):
     """
-    get_health_status() - get_system_status(), the Redis ping, and the
-    LLM provider health checks are all mocked, so this runs offline
-    regardless of whether a real database/Redis/LLM provider is
+    get_health_status() - get_system_status(), the background task pool
+    check, and the LLM provider health checks are all mocked, so this
+    runs offline regardless of whether a real database/LLM provider is
     reachable.
     """
 
     def setUp(self):
-        # Every test in this class exercises DB/Redis/Celery logic,
+        # Every test in this class exercises DB/background-pool logic,
         # not LLM provider logic - default to "nothing configured" (an
         # empty dict short-circuits get_health_status()'s `if
         # llm_providers:` check) so these stay offline and each test's
@@ -1168,63 +1167,42 @@ class HealthServiceTests(unittest.TestCase):
             "embeddings_complete": embeddings_complete,
         }
 
-    def test_ok_when_db_and_pgvector_healthy_redis_not_required(self):
+    def _bg_jobs(self, available=True):
+        return {"available": available, "max_workers": 4, "active": 0, "pending": 0}
+
+    def test_ok_when_db_and_pgvector_and_background_pool_healthy(self):
         with patch.object(health_service, "get_system_status", return_value=self._system_status()), \
-             patch.object(health_service, "_check_redis", return_value=False):
+             patch.object(health_service, "_check_background_jobs", return_value=self._bg_jobs()):
 
             result = health_service.get_health_status()
 
         self.assertEqual(result["status"], "ok")
         self.assertTrue(result["checks"]["database"])
-        self.assertFalse(result["checks"]["redis"])
+        self.assertTrue(result["checks"]["background_jobs"])
 
     def test_degraded_when_pgvector_disabled(self):
         with patch.object(
             health_service, "get_system_status",
             return_value=self._system_status(pgvector_enabled=False),
-        ), patch.object(health_service, "_check_redis", return_value=True):
+        ), patch.object(health_service, "_check_background_jobs", return_value=self._bg_jobs()):
 
             result = health_service.get_health_status()
 
         self.assertEqual(result["status"], "degraded")
 
-    @override_settings(ENABLE_ASYNC_PROCESSING=True)
-    def test_redis_required_when_async_processing_enabled(self):
+    def test_degraded_when_background_pool_unavailable(self):
         with patch.object(health_service, "get_system_status", return_value=self._system_status()), \
-             patch.object(health_service, "_check_redis", return_value=False), \
-             patch.object(health_service, "_check_celery_workers", return_value=2):
+             patch.object(health_service, "_check_background_jobs", return_value=self._bg_jobs(available=False)):
 
             result = health_service.get_health_status()
 
         self.assertEqual(result["status"], "degraded")
-        self.assertFalse(result["checks"]["redis"])
-
-    @override_settings(ENABLE_ASYNC_PROCESSING=True)
-    def test_no_celery_workers_degrades_when_async_processing_enabled(self):
-        with patch.object(health_service, "get_system_status", return_value=self._system_status()), \
-             patch.object(health_service, "_check_redis", return_value=True), \
-             patch.object(health_service, "_check_celery_workers", return_value=0):
-
-            result = health_service.get_health_status()
-
-        self.assertEqual(result["status"], "degraded")
-        self.assertEqual(result["celery_workers"], 0)
-
-    def test_celery_check_skipped_when_async_processing_disabled(self):
-        with patch.object(health_service, "get_system_status", return_value=self._system_status()), \
-             patch.object(health_service, "_check_redis", return_value=True), \
-             patch.object(health_service, "_check_celery_workers") as m_celery:
-
-            result = health_service.get_health_status()
-
-        self.assertFalse(m_celery.called)
-        self.assertIsNone(result["celery_workers"])
-        self.assertEqual(result["status"], "ok")
+        self.assertFalse(result["checks"]["background_jobs"])
 
     def test_never_raises_when_system_status_blows_up(self):
         with patch.object(
             health_service, "get_system_status", side_effect=RuntimeError("db exploded")
-        ), patch.object(health_service, "_check_redis", return_value=False):
+        ), patch.object(health_service, "_check_background_jobs", return_value=self._bg_jobs()):
 
             result = health_service.get_health_status()
 
@@ -1244,6 +1222,9 @@ class LlmProviderHealthCheckTests(unittest.TestCase):
 
     def _system_status(self):
         return {"db_online": True, "pgvector_enabled": True, "embeddings_complete": True}
+
+    def _bg_jobs(self):
+        return {"available": True, "max_workers": 4, "active": 0, "pending": 0}
 
     def test_no_providers_configured_returns_empty_dict(self):
         with patch.object(health_service, "_is_configured", return_value=False):
@@ -1276,7 +1257,7 @@ class LlmProviderHealthCheckTests(unittest.TestCase):
 
     def test_no_configured_providers_does_not_block_overall_health(self):
         with patch.object(health_service, "get_system_status", return_value=self._system_status()), \
-             patch.object(health_service, "_check_redis", return_value=False), \
+             patch.object(health_service, "_check_background_jobs", return_value=self._bg_jobs()), \
              patch.object(health_service, "_check_llm_providers", return_value={}):
 
             result = health_service.get_health_status()
@@ -1291,7 +1272,7 @@ class LlmProviderHealthCheckTests(unittest.TestCase):
         # aggregation logic in get_health_status() is shared by both,
         # so testing it through either call is equally valid.
         with patch.object(health_service, "get_system_status", return_value=self._system_status()), \
-             patch.object(health_service, "_check_redis", return_value=False), \
+             patch.object(health_service, "_check_background_jobs", return_value=self._bg_jobs()), \
              patch.object(health_service, "_check_llm_providers", return_value={
                  "openrouter": {"ok": False, "latency_ms": None, "message": "down"},
                  "gemini": {"ok": False, "latency_ms": None, "message": "down"},
@@ -1308,7 +1289,7 @@ class LlmProviderHealthCheckTests(unittest.TestCase):
         }
 
         with patch.object(health_service, "get_system_status", return_value=self._system_status()), \
-             patch.object(health_service, "_check_redis", return_value=False), \
+             patch.object(health_service, "_check_background_jobs", return_value=self._bg_jobs()), \
              patch.object(health_service, "_check_llm_providers", return_value=healthy_providers):
 
             result = health_service.get_health_status(live_llm_check=True)
@@ -1320,7 +1301,7 @@ class LlmProviderHealthCheckTests(unittest.TestCase):
         """A configured provider with zero recent traffic (ok=None) must not, by itself, drag the overall verdict to "degraded" - "no data" isn't "bad data". This is the default (live_llm_check=False) path."""
 
         with patch.object(health_service, "get_system_status", return_value=self._system_status()), \
-             patch.object(health_service, "_check_redis", return_value=False), \
+             patch.object(health_service, "_check_background_jobs", return_value=self._bg_jobs()), \
              patch.object(health_service, "_recent_llm_provider_status", return_value={
                  "openrouter": {"ok": None, "latency_ms": None, "message": "No requests in the last 15 minutes - use Check Now for a live check."},
              }):
@@ -1331,68 +1312,12 @@ class LlmProviderHealthCheckTests(unittest.TestCase):
         self.assertFalse(result["live_llm_check"])
 
 
-class UploadDocumentAsyncDispatchTests(unittest.TestCase):
-    """
-    upload_document()'s Sprint 10 dispatch decision (inline vs Celery
-    task). validate_document/check_duplicate/extract_metadata/
-    Document.objects.create/process_uploaded_document are all mocked,
-    so this runs fully offline without a database.
-    """
-
-    def setUp(self):
-        self.mock_document = MagicMock(id=42)
-
-    def _common_patches(self):
-        return [
-            patch.object(upload_service, "validate_document"),
-            patch.object(upload_service, "check_duplicate", return_value=(False, "hash")),
-            patch.object(
-                upload_service, "extract_metadata",
-                return_value={"file_type": "pdf", "file_size": 10},
-            ),
-            patch.object(upload_service.Document.objects, "create", return_value=self.mock_document),
-        ]
-
-    def test_sync_by_default_processes_inline(self):
-        patches = self._common_patches()
-        with patches[0], patches[1], patches[2], patches[3], \
-             patch.object(upload_service, "process_uploaded_document") as m_process:
-
-            result = upload_service.upload_document(user=MagicMock(), title="T", file=MagicMock())
-
-        m_process.assert_called_once_with(self.mock_document)
-        self.assertEqual(result, self.mock_document)
-
-    @override_settings(ENABLE_ASYNC_PROCESSING=True)
-    def test_async_dispatches_celery_task_instead_of_processing_inline(self):
-        patches = self._common_patches()
-        with patches[0], patches[1], patches[2], patches[3], \
-             patch.object(upload_service, "process_uploaded_document") as m_process, \
-             patch("RAG.tasks.process_document_task") as m_task:
-
-            result = upload_service.upload_document(user=MagicMock(), title="T", file=MagicMock())
-
-        self.assertFalse(m_process.called)
-        m_task.delay.assert_called_once_with(42)
-        self.assertEqual(result, self.mock_document)
-
-    def test_duplicate_raises_before_any_processing_decision(self):
-        with patch.object(upload_service, "validate_document"), \
-             patch.object(upload_service, "check_duplicate", return_value=(True, "hash")), \
-             patch.object(upload_service, "process_uploaded_document") as m_process:
-
-            with self.assertRaises(ValueError):
-                upload_service.upload_document(user=MagicMock(), title="T", file=MagicMock())
-
-        self.assertFalse(m_process.called)
-
-
 class ProcessDocumentTaskTests(unittest.TestCase):
     """
     RAG.tasks.process_document_task - Document.objects.get() and
     process_uploaded_document() are mocked. Calling the task directly
-    (not .delay()) runs it synchronously with no broker required -
-    Celery's standard pattern for unit-testing a task's body.
+    (not via task_runner.submit()) runs it synchronously with no thread
+    pool required.
     """
 
     def test_processes_existing_document(self):
@@ -1416,13 +1341,16 @@ class ProcessDocumentTaskTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertFalse(m_process.called)
 
-    def test_retries_on_processing_failure(self):
+    def test_retries_then_gives_up_without_raising(self):
         mock_document = MagicMock(id=7)
 
         with patch.object(tasks.Document.objects, "get", return_value=mock_document), \
              patch.object(
                  tasks, "process_uploaded_document", side_effect=RuntimeError("boom")
-             ):
+             ) as m_process, \
+             patch.object(tasks.time, "sleep"):
 
-            with self.assertRaises(Exception):
-                tasks.process_document_task(7)
+            result = tasks.process_document_task(7)
+
+        self.assertIsNone(result)
+        self.assertEqual(m_process.call_count, tasks.MAX_PROCESSING_RETRIES)

@@ -46,7 +46,7 @@ def new_trace_id() -> str:
 
 
 def get_trace_id() -> str:
-    """The current context's trace id, or "" if none is bound (e.g. a management command, a Celery task, a test)."""
+    """The current context's trace id, or "" if none is bound (e.g. a management command, a background task, a test)."""
 
     return _trace_id_var.get()
 
