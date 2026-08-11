@@ -822,3 +822,24 @@ def execute_run(run):
 
     run.completed_at = timezone.now()
     run.save(update_fields=["status", "error_message", "completed_at"])
+
+    # Not for CANCELLED - the user is the one who stopped it, they
+    # already know. COMPLETED/FAILED are the two outcomes worth
+    # telling someone about, especially since a run can take long
+    # enough that the user has navigated away by the time it finishes.
+    if run.status in (AITaskRun.Status.COMPLETED, AITaskRun.Status.FAILED):
+        from .notification_service import create_notification
+        from django.urls import reverse
+
+        is_success = run.status == AITaskRun.Status.COMPLETED
+        create_notification(
+            recipient=run.user,
+            notification_type="ai_task.completed" if is_success else "ai_task.failed",
+            title="AI Task completed" if is_success else "AI Task failed",
+            message=(
+                f'Your "{run.get_task_type_display()}" run has finished.' if is_success
+                else f'Your "{run.get_task_type_display()}" run failed: {run.error_message or "unexpected error"}'
+            ),
+            data={"run_id": run.id},
+            action_url=reverse("ai_task_results", args=[run.id]),
+        )

@@ -15,8 +15,11 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from django.contrib.auth import views as django_auth_views
 from django.urls import path, include
 from .import views
+from . import auth_views
+from . import notification_views
 
 urlpatterns = [
     path("health/", views.health_check, name="health_check"),
@@ -26,9 +29,16 @@ urlpatterns = [
     # "take me to my dashboard" entry point regardless of role. See
     # RAG.services.permission_service.get_dashboard_url_for_user.
     path("", views.home_redirect, name="home"),
-    path("signup/", views.signup, name="signup"),
-    path("login/", views.login_user, name="login"),
-    path("logout/", views.logout_user, name="logout"),
+    path("signup/", auth_views.signup, name="signup"),
+    path("login/", auth_views.login_user, name="login"),
+    path("logout/", auth_views.logout_user, name="logout"),
+    path("verify-otp/", auth_views.verify_otp, name="verify_otp"),
+    path("verify-otp/resend/", auth_views.resend_otp, name="resend_otp"),
+
+    path("password-reset/", auth_views.RAGPasswordResetView.as_view(), name="password_reset"),
+    path("password-reset/sent/", django_auth_views.PasswordResetDoneView.as_view(template_name="password_reset_sent.html"), name="password_reset_done"),
+    path("reset/<uidb64>/<token>/", auth_views.RAGPasswordResetConfirmView.as_view(), name="password_reset_confirm"),
+    path("reset/done/", django_auth_views.PasswordResetCompleteView.as_view(template_name="password_reset_complete.html"), name="password_reset_complete"),
 
     path("dashboard/", views.user_dashboard, name="user_dashboard"),
 
@@ -73,6 +83,12 @@ urlpatterns = [
     path("analytics/", views.analytics_view, name="analytics"),
     path("profile/", views.profile_view, name="profile"),
 
+    path("notifications/", notification_views.notification_center_view, name="notifications"),
+    path("notifications/unread-count/", notification_views.notification_unread_count, name="notification_unread_count"),
+    path("notifications/list/", notification_views.notification_list_json, name="notification_list_json"),
+    path("notifications/<int:notification_id>/read/", notification_views.notification_mark_read, name="notification_mark_read"),
+    path("notifications/mark-all-read/", notification_views.notification_mark_all_read, name="notification_mark_all_read"),
+
     path("knowledge/", views.knowledge_base_view, name="knowledge_base"),
     path("knowledge/entities/<int:entity_id>/", views.entity_detail_view, name="entity_detail"),
     path("knowledge/relationships/", views.relationships_view, name="relationships"),
@@ -111,4 +127,5 @@ urlpatterns = [
     path("admin/system-logs/", views.admin_system_logs_view, name="admin_system_logs"),
     path("admin/system-logs/traces/<str:trace_id>/", views.admin_trace_detail_view, name="admin_trace_detail"),
     path("admin/system-logs/errors/<int:group_id>/", views.admin_error_group_detail_view, name="admin_error_group_detail"),
+    path("admin/notifications/announce/", notification_views.admin_send_announcement_view, name="admin_send_announcement"),
 ]

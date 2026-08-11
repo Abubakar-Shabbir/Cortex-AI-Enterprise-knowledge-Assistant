@@ -1,0 +1,8 @@
+Your account has been deleted
+
+Hi {{ username }},
+
+Your {{ site_name }} account has been permanently deleted by an administrator. If you believe this was done in error, please contact support.
+
+--
+This is an automated message from {{ site_name }}.

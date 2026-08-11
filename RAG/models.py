@@ -183,10 +183,19 @@ class DocumentVersion(models.Model):
 
 class DocumentShare(models.Model):
     """
-    Exactly one of shared_with_user / shared_with_role is set (enforced by
-    the CheckConstraint below). Grants view + download only - never
-    delete/re-version/manage-shares; those stay owner-only regardless of
-    any share (see document_access_service.can_edit_document).
+    Exactly one of shared_with_user / shared_with_role / invited_email is
+    set (enforced by the CheckConstraint below). Grants view + download
+    only - never delete/re-version/manage-shares; those stay owner-only
+    regardless of any share (see document_access_service.can_edit_document).
+
+    invited_email is the pending state for "shared with someone who
+    doesn't have an account yet" - it grants nothing by itself
+    (document_access_service never looks at it), and is the ONLY field
+    here that ever changes after creation: RAG.services.otp_service.
+    verify_otp() converts it to a real shared_with_user the moment that
+    exact email address is verified via OTP, which is also the moment
+    ownership of the address is actually proven - see that function's
+    own docstring for the full rationale.
     """
 
     document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name="shares")
@@ -196,6 +205,10 @@ class DocumentShare(models.Model):
     shared_with_role = models.ForeignKey(
         "Role", on_delete=models.CASCADE, null=True, blank=True, related_name="document_shares"
     )
+    invited_email = models.CharField(
+        max_length=254, blank=True, default="",
+        help_text="Set only while pending - an email with no matching account yet. Cleared (and shared_with_user set) once that address completes signup + OTP verification.",
+    )
     shared_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -203,10 +216,24 @@ class DocumentShare(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=(
-                    models.Q(shared_with_user__isnull=False, shared_with_role__isnull=True)
-                    | models.Q(shared_with_user__isnull=True, shared_with_role__isnull=False)
+                    models.Q(shared_with_user__isnull=False, shared_with_role__isnull=True, invited_email="")
+                    | models.Q(shared_with_user__isnull=True, shared_with_role__isnull=False, invited_email="")
+                    | models.Q(shared_with_user__isnull=True, shared_with_role__isnull=True, invited_email__gt="")
                 ),
                 name="documentshare_exactly_one_target",
+            ),
+            # A plain unique_together on ("document", "invited_email")
+            # would treat every non-invite row's blank "" the same as
+            # any other row's blank "" - Postgres uniqueness doesn't
+            # exempt empty string the way it exempts NULL, so two
+            # ordinary user/role shares on the same document would
+            # collide with each other. Scoped (partial) instead:
+            # uniqueness only applies among rows that are actually a
+            # pending invite (invited_email not blank).
+            models.UniqueConstraint(
+                fields=["document", "invited_email"],
+                condition=models.Q(invited_email__gt=""),
+                name="documentshare_unique_pending_invite",
             ),
         ]
         unique_together = [
@@ -1281,5 +1308,145 @@ class UserProfile(models.Model):
 
     updated_at = models.DateTimeField(auto_now=True)
 
+    email_verified = models.BooleanField(
+        default=False,
+        help_text="True once the account holder has completed email OTP "
+                   "verification at signup (see RAG.services.otp_service). "
+                   "Pre-existing accounts were backfilled to True by a "
+                   "one-time data migration when this field was added - "
+                   "only new signups actually go through OTP.",
+    )
+
     def __str__(self):
         return f"{self.user.username}'s profile"
+
+
+class EmailOTP(models.Model):
+    """
+    A one-time verification code emailed to a user - currently only used
+    for signup verification, but `purpose` is namespaced so a future use
+    (e.g. verifying a changed email address) needs no schema change.
+
+    The code itself is never stored in plaintext - `code_hash` uses
+    Django's own password hasher (django.contrib.auth.hashers.
+    make_password()/check_password()), the same PBKDF2 machinery real
+    passwords use, so this module introduces no new cryptographic code.
+    The plaintext code exists only as a local variable in
+    RAG.services.otp_service.generate_and_send_otp() and as an argument
+    to the backgrounded email-send task - never logged, never returned
+    in any response.
+    """
+
+    class Purpose(models.TextChoices):
+        SIGNUP = "signup", "Signup Verification"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="email_otps")
+
+    purpose = models.CharField(max_length=20, choices=Purpose.choices, default=Purpose.SIGNUP)
+
+    code_hash = models.CharField(max_length=128)
+
+    attempt_count = models.PositiveSmallIntegerField(
+        default=0,
+        help_text="Incremented on every failed verify attempt against this "
+                   "row - a durable, per-row cap (RAG.services.otp_service."
+                   "MAX_OTP_ATTEMPTS) on top of the cache-based cross-row "
+                   "rate limit in rate_limit_service.",
+    )
+
+    is_used = models.BooleanField(default=False)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["user", "purpose", "is_used", "-created_at"])]
+
+    def __str__(self):
+        return f"{self.get_purpose_display()} OTP for {self.user.username}"
+
+
+class Notification(models.Model):
+    """
+    A single recipient-facing notification - distinct from ActivityLog
+    (a system-wide audit trail of what an *actor* did, admin-facing) and
+    never populated from it. This is a per-user inbox: "X shared a
+    document with you", read/unread, with an optional emailed copy.
+
+    `notification_type` is namespaced "<area>.<event>" (e.g.
+    "document.shared", "ai_task.completed", "account.password_changed")
+    exactly like Permission.codename and ActivityLog.action, so new
+    event types never require a schema change - just a new string and,
+    optionally, an icon mapping in RAG.views._NOTIFICATION_ICONS.
+    """
+
+    recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications")
+
+    actor = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+        help_text="Who caused this notification, if a specific user did (e.g. who shared the document). Blank for system-generated events.",
+    )
+
+    notification_type = models.CharField(max_length=50, db_index=True)
+
+    title = models.CharField(max_length=200)
+    message = models.CharField(max_length=500)
+
+    data = models.JSONField(
+        default=dict, blank=True,
+        help_text="Extra structured payload for the event, e.g. {\"document_id\": 12, \"share_id\": 7}.",
+    )
+
+    action_url = models.CharField(
+        max_length=500, blank=True, default="",
+        help_text='Where the "Open" action navigates, e.g. a document URL. Computed at creation time via reverse() - never trusted as an authorization check by itself, the target view re-validates access.',
+    )
+
+    is_read = models.BooleanField(default=False, db_index=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    email_sent = models.BooleanField(default=False)
+    email_sent_at = models.DateTimeField(null=True, blank=True)
+    email_error = models.CharField(
+        max_length=255, blank=True, default="",
+        help_text="Sanitized failure reason only (exception class name, not a raw traceback) - mirrors ErrorGroup's no-raw-stack-trace contract.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["recipient", "is_read", "-created_at"])]
+
+    @property
+    def category(self):
+        """First segment of notification_type, e.g. "document" - derived, not stored, same pattern as Permission.namespace."""
+        return self.notification_type.split(".")[0]
+
+    def __str__(self):
+        return f"{self.notification_type} -> {self.recipient.username}"
+
+
+class NotificationPreference(models.Model):
+    """
+    Per-user email-notification opt-outs. In-app notifications are never
+    disableable (the inbox is always the full record). "account" and
+    "security" category notifications (password changed, new sign-in,
+    email verified, ...) are never offered as toggleable and always
+    email regardless of this row - see
+    RAG.services.notification_service.ALWAYS_EMAIL_CATEGORIES.
+    """
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="notification_preferences")
+
+    disabled_email_categories = models.JSONField(
+        default=list, blank=True,
+        help_text="Category namespaces (e.g. \"document\", \"ai_task\") the user has opted out of *email* delivery for.",
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Notification preferences for {self.user.username}"

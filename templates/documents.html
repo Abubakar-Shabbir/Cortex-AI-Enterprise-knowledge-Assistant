@@ -382,7 +382,7 @@
             <option value="role">Role</option>
           </select>
           <template x-if="share.targetType === 'user'">
-            <input type="text" x-model="share.targetValue" placeholder="Username" class="flex-1 rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+            <input type="text" x-model="share.targetValue" placeholder="Username or email" class="flex-1 rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
           </template>
           <template x-if="share.targetType === 'role'">
             <select x-model="share.targetValue" class="flex-1 rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">

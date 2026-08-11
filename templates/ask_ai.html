@@ -15,6 +15,29 @@
   {% endcomment %}
   <script defer src="https://unpkg.com/marked@12/marked.min.js"></script>
   <script defer src="https://unpkg.com/dompurify@3/dist/purify.min.js"></script>
+  {% comment %}
+  Blinking caret shown at the end of #ask-ai-live-answer while a token
+  stream is in flight (streamAnswer() toggles the "streaming-cursor"
+  class on that element once the first token arrives) - a ::after bar
+  rather than a text glyph so it doesn't depend on font coverage. The
+  whole element is discarded and replaced by the server-rendered
+  partial on the "done" SSE event, so the cursor disappears on its own
+  the moment streaming finishes - nothing has to explicitly remove it
+  on the success path, only on cancel (see stopStreaming()).
+  {% endcomment %}
+  <style>
+    @keyframes ask-ai-cursor-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+    .streaming-cursor::after {
+      content: '';
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      background-color: currentColor;
+      animation: ask-ai-cursor-blink 0.85s steps(1) infinite;
+    }
+  </style>
 {% endblock %}
 
 {% block content %}
@@ -97,12 +120,21 @@
 
             <button
               type="submit"
-              :disabled="submitting"
-              class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-70"
+              x-show="!submitting"
+              class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
             >
-              <i data-lucide="loader-2" class="h-4 w-4 animate-spin" x-show="submitting"></i>
-              <i data-lucide="send" class="h-4 w-4" x-show="!submitting"></i>
-              <span x-text="submitting ? 'Thinking…' : 'Ask AI'"></span>
+              <i data-lucide="send" class="h-4 w-4"></i>
+              <span>Ask AI</span>
+            </button>
+            <button
+              type="button"
+              x-show="submitting"
+              x-cloak
+              @click="stopStreaming()"
+              class="inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:border-danger/40 hover:text-danger dark:border-line-dark dark:bg-white/5 dark:text-ink-dark"
+            >
+              <i data-lucide="loader-2" class="h-4 w-4 animate-spin"></i>
+              <span>Stop generating</span>
             </button>
           </div>
 
@@ -223,16 +255,6 @@
             </div>
           </div>
         </form>
-
-        <div
-          x-show="submitting"
-          x-cloak
-          x-transition.opacity
-          class="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-card/90 backdrop-blur-sm dark:bg-card-dark/90"
-        >
-          <i data-lucide="loader-2" class="h-6 w-6 animate-spin text-primary"></i>
-          <p class="text-sm font-medium text-ink dark:text-ink-dark">Retrieving context and thinking…</p>
-        </div>
       </div>
 
       {% comment %}
@@ -312,6 +334,7 @@
   function askAiPage() {
     return {
       submitting: false,
+      abortController: null,
       question: '{{ result.question|escapejs }}',
       filters: {
         collectionId: '{{ selected_collection_id|escapejs }}',
@@ -381,46 +404,98 @@
       async streamAnswer(event) {
         // Progressive reveal of the answer, into the same
         // #ask-ai-result-container the classic full-page POST renders
-        // into - see ask_ai_stream (RAG/views.py). Falls back to a
-        // normal form submit on any failure (fetch/stream unsupported,
-        // network error, or a server-side error event), so the classic
-        // path always still works.
+        // into - see ask_ai_stream (RAG/views.py). A real network/
+        // server failure keeps whatever text already streamed in and
+        // shows an inline error + Retry instead of discarding it; only
+        // a failure with zero rendered text (nothing to lose) falls
+        // back to a normal form submit through the classic path. A
+        // user-initiated stop (stopStreaming() below) is neither - it
+        // preserves the partial answer and never resubmits, since that
+        // would silently re-ask the question the user just stopped.
         this.submitting = true;
         const form = event.target;
         const container = document.getElementById('ask-ai-result-container');
         const csrftoken = form.querySelector('[name=csrfmiddlewaretoken]').value;
+
+        this.abortController = new AbortController();
+
+        // Declared here, not inside the try block below, so the catch
+        // block (a real network drop can land at any point) can always
+        // see how much - if any - of the answer already rendered.
+        let liveAnswer = null;
+        let liveAnswerRaw = '';
+        let firstTokenReceived = false;
+        let streamEnded = false;
+        let renderScheduled = false;
+        let slowHintTimer = null;
+
+        // Coalesces rapid "token" events into at most one DOM write per
+        // animation frame - a chunky/fast provider can emit several
+        // tokens well within one 16ms frame, and re-parsing+re-painting
+        // Markdown on every single one is wasted work that shows up as
+        // visible flicker. The cursor itself needs no part in this - it's
+        // a CSS ::after on the container, unaffected by the children's
+        // innerHTML being replaced.
+        const isNearBottom = (thresholdPx = 140) =>
+          (window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - thresholdPx);
+
+        const scheduleRender = () => {
+          if (renderScheduled) return;
+          renderScheduled = true;
+          requestAnimationFrame(() => {
+            renderScheduled = false;
+            if (streamEnded || !liveAnswer) return;
+            // Only follow new content down if the viewer was already
+            // at (or near) the bottom right before this update - once
+            // they scroll up to reread something, auto-scroll backs
+            // off instead of yanking them back down on the next token.
+            const wasNearBottom = isNearBottom();
+            liveAnswer.innerHTML = DOMPurify.sanitize(marked.parse(liveAnswerRaw));
+            if (wasNearBottom) {
+              window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+            }
+          });
+        };
 
         try {
           const response = await fetch('{% url "ask_ai_stream" %}', {
             method: 'POST',
             headers: { 'X-CSRFToken': csrftoken },
             body: new FormData(form),
+            signal: this.abortController.signal,
           });
 
           if (!response.ok || !response.body) throw new Error('stream unavailable');
 
           container.innerHTML = `
             <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
-              <div class="px-5 py-5">
+              <div id="ask-ai-live-card-body" class="px-5 py-5">
                 <div class="mb-2 flex items-center gap-2">
                   <h3 class="text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Answer</h3>
-                  <i data-lucide="loader-2" class="h-3.5 w-3.5 animate-spin text-primary"></i>
+                  <i id="ask-ai-stream-spinner" data-lucide="loader-2" class="h-3.5 w-3.5 animate-spin text-primary"></i>
                 </div>
-                <div id="ask-ai-live-answer" class="text-sm leading-relaxed text-ink dark:text-ink-dark [&>*+*]:mt-3 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs dark:[&_code]:bg-white/10 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-surface [&_pre]:p-3 [&_pre]:text-xs dark:[&_pre]:bg-white/5 [&_pre_code]:bg-transparent [&_pre_code]:p-0"></div>
+                <div id="ask-ai-live-answer" class="text-sm leading-relaxed text-ink dark:text-ink-dark [&>*+*]:mt-3 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs dark:[&_code]:bg-white/10 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-surface [&_pre]:p-3 [&_pre]:text-xs dark:[&_pre]:bg-white/5 [&_pre_code]:bg-transparent [&_pre_code]:p-0">
+                  <span class="inline-flex items-center gap-1 py-1" aria-live="polite" aria-label="Thinking">
+                    <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-muted dark:bg-muted-dark" style="animation-delay:0ms"></span>
+                    <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-muted dark:bg-muted-dark" style="animation-delay:150ms"></span>
+                    <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-muted dark:bg-muted-dark" style="animation-delay:300ms"></span>
+                  </span>
+                </div>
+                <p id="ask-ai-slow-hint" class="mt-2 hidden text-xs text-muted dark:text-muted-dark">Still working — complex questions can take a little longer…</p>
               </div>
             </div>
           `;
           lucide.createIcons();
-          const liveAnswer = document.getElementById('ask-ai-live-answer');
-          // Accumulated raw Markdown from "token" events - re-parsed and
-          // re-sanitized on every token (cheap for answer-length text)
-          // rather than incrementally, since partial/unclosed Markdown
-          // syntax (an unfinished "**" or code fence) doesn't parse
-          // sensibly token-by-token anyway. DOMPurify runs client-side
-          // because this is a live preview only - the authoritative,
-          // stored answer is always the server-rendered/nh3-sanitized
-          // HTML that replaces this element on the "done" event below.
-          let liveAnswerRaw = '';
+          container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          liveAnswer = document.getElementById('ask-ai-live-answer');
+
+          // Slow first-token latency isn't an error - just reassure
+          // the user the request is still alive instead of leaving a
+          // bare, unexplained "thinking" dot forever.
+          slowHintTimer = setTimeout(() => {
+            const hint = document.getElementById('ask-ai-slow-hint');
+            if (hint) hint.classList.remove('hidden');
+          }, 6000);
 
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
@@ -440,9 +515,31 @@
               const payload = JSON.parse(frame.slice(6));
 
               if (payload.type === 'token') {
+                if (!firstTokenReceived) {
+                  // Swap the "thinking" dots for the live answer, and
+                  // start the blinking cursor - both only make sense
+                  // once real content is actually landing.
+                  firstTokenReceived = true;
+                  clearTimeout(slowHintTimer);
+                  liveAnswer.classList.add('streaming-cursor');
+                }
+                // Accumulated raw Markdown, re-parsed/re-sanitized as a
+                // whole on each rendered frame (see scheduleRender)
+                // rather than incrementally - partial/unclosed Markdown
+                // syntax (an unfinished "**" or code fence) doesn't
+                // parse sensibly token-by-token anyway. DOMPurify runs
+                // client-side because this is a live preview only - the
+                // authoritative, stored answer is always the server-
+                // rendered/nh3-sanitized HTML that replaces this
+                // element on the "done" event below.
                 liveAnswerRaw += payload.text;
-                liveAnswer.innerHTML = DOMPurify.sanitize(marked.parse(liveAnswerRaw));
+                scheduleRender();
               } else if (payload.type === 'done') {
+                // Replaces #ask-ai-live-answer entirely, so the
+                // blinking cursor (a class on that element) is
+                // discarded along with it - nothing to clean up here.
+                streamEnded = true;
+                clearTimeout(slowHintTimer);
                 container.innerHTML = payload.html;
                 lucide.createIcons();
                 Alpine.initTree(container);
@@ -452,13 +549,90 @@
             }
           }
         } catch (err) {
+          clearTimeout(slowHintTimer);
+          streamEnded = true;
+
+          if (err.name === 'AbortError') {
+            // User clicked "Stop generating" - drop the cursor and
+            // leave whatever text already streamed in exactly as it
+            // is, same as ChatGPT-style stop behavior. No fallback
+            // resubmit: the user asked for generation to stop, not
+            // for the question to be re-asked.
+            if (liveAnswer) liveAnswer.classList.remove('streaming-cursor');
+            const spinner = document.getElementById('ask-ai-stream-spinner');
+            if (spinner) spinner.remove();
+            const hint = document.getElementById('ask-ai-slow-hint');
+            if (hint) hint.remove();
+            this.submitting = false;
+            this.abortController = null;
+            return;
+          }
+
+          if (firstTokenReceived) {
+            // A real failure (connection drop, provider error) after
+            // some of the answer already rendered - keep it exactly as
+            // generated and surface a professional inline error rather
+            // than discarding it via a full-page reload/resubmit.
+            if (liveAnswer) liveAnswer.classList.remove('streaming-cursor');
+            const hint = document.getElementById('ask-ai-slow-hint');
+            if (hint) hint.remove();
+            const spinner = document.getElementById('ask-ai-stream-spinner');
+            if (spinner) {
+              const errorIcon = document.createElement('i');
+              errorIcon.id = 'ask-ai-stream-spinner';
+              errorIcon.setAttribute('data-lucide', 'alert-triangle');
+              errorIcon.className = 'h-3.5 w-3.5 text-danger';
+              spinner.replaceWith(errorIcon);
+            }
+            const body = document.getElementById('ask-ai-live-card-body');
+            if (body) {
+              renderStreamErrorBanner(body, () => this.streamAnswer({ target: form }));
+            }
+            lucide.createIcons();
+            this.submitting = false;
+            this.abortController = null;
+            return;
+          }
+
+          // Nothing rendered yet (failed before the first token, or
+          // fetch/ReadableStream unsupported) - nothing to lose, so
+          // fall back to the classic non-streaming POST and let
+          // ask_ai() answer the question the normal way.
           form.submit();
           return;
         }
 
+        this.abortController = null;
         this.submitting = false;
       },
+      stopStreaming() {
+        if (this.abortController) this.abortController.abort();
+      },
     };
+  }
+
+  // Renders a small "response may be incomplete, here's why, try
+  // again" notice below a partially-streamed answer - a plain DOM
+  // helper (not an Alpine method) since it's built once, outside any
+  // reactive state, right when a stream fails mid-answer.
+  function renderStreamErrorBanner(bodyEl, onRetry) {
+    const banner = document.createElement('div');
+    banner.className = 'mt-4 flex items-start gap-2.5 rounded-lg border border-danger/30 bg-danger/5 px-3.5 py-3 text-xs dark:border-danger/40 dark:bg-danger/10';
+    banner.innerHTML = `
+      <i data-lucide="alert-triangle" class="mt-0.5 h-4 w-4 shrink-0 text-danger"></i>
+      <div class="min-w-0">
+        <p class="font-medium text-danger">Connection interrupted</p>
+        <p class="mt-0.5 text-danger/80 dark:text-danger/70">The response above may be incomplete. This can happen if your connection drops or the AI provider is momentarily unavailable.</p>
+      </div>
+    `;
+    const retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.className = 'ml-auto shrink-0 self-center rounded-lg border border-danger/30 px-2.5 py-1.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/10';
+    retryBtn.textContent = 'Retry';
+    retryBtn.addEventListener('click', onRetry);
+    banner.appendChild(retryBtn);
+    bodyEl.appendChild(banner);
+    lucide.createIcons();
   }
 </script>
 {% endblock %}

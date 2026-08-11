@@ -14,9 +14,12 @@ from .models import (
     DocumentChunk,
     DocumentShare,
     DocumentVersion,
+    EmailOTP,
     Entity,
     EntityMention,
     Favorite,
+    Notification,
+    NotificationPreference,
     Permission,
     QueryLog,
     Relationship,
@@ -434,3 +437,28 @@ class DocumentShareAdmin(RBACScopedModelAdmin):
 class DocumentAccessLogAdmin(RBACScopedModelAdmin):
     view_permission = "documents.view_all"
     list_display = ("user", "document", "accessed_at")
+
+
+@admin.register(Notification)
+class NotificationAdmin(RBACScopedModelAdmin):
+    view_permission = "notifications.view_all"
+    list_display = ("recipient", "notification_type", "title", "is_read", "email_sent", "created_at")
+    list_filter = ("notification_type", "is_read", "email_sent")
+    search_fields = ("recipient__username", "title", "message")
+
+
+@admin.register(NotificationPreference)
+class NotificationPreferenceAdmin(RBACScopedModelAdmin):
+    view_permission = "notifications.view_all"
+    list_display = ("user", "disabled_email_categories", "updated_at")
+
+
+@admin.register(EmailOTP)
+class EmailOTPAdmin(RBACScopedModelAdmin):
+    # users.view_all, not notifications.view_all - this is account-
+    # verification data, not a notification. Only code_hash is ever
+    # shown/stored (see EmailOTP's own docstring) - never the raw code.
+    view_permission = "users.view_all"
+    list_display = ("user", "purpose", "attempt_count", "is_used", "created_at", "expires_at")
+    list_filter = ("purpose", "is_used")
+    readonly_fields = [f.name for f in EmailOTP._meta.fields]

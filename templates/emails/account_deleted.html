@@ -1,0 +1,6 @@
+{% extends "emails/_base_email.html" %}
+
+{% block content %}
+  <p style="margin:0 0 12px; font-size:16px; font-weight:600; color:#1f1b16;">Your account has been deleted</p>
+  <p style="margin:0; font-size:14px; line-height:1.6; color:#3a352d;">Hi {{ username }}, your {{ site_name }} account has been permanently deleted by an administrator. If you believe this was done in error, please contact support.</p>
+{% endblock %}

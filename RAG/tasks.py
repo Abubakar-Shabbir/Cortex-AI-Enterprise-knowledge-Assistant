@@ -33,7 +33,10 @@ import logging
 import random
 import time
 
-from .models import AIRequestTrace, AITaskRun, Document
+from django.contrib.auth.models import User
+from django.utils import timezone
+
+from .models import AIRequestTrace, AITaskRun, Document, Notification
 from .services.ai_tasks_engine_service import execute_run
 from .services.observability_service import save_trace
 from .services.system_config_service import apply_config_to_settings_cached
@@ -45,6 +48,204 @@ logger = logging.getLogger(__name__)
 MAX_PROCESSING_RETRIES = 3
 RETRY_BASE_DELAY_SECONDS = 30
 RETRY_MAX_DELAY_SECONDS = 600
+
+
+def send_notification_email_task(notification_id):
+    """
+    Backgrounded email delivery for one Notification row, dispatched by
+    RAG.services.notification_service.create_notification() via
+    task_runner.submit() - same re-fetch-by-id-on-a-pool-thread pattern
+    as process_document_task re-fetching Document. Writes
+    email_sent/email_sent_at/email_error back onto the row so delivery
+    status is inspectable without a separate log lookup. Never raises
+    further - a missing Notification (deleted before this ran) is
+    logged and treated as a no-op, matching process_document_task's own
+    DoesNotExist handling.
+    """
+
+    apply_config_to_settings_cached()
+
+    from .services.email_service import send_templated_email
+
+    try:
+        notification = Notification.objects.select_related("recipient", "actor").get(id=notification_id)
+    except Notification.DoesNotExist:
+        logger.error("send_notification_email_task: Notification %s no longer exists", notification_id)
+        return
+
+    success, error = send_templated_email(
+        to_email=notification.recipient.email,
+        subject=notification.title,
+        template_base="notification_email",
+        context={
+            "site_name": _site_name(),
+            "title": notification.title,
+            "message": notification.message,
+            "action_url": _absolute_url(notification.action_url),
+            "actor_name": notification.actor.username if notification.actor_id else None,
+        },
+    )
+
+    notification.email_sent = success
+    notification.email_sent_at = timezone.now() if success else None
+    notification.email_error = "" if success else error[:255]
+    notification.save(update_fields=["email_sent", "email_sent_at", "email_error"])
+
+
+def _site_name():
+    from django.conf import settings
+    return settings.SITE_NAME
+
+
+def _absolute_url(path):
+    """Joins a relative path (e.g. from reverse()) onto settings.SITE_URL for use inside an email body, where a relative link would be meaningless. Falls back to the bare path if SITE_URL isn't configured (local dev without it set)."""
+
+    from django.conf import settings
+
+    if not path:
+        return ""
+    if not settings.SITE_URL:
+        return path
+    return settings.SITE_URL.rstrip("/") + path
+
+
+def send_otp_email_task(user_id, raw_code, expires_at_iso):
+    """
+    Backgrounded OTP email send, dispatched by
+    RAG.services.otp_service.generate_and_send_otp() via
+    task_runner.submit(). `raw_code` is only ever held here, as a
+    function argument on a pool thread - never logged (task_runner's
+    own exception logging logs only this function's name, never its
+    arguments - see task_runner._run()) and never written to the
+    database (EmailOTP only stores make_password(code)).
+    """
+
+    apply_config_to_settings_cached()
+
+    from .services.email_service import send_templated_email
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        logger.error("send_otp_email_task: User %s no longer exists", user_id)
+        return
+
+    from .utils.formatting import mask_email
+
+    success, error = send_templated_email(
+        to_email=user.email,
+        subject="Verify your email",
+        template_base="otp_email",
+        context={
+            "site_name": _site_name(),
+            "code": raw_code,
+            "expiry_minutes": otp_expiry_minutes(),
+            "masked_email": mask_email(user.email),
+        },
+    )
+
+    if not success:
+        logger.error("send_otp_email_task: delivery failed for user %s: %s", user_id, error)
+
+
+def otp_expiry_minutes():
+    from .services.otp_service import OTP_EXPIRY_MINUTES
+    return OTP_EXPIRY_MINUTES
+
+
+def send_password_reset_email_task(user_id, uidb64, token, to_email):
+    """
+    Backgrounded delivery for RAG.auth_views.RAGPasswordResetForm -
+    reconstructs the reset link from primitives (user id, uid, token)
+    rather than receiving a pre-built URL, so this task is the one
+    place that has to know the password_reset_confirm URL shape.
+    """
+
+    apply_config_to_settings_cached()
+
+    from django.urls import reverse
+
+    from .services.email_service import send_templated_email
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        logger.error("send_password_reset_email_task: User %s no longer exists", user_id)
+        return
+
+    reset_url = _absolute_url(reverse("password_reset_confirm", kwargs={"uidb64": uidb64, "token": token}))
+
+    success, error = send_templated_email(
+        to_email=to_email,
+        subject="Reset your password",
+        template_base="password_reset_email",
+        context={"site_name": _site_name(), "reset_url": reset_url, "username": user.username},
+    )
+
+    if not success:
+        logger.error("send_password_reset_email_task: delivery failed for user %s: %s", user_id, error)
+
+
+def send_share_invite_email_task(document_id, invited_email, sharer_username):
+    """
+    Sent directly via email_service (not notification_service - there's
+    no User row yet for `invited_email`, and Notification.recipient is
+    a required FK). RAG.services.otp_service.verify_otp() converts the
+    pending DocumentShare row and fires the real in-app notification
+    once this address actually signs up and verifies - see that
+    function's docstring.
+    """
+
+    apply_config_to_settings_cached()
+
+    from .services.email_service import send_templated_email
+
+    try:
+        document = Document.objects.get(id=document_id)
+    except Document.DoesNotExist:
+        logger.error("send_share_invite_email_task: Document %s no longer exists", document_id)
+        return
+
+    signup_url = _absolute_url(f"/signup/?invited_email={invited_email}")
+
+    success, error = send_templated_email(
+        to_email=invited_email,
+        subject=f"{sharer_username} shared a document with you",
+        template_base="document_share_invite",
+        context={
+            "site_name": _site_name(),
+            "sharer_username": sharer_username,
+            "document_title": document.title,
+            "signup_url": signup_url,
+        },
+    )
+
+    if not success:
+        logger.error("send_share_invite_email_task: delivery failed for %s: %s", invited_email, error)
+
+
+def send_account_deleted_email_task(email, username):
+    """
+    Sent directly via email_service (not notification_service) - by
+    the time this runs the User row is already gone (Notification.
+    recipient is a required FK, so there's nothing to attach an
+    in-app notification to), same reasoning as
+    send_share_invite_email_task for a not-yet-existing account.
+    """
+
+    apply_config_to_settings_cached()
+
+    from .services.email_service import send_templated_email
+
+    success, error = send_templated_email(
+        to_email=email,
+        subject="Your account has been deleted",
+        template_base="account_deleted",
+        context={"site_name": _site_name(), "username": username},
+    )
+
+    if not success:
+        logger.error("send_account_deleted_email_task: delivery failed for %s: %s", email, error)
 
 
 def process_document_task(document_id):
@@ -87,6 +288,23 @@ def process_document_task(document_id):
     for attempt in range(1, MAX_PROCESSING_RETRIES + 1):
         try:
             process_uploaded_document(document)
+
+            # Only meaningful for the async path this task IS (see
+            # module docstring) - a synchronous upload_document() call
+            # already returns the finished document in the same
+            # response, so notifying there would be redundant. The
+            # user may well have navigated away by the time an async
+            # embed finishes, which is exactly when this matters.
+            from .services.notification_service import create_notification, document_open_url
+            create_notification(
+                recipient=document.user,
+                notification_type="document.processing_completed",
+                title="Document ready",
+                message=f'"{document.title}" has finished processing and is ready to use.',
+                data={"document_id": document.id},
+                action_url=document_open_url(document.id),
+            )
+
             return
 
         except Exception:
@@ -95,6 +313,16 @@ def process_document_task(document_id):
                     "process_document_task: giving up on document %s after %s attempts",
                     document_id, attempt,
                 )
+
+                from .services.notification_service import create_notification
+                create_notification(
+                    recipient=document.user,
+                    notification_type="document.processing_failed",
+                    title="Document processing failed",
+                    message=f'"{document.title}" could not be processed. Try re-uploading it.',
+                    data={"document_id": document.id},
+                )
+
                 return
 
             delay = min(

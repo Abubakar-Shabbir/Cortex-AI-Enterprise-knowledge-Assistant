@@ -6,9 +6,18 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#FAF8F7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#14100F" media="(prefers-color-scheme: dark)">
-<title>{% block title %}{% endblock %} · Knowledge Assistant</title>
+<title>{% block title %}{% endblock %} · Cortex</title>
 
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%238B1E2D'/%3E%3Cg stroke='white' stroke-width='1.6' stroke-linecap='round'%3E%3Cline x1='16' y1='7' x2='8' y2='22'/%3E%3Cline x1='16' y1='7' x2='24' y2='22'/%3E%3Cline x1='8' y1='22' x2='24' y2='22'/%3E%3C/g%3E%3Ccircle cx='16' cy='7' r='3' fill='white'/%3E%3Ccircle cx='8' cy='22' r='3' fill='white'/%3E%3Ccircle cx='24' cy='22' r='3' fill='white'/%3E%3C/svg%3E">
+
+{% comment %}
+Cross-document View Transitions (Chrome/Edge 126+, silent no-op
+elsewhere) - the same opt-in base.html uses for the main app, mirrored
+here so Login <-> Signup <-> OTP <-> Reset all cross-fade into each
+other on every real navigation (including a classic form POST's
+redirect) with zero JS and no SPA rewrite.
+{% endcomment %}
+<meta name="view-transition" content="same-origin">
 
 <script>
   if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -42,6 +51,7 @@
         boxShadow: {
           soft: '0 1px 2px rgba(31,27,27,0.04), 0 8px 24px rgba(31,27,27,0.06)',
           softer: '0 1px 2px rgba(31,27,27,0.03)',
+          glow: '0 0 0 4px rgba(139,30,45,0.08), 0 8px 28px rgba(31,27,27,0.08)',
         },
       },
     },
@@ -53,8 +63,154 @@
 <style>
   [x-cloak] { display: none !important; }
   * { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
-  @keyframes fade-in-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-  .auth-card { animation: fade-in-up 0.45s ease-out both; }
+
+  /* ============================================================
+     Live enterprise-system background - Security > Connectivity >
+     Infrastructure > Active System, told through a quiet grid,
+     drifting glow, a handful of pulsing "nodes", and slow data-flow
+     lines. Everything here is decorative (aria-hidden, pointer-
+     events-none) and sits behind the real brand-panel content, which
+     is what the CLAUDE.md-style comment below exists to keep true as
+     this file evolves - the login FORM is the product, this is
+     ambience for the panel beside it.
+     ============================================================ */
+
+  .auth-card { animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  @keyframes fade-in-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Primary-button sheen - a light diagonal sweep on hover, the one
+     "premium SaaS" flourish applied to every primary CTA across the
+     auth flow. Purely a ::before transform, no layout impact, no
+     JS - and skipped outright under reduced motion below. */
+  .btn-sheen { position: relative; overflow: hidden; }
+  .btn-sheen::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -60%;
+    width: 40%; height: 100%;
+    background: linear-gradient(115deg, transparent, rgba(255,255,255,0.28), transparent);
+    transform: skewX(-20deg);
+    transition: left 0.65s ease;
+  }
+  .btn-sheen:hover::before { left: 130%; }
+
+  /* Inline field-valid check - a small green tick that fades in to
+     the right of an input once client-side validation is satisfied.
+     Purely a UX hint; the server-side validator is still what
+     actually decides. */
+  .field-valid-icon { transition: opacity 0.2s ease, transform 0.2s ease; }
+
+  /* Card "wakes up" when any field inside it is active - a soft ring
+     bloom, not a color change, so it reads as "responsive system"
+     rather than a validation state. */
+  .auth-card { transition: box-shadow 0.35s ease, border-color 0.35s ease; }
+  .auth-card:focus-within { box-shadow: 0 0 0 4px rgba(139,30,45,0.07), 0 10px 30px rgba(31,27,27,0.08); }
+  .dark .auth-card:focus-within { box-shadow: 0 0 0 4px rgba(231,200,204,0.06), 0 10px 30px rgba(0,0,0,0.35); }
+
+  /* Error banners appear only when the server actually has an error
+     to show (a server-side conditional guards every one of these) -
+     the shake is a pure CSS entrance, no JS/state needed, and never
+     fires when there's nothing wrong. */
+  @keyframes shake-in {
+    0% { opacity: 0; transform: translateX(0); }
+    15% { opacity: 1; transform: translateX(-6px); }
+    30% { transform: translateX(5px); }
+    45% { transform: translateX(-3px); }
+    60% { transform: translateX(2px); }
+    100% { transform: translateX(0); }
+  }
+  .auth-error-banner { animation: shake-in 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+
+  @keyframes pop-in { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+  .auth-pop-in { animation: pop-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+  /* One-shot success confirmation - an expanding ring that fades out
+     once, for the handful of pages that represent a genuinely
+     completed action (password reset, email verified). Not a loop -
+     a loop would read as a notification badge, not a "done" moment. */
+  @keyframes success-ring {
+    0% { opacity: 0.5; transform: scale(0.8); }
+    100% { opacity: 0; transform: scale(1.8); }
+  }
+  .auth-success-icon { position: relative; }
+  .auth-success-icon::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: 2px solid currentColor;
+    animation: success-ring 1s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
+  }
+
+  /* Ambient glow orbs - slow "breathing" drift, not a spin/bounce,
+     so it reads as infrastructure ambience rather than a loading
+     spinner or decoration begging for attention. */
+  @keyframes drift-a {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(-18px, 14px) scale(1.06); }
+  }
+  @keyframes drift-b {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(16px, -12px) scale(1.04); }
+  }
+  .auth-glow-a { animation: drift-a 22s ease-in-out infinite; }
+  .auth-glow-b { animation: drift-b 26s ease-in-out infinite; }
+
+  /* Network nodes: gentle opacity/scale pulse, staggered per-node via
+     inline animation-delay so they don't breathe in unison (which
+     would read as a strobe, not a "live system"). */
+  @keyframes node-pulse {
+    0%, 100% { opacity: 0.35; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.4); }
+  }
+  .auth-node { animation: node-pulse 3.4s ease-in-out infinite; transform-origin: center; }
+
+  /* Data-flow lines: a short dash "travels" the length of a static
+     line via dashoffset animation - slow and faint, suggesting
+     packets moving between nodes without looking like a progress bar. */
+  @keyframes flow-dash { to { stroke-dashoffset: -240; } }
+  .auth-flow-line { animation: flow-dash 9s linear infinite; }
+
+  /* Live-status dot - a soft, slow ping distinct from Tailwind's
+     default animate-ping (which is fast/sharp and reads as an alert,
+     not "operational"). */
+  @keyframes status-ping {
+    0% { transform: scale(1); opacity: 0.65; }
+    100% { transform: scale(2.4); opacity: 0; }
+  }
+  .auth-status-ping { animation: status-ping 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+
+  /* Faint grid, drawn once as CSS (no image request) - the
+     "infrastructure blueprint" texture behind the brand panel copy. */
+  .auth-grid-bg {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+    background-size: 34px 34px;
+  }
+
+  /* Everything above is decorative motion - collapse it to a single
+     static frame for anyone who's asked the OS to minimize motion,
+     rather than just slowing it down. */
+  @media (prefers-reduced-motion: reduce) {
+    .auth-card, .auth-error-banner, .auth-pop-in,
+    .auth-glow-a, .auth-glow-b, .auth-node, .auth-flow-line, .auth-status-ping {
+      animation: none !important;
+    }
+    .auth-success-icon::after {
+      animation: none !important;
+      content: none;
+    }
+    .btn-sheen::before { display: none; }
+  }
+
+  /* Cross-document page transition (see the view-transition meta tag above). */
+  @media (prefers-reduced-motion: no-preference) {
+    ::view-transition-old(root) { animation: auth-fade-out 0.15s ease-in both; }
+    ::view-transition-new(root) { animation: auth-fade-in 0.22s ease-out both; }
+  }
+  @keyframes auth-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes auth-fade-out { from { opacity: 1; } to { opacity: 0; } }
 </style>
 
 {% block extra_head %}{% endblock %}
@@ -67,13 +223,36 @@
   {# Brand panel - hidden below lg, this is the one place the product gets to make its case #}
   <div class="relative hidden w-[42%] max-w-[560px] shrink-0 overflow-hidden bg-primary lg:flex lg:flex-col lg:justify-between dark:bg-primary-dark">
 
-    <div class="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl"></div>
-    <div class="pointer-events-none absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-black/10 blur-3xl"></div>
+    {# ---- Live system ambience layer (decorative only) ---- #}
+    <div class="pointer-events-none absolute inset-0 auth-grid-bg" aria-hidden="true"></div>
+
+    <div class="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl auth-glow-a" aria-hidden="true"></div>
+    <div class="pointer-events-none absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-black/10 blur-3xl auth-glow-b" aria-hidden="true"></div>
+
+    <svg class="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 400 700" preserveAspectRatio="none" aria-hidden="true">
+      <g stroke="white" stroke-opacity="0.16" stroke-width="1" fill="none">
+        <path class="auth-flow-line" d="M40,120 L150,190 L120,340" stroke-dasharray="6 14"></path>
+        <path class="auth-flow-line" style="animation-delay:-3s" d="M340,90 L250,220 L300,380" stroke-dasharray="6 14"></path>
+        <path class="auth-flow-line" style="animation-delay:-6s" d="M60,560 L180,480 L330,540" stroke-dasharray="6 14"></path>
+      </g>
+      <g fill="white">
+        <circle class="auth-node" cx="40" cy="120" r="3"></circle>
+        <circle class="auth-node" cx="150" cy="190" r="2.5" style="animation-delay:-0.6s"></circle>
+        <circle class="auth-node" cx="120" cy="340" r="3" style="animation-delay:-1.4s"></circle>
+        <circle class="auth-node" cx="340" cy="90" r="2.5" style="animation-delay:-2s"></circle>
+        <circle class="auth-node" cx="250" cy="220" r="3" style="animation-delay:-1s"></circle>
+        <circle class="auth-node" cx="300" cy="380" r="2.5" style="animation-delay:-2.6s"></circle>
+        <circle class="auth-node" cx="60" cy="560" r="3" style="animation-delay:-1.8s"></circle>
+        <circle class="auth-node" cx="180" cy="480" r="2.5" style="animation-delay:-0.3s"></circle>
+        <circle class="auth-node" cx="330" cy="540" r="3" style="animation-delay:-2.2s"></circle>
+      </g>
+    </svg>
+    {# ---- /ambience layer ---- #}
 
     <div class="relative px-10 pt-10">
       <a href="{% url 'login' %}" class="inline-flex items-center gap-2.5 text-white">
         {% include "partials/_logo.html" with size="h-9 w-9" mono=True %}
-        <span class="text-sm font-semibold">Knowledge Assistant</span>
+        <span class="text-sm font-semibold">Cortex</span>
       </a>
     </div>
 
@@ -116,20 +295,33 @@
       </ul>
     </div>
 
-    <div class="relative px-10 pb-10 text-xs text-white/50">
-      &copy; {% now "Y" %} Knowledge Assistant · Enterprise Edition
+    <div class="relative px-10 pb-10">
+      {# Live status strip - the one place the "active system" idea gets spelled out, kept small and unobtrusive #}
+      <div class="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-white/80">
+        <span class="relative flex h-1.5 w-1.5">
+          <span class="auth-status-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300"></span>
+          <span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-300"></span>
+        </span>
+        <span class="text-[11px] font-medium tracking-wide">Secure connection active</span>
+      </div>
+      <p class="text-xs text-white/50">
+        &copy; {% now "Y" %} Cortex · Enterprise Edition
+      </p>
     </div>
   </div>
 
   {# Form panel #}
-  <div class="flex min-h-screen flex-1 flex-col items-center justify-center px-6 py-10">
+  <div class="relative flex min-h-screen flex-1 flex-col items-center justify-center overflow-hidden px-6 py-10">
 
-    <a href="{% url 'login' %}" class="mb-8 flex items-center gap-2.5 text-primary lg:hidden dark:text-primary-soft">
+    {# Barely-there ambient wash on the form side - depth without competing with the form for attention #}
+    <div class="pointer-events-none absolute right-[-10%] top-[-10%] h-96 w-96 rounded-full bg-primary/[0.04] blur-3xl dark:bg-primary/[0.08]" aria-hidden="true"></div>
+
+    <a href="{% url 'login' %}" class="relative mb-8 flex items-center gap-2.5 text-primary lg:hidden dark:text-primary-soft">
       {% include "partials/_logo.html" with size="h-9 w-9" %}
-      <span class="text-sm font-semibold text-ink dark:text-ink-dark">Knowledge Assistant</span>
+      <span class="text-sm font-semibold text-ink dark:text-ink-dark">Cortex</span>
     </a>
 
-    <div class="w-full max-w-[400px]">
+    <div class="relative w-full max-w-[400px]">
       <div class="auth-card rounded-2xl border border-line bg-card p-8 shadow-soft dark:border-line-dark dark:bg-card-dark">
         {% block auth_content %}{% endblock %}
       </div>

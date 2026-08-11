@@ -75,6 +75,9 @@ PERMISSION_MODULES = (
     ("activity", "Activity Logs", "scroll-text", (
         "activity.view_all_logs", "activity.view_ip_location",
     )),
+    ("notifications", "Notifications", "bell", (
+        "notifications.send_announcement", "notifications.view_all",
+    )),
 )
 
 # Permissions that expose personally-identifiable data (raw question/
@@ -208,24 +211,45 @@ def get_user_permission_codenames(user):
     return sorted(get_user_permission_set(user))
 
 
+
+# Codename prefixes that gate at least one /admin/* view (see
+# RAG/urls.py's admin_* routes and their @permission_required /
+# settings_access_required / system_logs_access_required decorators).
+# "pages.*", "documents.*", and "analytics.view_all" are deliberately
+# excluded - those gate cross-user scope *within* an ordinary
+# workspace page (Documents, Analytics), not a separate /admin/ URL.
+ADMIN_AREA_PERMISSION_PREFIXES = ("users.", "roles.", "settings.", "system.", "activity.", "queries.", "notifications.")
+
+
 def has_admin_area_access(user):
     """
-    True only for the Admin role - the single check that decides which
-    sidebar shell renders (context_processors.sidebar_status) and
-    whether RoleBasedAccessMiddleware lets the request into /admin/ at
-    all. Deliberately role-based, not permission-based: a role/account
-    granted an individual admin-area permission (e.g.
-    "system.view_health") must never thereby gain the Admin dashboard,
-    admin sidebar, or any /admin/* page - roles and permissions are
-    separate concepts, and a permission grant must never change what
-    dashboard a user lands on or silently promote them into the
-    Administrator nav. Real per-page access is still enforced by each
-    view's own @permission_required, which stays as a secondary check
-    Admin always satisfies (Role.has_permission's bypass) - the actual
-    boundary for the whole /admin/ namespace is this function.
+    True for the Admin role, or for any role holding at least one
+    admin-area permission (ADMIN_AREA_PERMISSION_PREFIXES) - the single
+    check that decides which sidebar shell renders
+    (context_processors.sidebar_status), whether RoleBasedAccessMiddleware
+    lets the request into /admin/ at all, and which dashboard shell a
+    user lands on (get_dashboard_url_for_user). Permission-based, not
+    role-based: a custom role built via Admin > Roles and granted a
+    single admin-area permission (e.g. "system.view_health") gets the
+    admin sidebar shell and passes the /admin/ coarse gate - this is
+    what makes building a scoped Manager/HR/Auditor role (see
+    RAG.views.admin_roles_view's docstring) actually work end to end,
+    rather than only saving a permission grant that nothing ever
+    reads. Real per-page access is still enforced by each view's own
+    @permission_required/@settings_access_required/etc, which narrows
+    down to the exact permission(s) that view needs - this function is
+    only the coarse "does this role belong in the admin area at all"
+    gate, same "coarse gate + fine-grained internal scoping" pattern
+    has_any_settings_permission() uses for the Settings page alone.
     """
 
-    return is_admin(user)
+    if is_admin(user):
+        return True
+
+    return any(
+        codename.startswith(ADMIN_AREA_PERMISSION_PREFIXES)
+        for codename in get_user_permission_set(user)
+    )
 
 
 def has_any_settings_permission(user):

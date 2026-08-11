@@ -483,4 +483,31 @@ LLM_REQUEST_TIMEOUT = env.int("LLM_REQUEST_TIMEOUT", default=30)
 LLM_MAX_RETRIES = env.int("LLM_MAX_RETRIES", default=1)
 
 SITE_URL = env("SITE_URL", default="")
-SITE_NAME = env("SITE_NAME", default="RAG Assistant")
+SITE_NAME = env("SITE_NAME", default="Cortex")
+
+# Email (auth/notification system) - no email infrastructure existed
+# in this project before. Backend choice is driven by whether real SMTP
+# creds are actually present in .env, not by DEBUG - a DEBUG=True local
+# dev setup should still send real mail once EMAIL_HOST is filled in
+# (that's the whole point of adding credentials), and DEBUG=False with
+# no EMAIL_HOST would otherwise try to connect to a blank host and
+# fail outright. Console backend (prints to the server log) is purely
+# the zero-setup fallback for "no credentials configured yet".
+# RAG.services.email_service is the only place that should ever call
+# django.core.mail directly.
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if env("EMAIL_HOST", default="")
+    else "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = env("EMAIL_HOST", default="")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=f"{SITE_NAME} <no-reply@example.com>")
+
+# "Remember Me" on login - request.session.set_expiry() is set to this
+# (persistent cookie) when checked, or explicitly to 0 (browser-close)
+# when not - see RAG.auth_views.login_user.
+REMEMBER_ME_SESSION_AGE = env.int("REMEMBER_ME_SESSION_AGE", default=60 * 60 * 24 * 30)  # 30 days

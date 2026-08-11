@@ -1,7 +1,8 @@
 from django.core.cache import cache
 
 from .models import Document, QueryLog
-from .services.permission_service import get_user_permission_codenames, has_admin_area_access
+from .services import notification_service
+from .services.permission_service import get_user_permission_codenames, get_user_role, has_admin_area_access
 from .services.stats_service import get_system_status
 
 # Maps a URL name to its breadcrumb trail: a list of (label, url_name)
@@ -42,6 +43,8 @@ BREADCRUMB_MAP = {
     "admin_settings": [("Settings", None)],
     "admin_queries": [("Queries", None)],
     "admin_system_logs": [("System Logs", None)],
+    "notifications": [("Notifications", None)],
+    "admin_send_announcement": [("Send Announcement", None)],
 }
 
 
@@ -141,4 +144,15 @@ def sidebar_status(request):
         # `{% if "pages.documents" in user_permissions %}` and
         # json_script it into partials/_command_palette.html.
         "user_permissions": get_user_permission_codenames(request.user),
+        # Deliberately uncached (see notification_service.get_unread_count's
+        # own docstring) - must reflect mark_read/mark_all_read on the
+        # very next page render, unlike the 30s-cached system_status
+        # above.
+        "unread_notification_count": notification_service.get_unread_count(request.user),
+        # The viewer's actual Role (RAG.models.Role, e.g. "Admin",
+        # "User", or a custom role like "Manager") - lets the sidebar
+        # show the real, current role name instead of a hardcoded
+        # Administrator/Member label that doesn't reflect custom roles
+        # created via Admin > Roles.
+        "sidebar_role": get_user_role(request.user),
     }

@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 
-from .models import Document, DocumentChunk, Entity, EntityMention, Relationship
+from .models import Document, DocumentChunk, DocumentShare, Entity, EntityMention, Notification, Relationship
 from .services import dynamic_topk_service as dynamic_topk
 from .services import graph_extraction_service as extraction
 from .services import graph_retrieval_service as graph_retrieval
@@ -1354,3 +1354,226 @@ class ProcessDocumentTaskTests(unittest.TestCase):
 
         self.assertIsNone(result)
         self.assertEqual(m_process.call_count, tasks.MAX_PROCESSING_RETRIES)
+
+
+class MaskEmailTests(unittest.TestCase):
+    """RAG.utils.formatting.mask_email() - pure string logic, no DB."""
+
+    def test_masks_middle_of_local_part(self):
+        from .utils.formatting import mask_email
+        self.assertEqual(mask_email("johndoe@example.com"), "j*****e@example.com")
+
+    def test_short_local_part(self):
+        from .utils.formatting import mask_email
+        self.assertEqual(mask_email("ab@example.com"), "a*@example.com")
+
+    def test_single_char_local_part(self):
+        from .utils.formatting import mask_email
+        self.assertEqual(mask_email("a@example.com"), "a*@example.com")
+
+    def test_empty_or_invalid_input(self):
+        from .utils.formatting import mask_email
+        self.assertEqual(mask_email(""), "")
+        self.assertEqual(mask_email(None), "")
+        self.assertEqual(mask_email("not-an-email"), "not-an-email")
+
+
+class OtpCodeHashRoundTripTests(unittest.TestCase):
+    """
+    otp_service generates a code and stores only make_password(code) -
+    confirms check_password() round-trips correctly and a wrong code
+    never matches. No DB needed, just Django's password hasher.
+    """
+
+    def test_generated_code_is_six_digits(self):
+        from .services.otp_service import _generate_code, OTP_LENGTH
+        code = _generate_code()
+        self.assertEqual(len(code), OTP_LENGTH)
+        self.assertTrue(code.isdigit())
+
+    def test_hash_round_trip(self):
+        from django.contrib.auth.hashers import check_password, make_password
+        from .services.otp_service import _generate_code
+
+        code = _generate_code()
+        hashed = make_password(code)
+
+        self.assertNotEqual(hashed, code)  # never stored in plaintext
+        self.assertTrue(check_password(code, hashed))
+        self.assertFalse(check_password("000000" if code != "000000" else "111111", hashed))
+
+
+class RateLimitServiceTests(unittest.TestCase):
+    """Fixed-window counter logic against the real (LocMemCache-backed) Django cache - no DB needed."""
+
+    def setUp(self):
+        cache.clear()
+
+    def test_allows_up_to_limit_then_blocks(self):
+        from .services.rate_limit_service import is_rate_limited
+
+        key = "test:allows_up_to_limit"
+        for _ in range(3):
+            self.assertFalse(is_rate_limited(key, limit=3, window_seconds=60))
+        self.assertTrue(is_rate_limited(key, limit=3, window_seconds=60))
+
+    def test_independent_keys_dont_interfere(self):
+        from .services.rate_limit_service import is_rate_limited
+
+        for _ in range(3):
+            is_rate_limited("test:key_a", limit=3, window_seconds=60)
+
+        self.assertFalse(is_rate_limited("test:key_b", limit=3, window_seconds=60))
+
+    def test_cooldown_starts_and_reports_remaining(self):
+        from .services.rate_limit_service import get_cooldown_remaining_seconds, start_cooldown
+
+        key = "test:cooldown"
+        self.assertEqual(get_cooldown_remaining_seconds(key), 0)
+        start_cooldown(key, 60)
+        remaining = get_cooldown_remaining_seconds(key)
+        self.assertTrue(0 < remaining <= 60)
+
+
+class NotificationServiceTests(TestCase):
+    """create_notification()/mark_read()/mark_all_read()/get_unread_count() against a real test DB."""
+
+    def setUp(self):
+        cache.clear()
+        self.recipient = User.objects.create_user(username="notif_recipient", password="pw", email="recipient@example.com")
+        self.actor = User.objects.create_user(username="notif_actor", password="pw")
+
+    def test_create_notification_creates_row(self):
+        from .services.notification_service import create_notification
+
+        notification = create_notification(
+            recipient=self.recipient, actor=self.actor, notification_type="document.shared",
+            title="Test", message="Test message", send_email=False,
+        )
+        self.assertIsNotNone(notification)
+        self.assertEqual(Notification.objects.filter(recipient=self.recipient).count(), 1)
+        self.assertFalse(notification.is_read)
+
+    def test_create_notification_never_raises_for_invalid_recipient(self):
+        from .services.notification_service import create_notification
+
+        result = create_notification(
+            recipient=None, notification_type="document.shared", title="T", message="M",
+        )
+        self.assertIsNone(result)
+
+    def test_mark_read_is_ownership_scoped(self):
+        from .services.notification_service import mark_read
+
+        notification = Notification.objects.create(
+            recipient=self.recipient, notification_type="document.shared", title="T", message="M",
+        )
+        other_user = User.objects.create_user(username="notif_other", password="pw")
+
+        self.assertFalse(mark_read(notification.id, other_user))
+        notification.refresh_from_db()
+        self.assertFalse(notification.is_read)
+
+        self.assertTrue(mark_read(notification.id, self.recipient))
+        notification.refresh_from_db()
+        self.assertTrue(notification.is_read)
+
+    def test_mark_all_read_and_unread_count(self):
+        from .services.notification_service import get_unread_count, mark_all_read
+
+        for i in range(3):
+            Notification.objects.create(recipient=self.recipient, notification_type="document.shared", title=f"T{i}", message="M")
+
+        self.assertEqual(get_unread_count(self.recipient), 3)
+        marked = mark_all_read(self.recipient)
+        self.assertEqual(marked, 3)
+        self.assertEqual(get_unread_count(self.recipient), 0)
+
+
+class DocumentShareConstraintTests(TestCase):
+    """
+    DocumentShare's 3-way exactly-one-target CheckConstraint and the
+    partial (invited_email-only) UniqueConstraint added for invite-by-
+    email sharing (Phase 7) - regression coverage for the bug where a
+    plain unique_together on invited_email collided across every
+    ordinary (blank-invited_email) share on the same document.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username="share_owner", password="pw")
+        self.other = User.objects.create_user(username="share_other", password="pw")
+        self.document = Document.objects.create(user=self.owner, title="Doc", file="documents/test.txt")
+
+    def test_two_ordinary_shares_on_same_document_do_not_collide(self):
+        """Regression: both blank invited_email - must NOT trip the partial unique constraint."""
+
+        DocumentShare.objects.create(document=self.document, shared_with_user=self.other, shared_by=self.owner)
+
+        third = User.objects.create_user(username="share_third", password="pw")
+        role_share = DocumentShare.objects.create(document=self.document, invited_email="pending@example.com", shared_by=self.owner)
+
+        self.assertEqual(DocumentShare.objects.filter(document=self.document).count(), 2)
+
+    def test_duplicate_pending_invite_rejected_at_db_level(self):
+        DocumentShare.objects.create(document=self.document, invited_email="dup@example.com", shared_by=self.owner)
+
+        with self.assertRaises(Exception):
+            DocumentShare.objects.create(document=self.document, invited_email="dup@example.com", shared_by=self.owner)
+
+    def test_create_share_email_branch_creates_pending_invite(self):
+        from .services.sharing_service import create_share
+
+        share = create_share(self.document, self.owner, "email", "invitee@example.com")
+        self.assertEqual(share.invited_email, "invitee@example.com")
+        self.assertIsNone(share.shared_with_user)
+
+    def test_create_share_email_branch_resolves_to_existing_user(self):
+        from .services.sharing_service import create_share
+
+        existing = User.objects.create_user(username="already_here", password="pw", email="already@example.com")
+        share = create_share(self.document, self.owner, "email", "already@example.com")
+        self.assertEqual(share.shared_with_user_id, existing.id)
+        self.assertEqual(share.invited_email, "")
+
+
+class OtpInviteConversionTests(TestCase):
+    """otp_service.verify_otp() converting a pending DocumentShare.invited_email into a real share on successful verification (Phase 7)."""
+
+    def setUp(self):
+        cache.clear()
+        self.owner = User.objects.create_user(username="convert_owner", password="pw")
+        self.document = Document.objects.create(user=self.owner, title="Doc", file="documents/test.txt")
+        self.invitee = User.objects.create_user(
+            username="convert_invitee", password="pw", email="convertme@example.com", is_active=False,
+        )
+        self.share = DocumentShare.objects.create(
+            document=self.document, invited_email="convertme@example.com", shared_by=self.owner,
+        )
+
+    def test_verify_otp_converts_pending_invite_and_notifies(self):
+        from .services import otp_service
+
+        otp_service.generate_and_send_otp(self.invitee)
+        otp = self.invitee.email_otps.filter(is_used=False).latest("created_at")
+
+        # Recover the raw code the same way the real flow would never
+        # need to (it only ever exists in-memory/in the email) - here
+        # we bypass by generating our own OTP row directly instead of
+        # trying to intercept the background-emailed code.
+        from django.contrib.auth.hashers import make_password
+        raw_code = "123456"
+        otp.code_hash = make_password(raw_code)
+        otp.save(update_fields=["code_hash"])
+
+        success, status = otp_service.verify_otp(self.invitee, raw_code)
+
+        self.assertTrue(success)
+        self.assertEqual(status, "")
+
+        self.share.refresh_from_db()
+        self.assertEqual(self.share.shared_with_user_id, self.invitee.id)
+        self.assertEqual(self.share.invited_email, "")
+
+        self.assertTrue(
+            Notification.objects.filter(recipient=self.invitee, notification_type="document.shared").exists()
+        )

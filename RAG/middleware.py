@@ -3,14 +3,16 @@ RoleBasedAccessMiddleware
 
 Defense-in-depth backstop for the entire /admin/ namespace: even if a
 future admin view is added without an @admin_required /
-@permission_required decorator, this still blocks any non-Admin role
-from anything under /admin/. Per-view decorators (RAG/decorators.py)
-remain the primary, fine-grained enforcement (e.g. gating one specific
-permission); this is the coarse net that guarantees the URL prefix
-itself is never exposed to a role other than Admin - strictly
-role-based, not permission-based, so granting an individual
-admin-area permission (e.g. "system.view_health") to a non-Admin role
-can never unlock /admin/ access. See
+@permission_required decorator, this still blocks any role holding no
+admin-area permission at all from anything under /admin/. Per-view
+decorators (RAG/decorators.py) remain the primary, fine-grained
+enforcement (e.g. gating one specific permission); this is the coarse
+net that guarantees the URL prefix itself is never exposed to a role
+with zero admin-area permissions - permission-based via
+has_admin_area_access (any role holding at least one of
+ADMIN_AREA_PERMISSION_PREFIXES, or the Admin role), so a custom role
+granted e.g. "system.view_health" passes this coarse gate and then
+gets narrowed down further by the specific view's own decorator. See
 RAG.services.permission_service.has_admin_area_access.
 """
 

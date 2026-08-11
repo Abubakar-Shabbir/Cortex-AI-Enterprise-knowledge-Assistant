@@ -17,6 +17,14 @@ def create_share(document, actor, target_type, target_id):
     target that doesn't exist, or a duplicate (the model's own
     unique_together would also catch a duplicate, but a ValueError
     here is a cleaner message for the view to surface).
+
+    target_type="email" is a share pending on an address with no
+    account yet - it grants nothing (document_access_service never
+    reads invited_email), until RAG.services.otp_service.verify_otp()
+    converts it to a real shared_with_user the moment that exact
+    address is verified. If a User already exists for that email, this
+    is just a convenience alias for target_type="user" - no separate
+    pending state, no conversion needed.
     """
 
     if document.user_id != actor.id:
@@ -40,7 +48,28 @@ def create_share(document, actor, target_type, target_id):
             raise ValueError("Already shared with that role.")
         return DocumentShare.objects.create(document=document, shared_with_role=target_role, shared_by=actor)
 
+    if target_type == "email":
+        email = (target_id or "").strip().lower()
+        if not email or "@" not in email:
+            raise ValueError("Enter a valid email address.")
+
+        existing_user = User.objects.filter(email__iexact=email).first()
+        if existing_user is not None:
+            if existing_user.id == actor.id:
+                raise ValueError("You already own this document.")
+            if DocumentShare.objects.filter(document=document, shared_with_user=existing_user).exists():
+                raise ValueError("Already shared with that user.")
+            return DocumentShare.objects.create(document=document, shared_with_user=existing_user, shared_by=actor)
+
+        if DocumentShare.objects.filter(document=document, invited_email=email).exists():
+            raise ValueError("Already invited that email address.")
+        return DocumentShare.objects.create(document=document, invited_email=email, shared_by=actor)
+
     raise ValueError("Invalid share target.")
+
+
+def is_pending_invite(share) -> bool:
+    return bool(share.invited_email)
 
 
 def revoke_share(share, actor):

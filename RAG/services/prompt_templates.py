@@ -52,6 +52,7 @@ Grounding rules:
 "{not_found_answer}"
 
 5. Keep the answer clear and concise. Synthesize the sources - do not repeat them verbatim.
+6. Answer in the same language the question was asked in, regardless of what language the sources are written in. Do not mix languages within the answer, and do not switch languages partway through.
 
 Sources:
 ----------------
@@ -107,6 +108,7 @@ Grounding rules:
 "{not_found_answer}"
 
 5. Keep "answer" clear and concise. Synthesize the sources - do not repeat them verbatim.
+6. Write "answer" and "key_points" in the same language the question was asked in, regardless of what language the sources are written in. Do not mix languages within a single field, and do not switch languages partway through.
 
 Respond with ONLY a JSON object, no markdown code fences, no text outside the object, in exactly this shape:
 {{

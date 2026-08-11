@@ -371,6 +371,19 @@ class _OpenAICompatibleClient(BaseLLMClient):
         except requests.exceptions.RequestException as exc:
             raise LLMProviderError(f"{self.PROVIDER_NAME} request failed: {exc}") from exc
 
+        # Every OpenAI-compatible chat-completions API in this file
+        # (OpenRouter, Groq) sends UTF-8 JSON, but the response's
+        # Content-Type is "application/json" with no charset parameter,
+        # so requests.Response.encoding comes back None. iter_lines(
+        # decode_unicode=True) then falls back to chardet-style
+        # guessing (apparent_encoding) per line, which frequently
+        # misdetects short UTF-8 SSE chunks as Latin-1/Windows-1252 -
+        # producing mojibake ("Ã£" etc.) in streamed answers. Forcing
+        # utf-8 here removes the guess entirely. .json() in generate()
+        # above doesn't need this - it has its own JSON-aware encoding
+        # fallback (guess_json_utf) that's already UTF-8-correct.
+        response.encoding = "utf-8"
+
         for line in response.iter_lines(decode_unicode=True):
 
             if not line or not line.startswith("data:"):
@@ -407,7 +420,7 @@ class OpenRouterClient(_OpenAICompatibleClient):
     def _extra_headers(self):
         return {
             "HTTP-Referer": getattr(settings, "SITE_URL", ""),
-            "X-Title": getattr(settings, "SITE_NAME", "RAG Assistant"),
+            "X-Title": getattr(settings, "SITE_NAME", "Cortex"),
         }
 
 

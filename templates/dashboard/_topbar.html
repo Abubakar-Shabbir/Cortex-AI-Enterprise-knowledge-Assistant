@@ -1,7 +1,8 @@
 {% comment %}
-Admin Dashboard top navbar — search, notifications (reusing the same
-activity_feed global context var the app's shared topbar already
-uses), an Upload shortcut to the Documents page, and the theme toggle.
+Admin Dashboard top navbar — search, notifications (RAG.notification_views
+/ RAG.services.notification_service - a real per-user inbox, not the
+activity_feed global context var this bell used to show), an Upload
+shortcut to the Documents page, and the theme toggle.
 {% endcomment %}
 
 <header class="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-line bg-card/90 px-4 backdrop-blur dark:border-line-dark dark:bg-card-dark/90 sm:px-6 lg:px-8">
@@ -27,29 +28,44 @@ uses), an Upload shortcut to the Documents page, and the theme toggle.
 
   <div class="ml-auto flex items-center gap-1.5 sm:gap-2.5">
 
-    <div class="relative" x-data="{ open: false }" @click.outside="open = false">
-      <button @click="open = !open" class="relative rounded-lg p-2 text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5" aria-label="Notifications">
+    <div
+      class="relative"
+      x-data="notificationBell({{ unread_notification_count|default:0 }})"
+      x-init="startPolling()"
+      @click.outside="open = false"
+    >
+      <button @click="open = !open; if (open && !loaded) fetchList()" class="relative rounded-lg p-2 text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5" aria-label="Notifications">
         <i data-lucide="bell" class="h-4 w-4"></i>
-        {% if activity_feed %}
-          <span class="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[9px] font-semibold text-white">{{ activity_feed|length }}</span>
-        {% endif %}
+        <span x-show="unreadCount > 0" x-cloak x-text="unreadCount > 9 ? '9+' : unreadCount" class="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-semibold text-white"></span>
       </button>
 
       <div x-show="open" x-cloak x-transition class="absolute right-0 z-30 mt-2 w-80 rounded-xl border border-line bg-card p-2 shadow-soft dark:border-line-dark dark:bg-card-dark">
-        <div class="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Recent Activity</div>
-        {% for event in activity_feed %}
-          <div class="flex items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-surface dark:hover:bg-white/5">
+        <div class="flex items-center justify-between px-2 py-1.5">
+          <span class="text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Notifications</span>
+          <a href="{% url 'notifications' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+        </div>
+        <template x-if="loading">
+          <p class="px-2 py-3 text-sm text-muted dark:text-muted-dark">Loading…</p>
+        </template>
+        <template x-for="n in items" :key="n.id">
+          <a
+            :href="n.action_url || '#'"
+            @click="markRead(n)"
+            class="flex items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-surface dark:hover:bg-white/5"
+            :class="!n.is_read && 'bg-primary/5 dark:bg-primary/10'"
+          >
             <div class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
-              <i data-lucide="{{ event.icon }}" class="h-3.5 w-3.5"></i>
+              <i :data-lucide="n.icon" class="h-3.5 w-3.5"></i>
             </div>
             <div class="min-w-0">
-              <p class="truncate text-sm text-ink dark:text-ink-dark">{{ event.text }}</p>
-              <p class="text-xs text-muted dark:text-muted-dark">{{ event.at|timesince }} ago</p>
+              <p class="truncate text-sm text-ink dark:text-ink-dark" x-text="n.title"></p>
+              <p class="truncate text-xs text-muted dark:text-muted-dark" x-text="n.message"></p>
             </div>
-          </div>
-        {% empty %}
+          </a>
+        </template>
+        <template x-if="!loading && items.length === 0">
           <p class="px-2 py-3 text-sm text-muted dark:text-muted-dark">You're all caught up.</p>
-        {% endfor %}
+        </template>
       </div>
     </div>
 

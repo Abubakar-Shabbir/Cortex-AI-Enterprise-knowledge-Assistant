@@ -13,12 +13,13 @@
 {% comment %}
 Overview shows only the widgets the viewer's own permissions cover -
 document-related tiles/charts/tables need "pages.documents", the
-queries tile needs "pages.ask_ai". This page is only ever reached by
-the Admin role (see permission_service.has_admin_area_access), which
-always holds every permission, so in practice every widget below
-renders - the per-permission checks exist so this template keeps
-degrading correctly if that ever changes, not because any real Admin
-account is missing a "pages.*" permission today.
+queries tile needs "pages.ask_ai". This page is reached by the Admin
+role, which always holds every permission so every widget renders in
+practice, and also by any custom role holding at least one admin-area
+permission (see permission_service.has_admin_area_access) - a role
+granted only e.g. "system.view_health" lands here too but sees just
+the widgets its own permissions cover, same degrade-gracefully pattern
+"pages.*" checks already give the rest of the app.
 {% endcomment %}
 <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(auto-fit,minmax(200px,1fr))] fade-in-up">
   {% if "pages.documents" in user_permissions %}

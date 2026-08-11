@@ -1,7 +1,12 @@
 """
 Seed default RBAC permissions/roles and backfill role assignments for
 existing users. Idempotent - safe to re-run any time (e.g. after
-adding a new permission to DEFAULT_PERMISSIONS).
+adding a new permission to DEFAULT_PERMISSIONS). Re-running never
+resets a built-in role's live permission set: DEFAULT_ROLES'
+permission list is only applied the moment a role is first created,
+so an Admin's edits made via Admin > Roles (or the Django Admin) to
+the built-in "user" role survive future re-runs instead of being
+silently reverted to the hardcoded defaults.
 
 Usage, after migrating the RBAC models:
 
@@ -63,6 +68,9 @@ DEFAULT_PERMISSIONS = [
     ("settings.manage_retrieval", "Manage advanced retrieval", "View/change Query Expansion, HyDE, Multi-Query, Dynamic Top-K, Reranking, and Context Compression."),
     ("settings.manage_api_keys", "Manage API keys", "View/rotate provider API keys."),
     ("settings.manage_database", "Manage database configuration", "View database connection configuration (read-only - editing it live would mean writing the new value through the connection being replaced)."),
+
+    ("notifications.send_announcement", "Send system announcements", "Send a workspace-wide notification/announcement to every user."),
+    ("notifications.view_all", "View all notifications", "View notification delivery history across every user, for support/troubleshooting."),
 
     # Page-level access - these gate whether a role can open a page at
     # all (and whether its nav item even renders), distinct from the
@@ -134,10 +142,11 @@ class Command(BaseCommand):
             )
             roles_by_slug[slug] = role
 
-            if config["permissions"] == "__all__":
-                role.permissions.set(permissions_by_codename.values())
-            else:
-                role.permissions.set([permissions_by_codename[code] for code in config["permissions"]])
+            if created:
+                if config["permissions"] == "__all__":
+                    role.permissions.set(permissions_by_codename.values())
+                else:
+                    role.permissions.set([permissions_by_codename[code] for code in config["permissions"]])
 
             self.stdout.write(f"{'Created' if created else 'Exists'} role: {slug}")
 

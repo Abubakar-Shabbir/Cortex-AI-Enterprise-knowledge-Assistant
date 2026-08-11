@@ -37,7 +37,11 @@
       "Bash(python -c \"import ast; [ast.parse\\(open\\(f, encoding='utf-8'\\).read\\(\\)\\) for f in []]\")",
       "Bash(node --check \"C:/Users/LAPTOPEXPERT/AppData/Local/Temp/claude/F--RAG-Project-Document-Intelligence-RAG-Assistant/ea6ef757-5291-47aa-8982-babc9666b8cf/scratchpad/syslogs_extracted.js\")",
       "Bash(python manage.py makemigrations --check --dry-run RAG)",
-      "Bash(awk -F= '/^\\(LLM_PROVIDER|OPENROUTER_MODEL|GROQ_MODEL|LLM_MODEL|OPENROUTER_API_KEY|GROQ_API_KEY|GEMINI_API_KEY\\)=/{ if \\($1==\"LLM_PROVIDER\"||$1==\"OPENROUTER_MODEL\"||$1==\"GROQ_MODEL\"||$1==\"LLM_MODEL\"\\) print $0; else printf \"%s=%s\\\\n\", $1, \\($2==\"\"?\"<empty>\":\"<set>\"\\) }' .env)"
+      "Bash(awk -F= '/^\\(LLM_PROVIDER|OPENROUTER_MODEL|GROQ_MODEL|LLM_MODEL|OPENROUTER_API_KEY|GROQ_API_KEY|GEMINI_API_KEY\\)=/{ if \\($1==\"LLM_PROVIDER\"||$1==\"OPENROUTER_MODEL\"||$1==\"GROQ_MODEL\"||$1==\"LLM_MODEL\"\\) print $0; else printf \"%s=%s\\\\n\", $1, \\($2==\"\"?\"<empty>\":\"<set>\"\\) }' .env)",
+      "Bash(python manage.py makemigrations --check --dry-run)",
+      "Bash(git status *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('RAG/management/commands/seed_rbac.py', encoding='utf-8'\\).read\\(\\)\\)\")",
+      "Bash(python manage.py showmigrations RAG)"
     ]
   }
 }

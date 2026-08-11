@@ -1,0 +1,8 @@
+Verify your email
+
+Your verification code is: {{ code }}
+
+This code expires in {{ expiry_minutes }} minutes. If you didn't request this, you can safely ignore this email.
+
+--
+This is an automated message from {{ site_name }}. If you didn't expect this email, you can safely ignore it.

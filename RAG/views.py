@@ -8,7 +8,7 @@ import django
 
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth import authenticate, login, logout, update_session_auth_hash
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.models import User
@@ -84,6 +84,7 @@ from .services.queries_service import (
     get_queries_analytics,
     get_search_methods,
 )
+from .services import notification_service
 from .services.reports_service import (
     AI_TASK_RESULTS_HEADER,
     AI_TASK_RUNS_REPORT_HEADER,
@@ -103,7 +104,6 @@ from .services.reports_service import (
 )
 from .services.permission_service import (
     SENSITIVE_PERMISSIONS,
-    USER,
     can_actor_assign_role,
     can_actor_manage_target_user,
     compute_updated_role_permissions,
@@ -111,7 +111,6 @@ from .services.permission_service import (
     get_dashboard_url_for_user,
     get_permission_modules,
     get_user_permission_set,
-    has_admin_area_access,
     has_any_settings_permission,
     is_admin,
     is_last_admin,
@@ -142,119 +141,6 @@ from .services.upload_service import process_uploaded_document, upload_document,
 from .utils.formatting import format_bytes
 
 logger = logging.getLogger(__name__)
-
-
-def signup(request):
-
-    if request.method == "POST":
-
-        fullname = request.POST['fullname']
-        email = request.POST['email']
-        username = request.POST['username']
-        password = request.POST['password']
-        confirm_password = request.POST['confirm_password']
-
-
-        if password == confirm_password:
-
-            name_parts = fullname.split()
-
-            first_name = name_parts[0]
-
-            last_name = " ".join(
-                name_parts[1:]
-            )
-
-
-            new_user = User.objects.create_user(
-
-                username=username,
-
-                email=email,
-
-                password=password,
-
-                first_name=first_name,
-
-                last_name=last_name
-
-            )
-
-            default_role, _ = Role.objects.get_or_create(
-                slug=USER,
-                defaults={"name": "User", "is_system": True},
-            )
-
-            UserRole.objects.create(user=new_user, role=default_role)
-
-            return redirect('login')
-
-
-    return render(
-        request,
-        'signup.html'
-    )
-
-def login_user(request):
-
-    if request.method == "POST":
-
-
-        username = request.POST['username']
-
-        password = request.POST['password']
-
-
-        user = authenticate(
-
-            request,
-
-            username=username,
-
-            password=password
-
-        )
-
-
-        if user is not None:
-
-
-            login(
-                request,
-                user
-            )
-
-            log_activity(
-                actor=user,
-                action="user.login",
-                description=f"{user.username} logged in",
-                request=request,
-            )
-
-            return redirect(get_dashboard_url_for_user(user))
-
-
-        else:
-
-            return render(
-
-                request,
-
-                'login.html',
-
-                {
-                    "error":
-                    "Invalid Username or Password"
-                }
-
-            )
-
-
-    return render(
-        request,
-        'login.html'
-    )
-
 
 
 @login_required
@@ -1246,19 +1132,30 @@ def document_share(request, doc_id):
 
         target_type = request.POST.get("target_type")
         target_id = request.POST.get("target_id")
+        invite_email = None
 
         if target_type == "user" and not target_id:
-            # The share dialog collects a username, not a raw id, for a
-            # user target - resolve it here so create_share() only ever
-            # deals with a clean numeric id, same as every other target.
-            target_username = request.POST.get("target_username", "").strip()
-            target_user = User.objects.filter(username=target_username).first()
-            if target_user is None:
-                return JsonResponse({"error": "No user with that username."}, status=400)
-            target_id = target_user.id
+            # The share dialog's "user" field accepts either a
+            # username or an email address (documents.html's "Username
+            # or email" input) - resolve it here so create_share()
+            # only ever deals with a clean target, same as every other
+            # target type. An email with no matching account becomes a
+            # pending invite (target_type="email") rather than an
+            # error - see sharing_service.create_share.
+            target_value = request.POST.get("target_username", "").strip()
+
+            if "@" in target_value:
+                target_type = "email"
+                invite_email = target_value.strip().lower()
+                target_id = invite_email
+            else:
+                target_user = User.objects.filter(username=target_value).first()
+                if target_user is None:
+                    return JsonResponse({"error": "No user with that username."}, status=400)
+                target_id = target_user.id
 
         try:
-            create_share(document, request.user, target_type, target_id)
+            share = create_share(document, request.user, target_type, target_id)
         except ValueError as e:
             return JsonResponse({"error": str(e)}, status=400)
 
@@ -1269,13 +1166,59 @@ def document_share(request, doc_id):
             request=request,
         )
 
+        # Recipient notification - the one gap this feature had until
+        # now (sharing only ever wrote the ActivityLog row above; the
+        # recipient had no way to find out except visiting "Shared with
+        # me" themselves). A role-target share fans out to every
+        # current holder of that role - each gets their own
+        # Notification row, same as an individual share would.
+        if share.shared_with_user_id:
+            notification_service.create_notification(
+                recipient=share.shared_with_user,
+                actor=request.user,
+                notification_type="document.shared",
+                title=f"{request.user.username} shared a document with you",
+                message=f'"{document.title}" was shared with you.',
+                data={"document_id": document.id, "share_id": share.id},
+                action_url=notification_service.document_open_url(document.id),
+            )
+        elif share.shared_with_role_id:
+            role_holders = UserRole.objects.filter(role_id=share.shared_with_role_id).exclude(user_id=request.user.id).select_related("user")
+            for user_role in role_holders:
+                notification_service.create_notification(
+                    recipient=user_role.user,
+                    actor=request.user,
+                    notification_type="document.shared",
+                    title=f"{request.user.username} shared a document with your role",
+                    message=f'"{document.title}" was shared with the {share.shared_with_role.name} role.',
+                    data={"document_id": document.id, "share_id": share.id},
+                    action_url=notification_service.document_open_url(document.id),
+                )
+        elif share.invited_email:
+            # No User row exists yet for this address, so there's
+            # nothing notification_service can attach a Notification
+            # to (recipient is a required FK) - send the invite
+            # directly. Backgrounded the same way every other email in
+            # this feature is, so a slow/failing send can never fail
+            # the share itself.
+            from .services import task_runner
+            from .tasks import send_share_invite_email_task
+            task_runner.submit(send_share_invite_email_task, document.id, share.invited_email, request.user.username)
+
     shares = list_shares_for_document(document)
+
+    def _share_target(s):
+        if s.shared_with_user_id:
+            return s.shared_with_user.username
+        if s.shared_with_role_id:
+            return f"Role: {s.shared_with_role.name}"
+        return f"Pending invite: {s.invited_email}"
 
     return JsonResponse({
         "shares": [
             {
                 "id": s.id,
-                "target": s.shared_with_user.username if s.shared_with_user_id else f"Role: {s.shared_with_role.name}",
+                "target": _share_target(s),
                 "created_at": s.created_at.strftime("%Y-%m-%d %H:%M"),
             }
             for s in shares
@@ -1290,10 +1233,39 @@ def document_share_revoke(request, share_id):
 
     share = get_object_or_404(DocumentShare, id=share_id)
 
+    # Captured before revoke_share() deletes the row - simplest to read
+    # correctly regardless of ORM post-delete instance-attribute
+    # behavior, rather than relying on the (deleted) share object
+    # afterward.
+    document = share.document
+    recipient = share.shared_with_user
+    role = share.shared_with_role
+
     try:
         revoke_share(share, request.user)
     except ValueError as e:
         raise PermissionDenied(str(e))
+
+    if recipient is not None:
+        notification_service.create_notification(
+            recipient=recipient,
+            actor=request.user,
+            notification_type="document.access_revoked",
+            title="Document access revoked",
+            message=f'Your access to "{document.title}" was revoked.',
+            data={"document_id": document.id},
+        )
+    elif role is not None:
+        role_holders = UserRole.objects.filter(role_id=role.id).exclude(user_id=request.user.id).select_related("user")
+        for user_role in role_holders:
+            notification_service.create_notification(
+                recipient=user_role.user,
+                actor=request.user,
+                notification_type="document.access_revoked",
+                title="Document access revoked",
+                message=f'Access to "{document.title}" (shared with the {role.name} role) was revoked.',
+                data={"document_id": document.id},
+            )
 
     return JsonResponse({"revoked": True})
 
@@ -1688,7 +1660,19 @@ def _profile_context(user, current_session_key=None):
         "timezone_choices": UserProfile.COMMON_TIMEZONES,
         "language_choices": UserProfile.LANGUAGE_CHOICES,
         "visibility_choices": UserProfile.Visibility.choices,
+        "notification_preferences": notification_service.get_or_create_preferences(user),
     }
+
+
+# Categories a user can opt out of *email* delivery for - "account"/
+# "security" are deliberately excluded (see notification_service.
+# ALWAYS_EMAIL_CATEGORIES), so they're never rendered as a checkbox
+# here in the first place.
+TOGGLEABLE_EMAIL_CATEGORIES = [
+    ("document", "Document activity", "Shared documents and access changes."),
+    ("ai_task", "AI Tasks", "When a run completes or fails."),
+    ("system", "System announcements", "Workspace-wide announcements from an administrator."),
+]
 
 
 @login_required
@@ -1738,6 +1722,18 @@ def profile_view(request):
 
             return redirect("profile")
 
+        elif form_name == "notifications":
+
+            preferences = notification_service.get_or_create_preferences(request.user)
+            toggleable = {key for key, _, _ in TOGGLEABLE_EMAIL_CATEGORIES}
+            enabled = set(request.POST.getlist("email_categories")) & toggleable
+            preferences.disabled_email_categories = sorted(toggleable - enabled)
+            preferences.save(update_fields=["disabled_email_categories", "updated_at"])
+
+            messages.success(request, "Notification preferences updated.")
+
+            return redirect("profile")
+
         elif form_name == "password":
 
             password_form = PasswordChangeForm(request.user, request.POST)
@@ -1747,6 +1743,23 @@ def profile_view(request):
                 user = password_form.save()
 
                 update_session_auth_hash(request, user)
+
+                log_activity(
+                    actor=user,
+                    action="user.password_changed",
+                    description=f"{user.username} changed their password",
+                    request=request,
+                )
+
+                # Parity with the email-based reset flow
+                # (RAG.auth_views.RAGPasswordResetConfirmView) - both
+                # ways of changing a password notify the same way.
+                notification_service.create_notification(
+                    recipient=user,
+                    notification_type="account.password_changed",
+                    title="Your password was changed",
+                    message="Your password was just changed. If this wasn't you, contact support immediately.",
+                )
 
                 messages.success(request, "Password updated.")
 
@@ -1759,6 +1772,7 @@ def profile_view(request):
     context = _profile_context(request.user, request.session.session_key)
     context["password_form"] = password_form
     context["current_device"] = device_intelligence_service.parse_device(request.META.get("HTTP_USER_AGENT", ""))
+    context["toggleable_email_categories"] = TOGGLEABLE_EMAIL_CATEGORIES
 
     return render(request, "profile.html", context)
 
@@ -2270,6 +2284,17 @@ def admin_users_view(request):
                     description=f'"{target_user.username}" suspended by {request.user.username}',
                     request=request,
                 )
+                # "security" category - always emailed regardless of
+                # the target's notification preferences (see
+                # notification_service.ALWAYS_EMAIL_CATEGORIES), same
+                # as the account.password_changed notification.
+                notification_service.create_notification(
+                    recipient=target_user,
+                    actor=request.user,
+                    notification_type="security.account_suspended",
+                    title="Your account has been suspended",
+                    message="Your account was suspended by an administrator. Contact support if you believe this is a mistake.",
+                )
                 messages.success(request, f'"{target_user.username}" suspended.')
 
         elif action == "activate":
@@ -2281,6 +2306,13 @@ def admin_users_view(request):
                 description=f'"{target_user.username}" reactivated by {request.user.username}',
                 request=request,
             )
+            notification_service.create_notification(
+                recipient=target_user,
+                actor=request.user,
+                notification_type="security.account_reactivated",
+                title="Your account has been reactivated",
+                message="Your account is active again - you can now log in normally.",
+            )
             messages.success(request, f'"{target_user.username}" reactivated.')
 
         elif action == "delete":
@@ -2290,6 +2322,7 @@ def admin_users_view(request):
                 messages.error(request, "You can't delete the last remaining Admin.")
             else:
                 deleted_username = target_user.username
+                deleted_email = target_user.email
                 target_user.delete()
                 log_activity(
                     actor=request.user,
@@ -2297,6 +2330,14 @@ def admin_users_view(request):
                     description=f'"{deleted_username}" deleted by {request.user.username}',
                     request=request,
                 )
+                # No User row survives to attach an in-app Notification
+                # to (Notification.recipient is a required FK) - the
+                # email is captured before delete() and sent directly,
+                # same pattern as the document-share invite email.
+                if deleted_email:
+                    from .services import task_runner
+                    from .tasks import send_account_deleted_email_task
+                    task_runner.submit(send_account_deleted_email_task, deleted_email, deleted_username)
                 messages.success(request, "User deleted.")
 
         elif action == "assign_role":
@@ -2324,6 +2365,13 @@ def admin_users_view(request):
                     action="user.role_changed",
                     description=f'"{target_user.username}" set to {role.name} by {request.user.username}',
                     request=request,
+                )
+                notification_service.create_notification(
+                    recipient=target_user,
+                    actor=request.user,
+                    notification_type="account.role_changed",
+                    title="Your role has changed",
+                    message=f'Your role was changed to "{role.name}".',
                 )
                 messages.success(request, f'"{target_user.username}" is now {role.name}.')
 
@@ -3297,7 +3345,7 @@ def ai_task_cancel(request, run_id):
 
     run = get_object_or_404(AITaskRun, id=run_id)
 
-    if run.user_id != request.user.id and not has_admin_area_access(request.user):
+    if run.user_id != request.user.id and not is_admin(request.user):
         raise PermissionDenied("You don't have access to this run.")
 
     if run.status not in (AITaskRun.Status.PENDING, AITaskRun.Status.RUNNING):
@@ -3339,7 +3387,7 @@ def ai_task_delete(request, run_id):
 
     run = get_object_or_404(AITaskRun, id=run_id)
 
-    if run.user_id != request.user.id and not has_admin_area_access(request.user):
+    if run.user_id != request.user.id and not is_admin(request.user):
         raise PermissionDenied("You don't have access to this run.")
 
     if run.status in (AITaskRun.Status.PENDING, AITaskRun.Status.RUNNING):
@@ -3443,23 +3491,3 @@ def health_check(request):
     payload = {key: value for key, value in health.items() if key != "recent_errors"}
 
     return JsonResponse(payload, status=status_code)
-
-
-# ==========================
-# LOGOUT
-# ==========================
-
-def logout_user(request):
-
-    if request.user.is_authenticated:
-        log_activity(
-            actor=request.user,
-            action="user.logout",
-            description=f"{request.user.username} logged out",
-            request=request,
-        )
-
-    logout(request)
-
-
-    return redirect('login')
