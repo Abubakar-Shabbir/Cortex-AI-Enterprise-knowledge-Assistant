@@ -65,25 +65,40 @@ def _check_resources() -> dict:
 
 def _check_storage() -> dict:
     """
-    Free/total disk space on the filesystem backing MEDIA_ROOT (where
-    uploaded documents live) - a pure local syscall (shutil.disk_usage),
-    no network, so unlike a reachability check this can't hang and needs
-    no timeout. Never raises: an unreadable/missing
-    path (e.g. MEDIA_ROOT not yet created) reports as unavailable
-    instead of taking the health endpoint down.
+    settings.USE_S3_STORAGE (media uploads on S3-compatible object
+    storage - see settings.py's own comment) reports "available" without
+    a disk-usage figure: MEDIA_ROOT/shutil.disk_usage would be reading
+    the free-tier host's local ephemeral disk, which no longer has
+    anything to do with where documents actually live, and a live
+    network probe of the bucket isn't worth adding to a public,
+    frequently-polled endpoint (this app has no cheap "free space
+    remaining" API call for S3-compatible storage anyway) - a genuine
+    outage there still surfaces through upload/download failures
+    themselves (RAG.services.upload_service, ErrorGroup).
+    Otherwise (FileSystemStorage, the local-dev/persistent-disk default)
+    unchanged from before: free/total disk space on the filesystem
+    backing MEDIA_ROOT - a pure local syscall (shutil.disk_usage), no
+    network, so unlike a reachability check this can't hang and needs no
+    timeout. Never raises: an unreadable/missing path (e.g. MEDIA_ROOT
+    not yet created) reports as unavailable instead of taking the health
+    endpoint down.
     """
+
+    if settings.USE_S3_STORAGE:
+        return {"available": True, "backend": "s3", "free_bytes": None, "total_bytes": None, "percent_free": None}
 
     try:
         usage = shutil.disk_usage(settings.MEDIA_ROOT)
         return {
             "available": True,
+            "backend": "local",
             "free_bytes": usage.free,
             "total_bytes": usage.total,
             "percent_free": round((usage.free / usage.total) * 100, 1) if usage.total else None,
         }
     except Exception:
         logger.warning("Health check: disk usage unavailable", exc_info=True)
-        return {"available": False, "free_bytes": None, "total_bytes": None, "percent_free": None}
+        return {"available": False, "backend": "local", "free_bytes": None, "total_bytes": None, "percent_free": None}
 
 
 def _uptime_seconds() -> int:

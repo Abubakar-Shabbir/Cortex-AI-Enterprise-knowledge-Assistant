@@ -37,3 +37,14 @@ nh3==0.3.6
 # concurrent.futures.ThreadPoolExecutor (RAG/services/task_runner.py) -
 # stdlib, no dependency needed. Celery/Redis were removed in the
 # free-tier refactor.
+
+# Production deployment (Render free tier - see DEPLOYMENT.md)
+gunicorn==23.0.0
+whitenoise==6.9.0
+# S3-compatible object storage for uploaded documents/avatars
+# (settings.py USE_S3_STORAGE) - only imported/used when that flag is
+# on; a local/DEBUG deployment with USE_S3_STORAGE unset never touches
+# either package, but both still need to be installed since settings.py
+# always evaluates STORAGES at import time.
+django-storages==1.14.6
+boto3==1.40.7

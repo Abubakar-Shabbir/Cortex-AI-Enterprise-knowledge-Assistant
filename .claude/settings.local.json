@@ -48,7 +48,8 @@
       "Bash(curl -s -o /dev/null -w \"signup: %{http_code}\\\\n\" http://127.0.0.1:8000/signup/)",
       "Bash(curl -s -o /dev/null -w \"forgot-password: %{http_code}\\\\n\" http://127.0.0.1:8000/password-reset/)",
       "Read(//c/Users/LAPTOPEXPERT/AppData/Local/Temp/claude/F--RAG-Project-Document-Intelligence-RAG-Assistant/60378a1b-5492-4177-87be-e8fdb02304b5/scratchpad/htmx-test/**)",
-      "Bash(node test.js)"
+      "Bash(node test.js)",
+      "WebSearch"
     ]
   }
 }

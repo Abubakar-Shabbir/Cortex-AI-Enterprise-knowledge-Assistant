@@ -201,6 +201,8 @@
         {% include "partials/_setting_row.html" with label="Total Storage" value=status.total_storage %}
         {% if health.storage.percent_free is not None %}
           {% include "partials/_setting_row.html" with label="Disk Free Space" description="On the volume backing document storage" value=health.storage.percent_free|stringformat:".1f"|add:"%" %}
+        {% elif health.storage.backend == "s3" %}
+          {% include "partials/_setting_row.html" with label="Document Storage" description="S3-compatible object storage - not disk-usage-tracked here" value="Remote (S3)" %}
         {% else %}
           {% include "partials/_setting_row.html" with label="Disk Free Space" description="On the volume backing document storage" value="Unavailable" %}
         {% endif %}

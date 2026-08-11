@@ -1,0 +1,83 @@
+# Render Blueprint - optional infra-as-code path for deployment (New >
+# Blueprint in the Render dashboard, pointed at this repo). The manual
+# "New > Web Service" click-through path in DEPLOYMENT.md sets up the
+# exact same service by hand and works just as well; use whichever you
+# prefer. `plan: free` is explicit on the one service defined here so
+# this file can never accidentally provision anything billed.
+#
+# Env vars marked `sync: false` are secrets Render will prompt for
+# on first deploy instead of storing in this file (which is committed
+# to the repo) - see .env.example for the full list and DEPLOYMENT.md
+# for where each value comes from.
+services:
+  - type: web
+    name: cortex-rag
+    runtime: python
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: bash build.sh
+    # 1 worker (see BACKGROUND_WORKER_THREADS's own comment in
+    # .env.example for why this app avoids multiple worker processes
+    # on a free-tier host), 2 threads for a bit of request concurrency
+    # within that one process, and a generous --timeout: embedding a
+    # large document or waiting on a slower LLM provider can take well
+    # over gunicorn's 30s default, which would otherwise kill the
+    # worker mid-request.
+    startCommand: gunicorn myproject.wsgi:application --workers 1 --threads 2 --timeout 120 --bind 0.0.0.0:$PORT
+    healthCheckPath: /health/
+    envVars:
+      - key: SECRET_KEY
+        sync: false
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_SSLMODE
+        value: require
+      - key: USE_S3_STORAGE
+        value: "True"
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_STORAGE_BUCKET_NAME
+        sync: false
+      - key: AWS_S3_ENDPOINT_URL
+        sync: false
+      - key: AWS_S3_REGION_NAME
+        sync: false
+      - key: LLM_PROVIDER
+        value: openrouter
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: BACKGROUND_WORKER_THREADS
+        value: "1"
+      - key: ENABLE_ASYNC_PROCESSING
+        value: "True"
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      - key: SITE_URL
+        sync: false

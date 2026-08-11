@@ -71,6 +71,31 @@ SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 
+# HSTS - tells the browser to remember "always use HTTPS for this host"
+# for the given duration, so even a typed/bookmarked http:// URL never
+# round-trips over plain HTTP again. Same DEBUG-gated pattern as
+# SECURE_SSL_REDIRECT above (a local `manage.py runserver` is plain
+# HTTP and must never send this header - a browser that's cached it
+# would then refuse to load the dev server at all). Render terminates
+# TLS in front of the app and forwards over HTTP internally, same as
+# any standard reverse-proxy deployment - SECURE_SSL_REDIRECT still
+# works there because Render also sets X-Forwarded-Proto, which
+# SECURE_PROXY_SSL_HEADER below tells Django to trust.
+SECURE_HSTS_SECONDS = 0 if DEBUG else 60 * 60 * 24 * 30  # 30 days
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
+
+# Render (like most PaaS hosts) terminates HTTPS at its own edge and
+# forwards the request to this app over plain HTTP, setting
+# X-Forwarded-Proto to say what the original scheme was - without this,
+# Django can't tell the difference between that and a genuine plain-HTTP
+# request, so SECURE_SSL_REDIRECT/SESSION_COOKIE_SECURE/CSRF_COOKIE_SECURE
+# above would either redirect-loop or never see the request as secure at
+# all. Safe to leave set in local dev too: manage.py runserver never
+# sends this header, so the condition it checks is simply never true
+# there.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 
 # Application definition
 
@@ -87,6 +112,21 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Serves STATIC_ROOT directly from the Django/Gunicorn process with
+    # far-future cache headers + gzip/brotli compression - the
+    # zero-cost substitute for a CDN/dedicated static host on a
+    # single-service free-tier deployment (Render free web service).
+    # Placed right after SecurityMiddleware per whitenoise's own docs
+    # (before anything that might redirect/modify the response) and
+    # before every other middleware in this list, none of which touch
+    # static asset requests. Safe to leave installed even in local dev:
+    # in DEBUG, STORAGES["staticfiles"] below falls back to Django's
+    # plain StaticFilesStorage, so `manage.py runserver` keeps serving
+    # static files exactly as it always has (whitenoise no-ops for a
+    # path it doesn't recognize as one of its collected files, and
+    # runserver's own staticfiles app handler still takes priority for
+    # everything else in DEBUG).
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'RAG.middleware.RequestTraceMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -152,6 +192,13 @@ DATABASES = {
         "CONN_MAX_AGE": env.int("CONN_MAX_AGE", default=60),
 
         "CONN_HEALTH_CHECKS": True,
+
+        # Supabase (and most hosted Postgres providers) require SSL on
+        # their public endpoint - "prefer" (psycopg2's own default)
+        # keeps a plain local docker-compose Postgres working
+        # unchanged, since that one has no SSL configured at all; set
+        # DB_SSLMODE=require in production (see DEPLOYMENT.md).
+        "OPTIONS": {"sslmode": env("DB_SSLMODE", default="prefer")},
     }
 }
 
@@ -193,6 +240,76 @@ MEDIA_ROOT = BASE_DIR / "media"
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# collectstatic's target directory - required for whitenoise (and for
+# `manage.py collectstatic` to run at all; it errors without this set).
+# Not used by `manage.py runserver` in DEBUG, which serves straight
+# from each app's static/ directory instead - see the WhiteNoise
+# middleware comment above.
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+# ==========================================
+# File storage (free-tier deployment)
+# ==========================================
+# Document uploads (Document.file, DocumentVersion.file) and profile
+# avatars (UserProfile.avatar) go through Django's storage abstraction
+# (FileField/ImageField), so which backend is active is entirely a
+# settings.py concern - no view/service/model code reads or writes a
+# filesystem path directly anywhere in this codebase, and none needs
+# to change here either way.
+#
+# Local dev (and any host with a real persistent disk) keeps the
+# original FileSystemStorage default - MEDIA_ROOT above. A free-tier
+# host with an EPHEMERAL filesystem (Render's free web service resets
+# local disk on every restart/redeploy/scale event) would silently
+# lose every uploaded document under that default, so production must
+# point at real object storage instead.
+#
+# USE_S3_STORAGE opts into that: an S3-compatible backend
+# (django-storages' S3Storage) pointed at whichever endpoint is
+# configured - Supabase Storage (this project's default recommendation,
+# since a Supabase project already provides one alongside the Postgres
+# database - see DEPLOYMENT.md), Cloudflare R2, Backblaze B2, or real
+# AWS S3 are all wire-compatible with the exact same handful of env
+# vars, so switching providers later (e.g. onto paid infrastructure) is
+# an env var change, not a code change.
+USE_S3_STORAGE = env.bool("USE_S3_STORAGE", default=False)
+
+if USE_S3_STORAGE:
+    AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY")
+    AWS_STORAGE_BUCKET_NAME = env("AWS_STORAGE_BUCKET_NAME")
+    AWS_S3_ENDPOINT_URL = env("AWS_S3_ENDPOINT_URL")
+    AWS_S3_REGION_NAME = env("AWS_S3_REGION_NAME", default="us-east-1")
+    # Supabase Storage (and most S3-compatible providers other than AWS
+    # itself) serve objects back through the same endpoint host rather
+    # than a bucket-subdomain virtual-hosted URL - path-style addressing
+    # is what makes AWS_S3_ENDPOINT_URL above actually work as the
+    # object base URL.
+    AWS_S3_ADDRESSING_STYLE = "path"
+    AWS_DEFAULT_ACL = None  # bucket's own access policy decides this - see DEPLOYMENT.md for making the bucket public-read
+    AWS_QUERYSTRING_AUTH = False  # public bucket: plain URLs, no expiring-signature query string cluttering every document link
+    AWS_S3_FILE_OVERWRITE = False  # matches FileSystemStorage's own default behavior (a same-named upload gets a suffixed filename, never silently clobbers the previous file)
+
+    STORAGES = {
+        "default": {"BACKEND": "storages.backends.s3.S3Storage"},
+        "staticfiles": {
+            "BACKEND": (
+                "django.contrib.staticfiles.storage.StaticFilesStorage" if DEBUG
+                else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            ),
+        },
+    }
+else:
+    STORAGES = {
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {
+            "BACKEND": (
+                "django.contrib.staticfiles.storage.StaticFilesStorage" if DEBUG
+                else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            ),
+        },
+    }
 
 TOP_K = int(os.getenv("TOP_K", 3))
 
