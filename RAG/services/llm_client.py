@@ -134,10 +134,10 @@ class BaseLLMClient:
     # shared/singleton state to worry about.
     last_usage = None
 
-    def generate(self, prompt: str, temperature: float = None, response_format: str = None) -> str:
+    def generate(self, prompt: str, temperature: float = None, response_format: str = None, max_tokens: int = None) -> str:
         raise NotImplementedError
 
-    def generate_stream(self, prompt: str, temperature: float = None, response_format: str = None) -> Iterator[str]:
+    def generate_stream(self, prompt: str, temperature: float = None, response_format: str = None, max_tokens: int = None) -> Iterator[str]:
         raise NotImplementedError
 
     def health_check(self) -> dict:
@@ -179,14 +179,15 @@ class GeminiClient(BaseLLMClient):
         )
         self.model = settings.LLM_MODEL
 
-    def _generation_config(self, temperature, response_format):
+    def _generation_config(self, temperature, response_format, max_tokens=None):
 
-        if temperature is None and response_format != "json":
+        if temperature is None and response_format != "json" and max_tokens is None:
             return None
 
         return genai_types.GenerateContentConfig(
             temperature=temperature,
             response_mime_type="application/json" if response_format == "json" else None,
+            max_output_tokens=max_tokens,
         )
 
     def _log_usage(self, response):
@@ -221,13 +222,13 @@ class GeminiClient(BaseLLMClient):
 
         return LLMProviderError(f"Gemini error: {exc}")
 
-    def generate(self, prompt: str, temperature: float = None, response_format: str = None) -> str:
+    def generate(self, prompt: str, temperature: float = None, response_format: str = None, max_tokens: int = None) -> str:
 
         try:
             response = self.client.models.generate_content(
                 model=self.model,
                 contents=prompt,
-                config=self._generation_config(temperature, response_format),
+                config=self._generation_config(temperature, response_format, max_tokens),
             )
         except (genai_errors.APIError, httpx.TimeoutException, httpx.ConnectError) as exc:
             raise self._map_error(exc) from exc
@@ -236,13 +237,13 @@ class GeminiClient(BaseLLMClient):
 
         return response.text.strip()
 
-    def generate_stream(self, prompt: str, temperature: float = None, response_format: str = None) -> Iterator[str]:
+    def generate_stream(self, prompt: str, temperature: float = None, response_format: str = None, max_tokens: int = None) -> Iterator[str]:
 
         try:
             response = self.client.models.generate_content_stream(
                 model=self.model,
                 contents=prompt,
-                config=self._generation_config(temperature, response_format),
+                config=self._generation_config(temperature, response_format, max_tokens),
             )
             for chunk in response:
                 if chunk.text:
@@ -301,7 +302,7 @@ class _OpenAICompatibleClient(BaseLLMClient):
 
         return headers
 
-    def _payload(self, prompt, temperature, response_format, stream=False) -> dict:
+    def _payload(self, prompt, temperature, response_format, stream=False, max_tokens=None) -> dict:
 
         payload = {
             "model": self._model(),
@@ -312,18 +313,21 @@ class _OpenAICompatibleClient(BaseLLMClient):
         if response_format == "json":
             payload["response_format"] = {"type": "json_object"}
 
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+
         if stream:
             payload["stream"] = True
 
         return payload
 
-    def generate(self, prompt: str, temperature: float = None, response_format: str = None) -> str:
+    def generate(self, prompt: str, temperature: float = None, response_format: str = None, max_tokens: int = None) -> str:
 
         try:
             response = _http_session.post(
                 self.API_URL,
                 headers=self._headers(),
-                json=self._payload(prompt, temperature, response_format),
+                json=self._payload(prompt, temperature, response_format, max_tokens=max_tokens),
                 timeout=settings.LLM_REQUEST_TIMEOUT,
             )
             response.raise_for_status()
@@ -353,13 +357,13 @@ class _OpenAICompatibleClient(BaseLLMClient):
         except (KeyError, IndexError) as exc:
             raise LLMProviderError(f"{self.PROVIDER_NAME} returned an unexpected response shape") from exc
 
-    def generate_stream(self, prompt: str, temperature: float = None, response_format: str = None) -> Iterator[str]:
+    def generate_stream(self, prompt: str, temperature: float = None, response_format: str = None, max_tokens: int = None) -> Iterator[str]:
 
         try:
             response = _http_session.post(
                 self.API_URL,
                 headers=self._headers(),
-                json=self._payload(prompt, temperature, response_format, stream=True),
+                json=self._payload(prompt, temperature, response_format, stream=True, max_tokens=max_tokens),
                 timeout=settings.LLM_REQUEST_TIMEOUT,
                 stream=True,
             )
@@ -535,7 +539,7 @@ class LLMClient:
 
         return chain
 
-    def generate(self, prompt: str, temperature: float = None, response_format: str = None) -> str:
+    def generate(self, prompt: str, temperature: float = None, response_format: str = None, max_tokens: int = None) -> str:
 
         chain = self._build_chain()
 
@@ -572,7 +576,7 @@ class LLMClient:
                 start = time.perf_counter()
 
                 try:
-                    result = client.generate(prompt, temperature=temperature, response_format=response_format)
+                    result = client.generate(prompt, temperature=temperature, response_format=response_format, max_tokens=max_tokens)
                 except LLMAuthError as exc:
                     logger.warning(
                         "LLM call failed provider=%s model=%s attempt=%s reason=auth error=%s",
@@ -624,7 +628,7 @@ class LLMClient:
         })
         raise AllProvidersFailedError(f"All configured LLM providers failed: {last_exc}") from last_exc
 
-    def generate_stream(self, prompt: str, temperature: float = None, response_format: str = None) -> Iterator[str]:
+    def generate_stream(self, prompt: str, temperature: float = None, response_format: str = None, max_tokens: int = None) -> Iterator[str]:
         """
         Same fallback chain as generate(), but fallback is only
         possible BEFORE the first chunk is yielded from a given
@@ -658,7 +662,7 @@ class LLMClient:
             providers_attempted.append(provider)
 
             try:
-                for chunk in client.generate_stream(prompt, temperature=temperature, response_format=response_format):
+                for chunk in client.generate_stream(prompt, temperature=temperature, response_format=response_format, max_tokens=max_tokens):
                     if not started:
                         started = True
                         first_token_ms = round((time.perf_counter() - start) * 1000)

@@ -338,7 +338,11 @@ def answer_question_stream(question, user=None, filters=None):
     with timed_stage("LLM request TOTAL (streamed)", context_chars=len(context)):
 
         try:
-            for piece in get_llm().generate_stream(prompt):
+            for piece in get_llm().generate_stream(
+                prompt,
+                temperature=settings.ANSWER_TEMPERATURE,
+                max_tokens=settings.ANSWER_MAX_TOKENS,
+            ):
                 answer_parts.append(piece)
                 yield {"type": "token", "text": piece}
 

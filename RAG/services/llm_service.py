@@ -26,6 +26,8 @@ Responsibilities
 
 import logging
 
+from django.conf import settings
+
 from .llm_client import AllProvidersFailedError, get_llm, parse_json_response
 from .prompt_templates import (
     build_structured_answer_prompt,
@@ -72,7 +74,12 @@ def generate_answer(context: str, question: str) -> tuple[str, dict]:
         # effect immediately - see llm_client.py's module docstring.
         llm = get_llm()
 
-        raw = llm.generate(prompt, response_format="json")
+        raw = llm.generate(
+            prompt,
+            temperature=settings.ANSWER_TEMPERATURE,
+            response_format="json",
+            max_tokens=settings.ANSWER_MAX_TOKENS,
+        )
 
         parsed = parse_json_response(raw)
 

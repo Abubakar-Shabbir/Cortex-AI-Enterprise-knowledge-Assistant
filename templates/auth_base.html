@@ -180,6 +180,29 @@ redirect) with zero JS and no SPA rewrite.
   }
   .auth-status-ping { animation: status-ping 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 
+  /* Drifting particles - distinct from the fixed, pulsing nodes above:
+     these actually travel (a slow diagonal rise + fade), reading as
+     ambient data/telemetry rather than a decorative starfield. Each
+     particle sets its own --drift-x/duration/delay inline so this one
+     keyframe covers all of them without per-particle @keyframes. */
+  @keyframes particle-drift {
+    0% { transform: translate(0, 0); opacity: 0; }
+    12% { opacity: 0.55; }
+    88% { opacity: 0.5; }
+    100% { transform: translate(var(--drift-x, 24px), -160px); opacity: 0; }
+  }
+  .auth-particle { animation: particle-drift linear infinite; animation-duration: var(--drift-duration, 14s); animation-delay: var(--drift-delay, 0s); }
+
+  /* Pointer-parallax layer for the brand panel's decorative elements
+     (glow orbs + node/line SVG) - a few px of translate driven by
+     auth_base.html's small inline script below, eased with this
+     transition so it never feels like it's snapping to the cursor.
+     Desktop-only and reduced-motion-gated at the script level, not
+     just here, since the script simply never attaches the listener
+     in either case - this transition is just the easing for when it
+     does. */
+  #auth-parallax-layer { transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1); will-change: transform; }
+
   /* Faint grid, drawn once as CSS (no image request) - the
      "infrastructure blueprint" texture behind the brand panel copy. */
   .auth-grid-bg {
@@ -194,7 +217,8 @@ redirect) with zero JS and no SPA rewrite.
      rather than just slowing it down. */
   @media (prefers-reduced-motion: reduce) {
     .auth-card, .auth-error-banner, .auth-pop-in,
-    .auth-glow-a, .auth-glow-b, .auth-node, .auth-flow-line, .auth-status-ping {
+    .auth-glow-a, .auth-glow-b, .auth-node, .auth-flow-line, .auth-status-ping,
+    .auth-particle {
       animation: none !important;
     }
     .auth-success-icon::after {
@@ -202,6 +226,8 @@ redirect) with zero JS and no SPA rewrite.
       content: none;
     }
     .btn-sheen::before { display: none; }
+    .auth-particle { display: none; }
+    #auth-parallax-layer { transition: none !important; }
   }
 
   /* Cross-document page transition (see the view-transition meta tag above). */
@@ -221,32 +247,48 @@ redirect) with zero JS and no SPA rewrite.
 <div class="flex min-h-screen">
 
   {# Brand panel - hidden below lg, this is the one place the product gets to make its case #}
-  <div class="relative hidden w-[42%] max-w-[560px] shrink-0 overflow-hidden bg-primary lg:flex lg:flex-col lg:justify-between dark:bg-primary-dark">
+  <div id="auth-parallax-root" class="relative hidden w-[42%] max-w-[560px] shrink-0 overflow-hidden bg-primary lg:flex lg:flex-col lg:justify-between dark:bg-primary-dark">
 
     {# ---- Live system ambience layer (decorative only) ---- #}
+
+    {# Static "backplane" - deliberately outside the parallax layer below, so the grid reads as the fixed board the rest of the scene has depth against. #}
     <div class="pointer-events-none absolute inset-0 auth-grid-bg" aria-hidden="true"></div>
 
-    <div class="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl auth-glow-a" aria-hidden="true"></div>
-    <div class="pointer-events-none absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-black/10 blur-3xl auth-glow-b" aria-hidden="true"></div>
+    {# Everything that should shift a few px with the pointer (desktop only - see the script at the bottom of this file) lives in this one wrapper, so the parallax easing/transform is applied once, not per-element. #}
+    <div id="auth-parallax-layer" class="pointer-events-none absolute inset-0" aria-hidden="true">
 
-    <svg class="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 400 700" preserveAspectRatio="none" aria-hidden="true">
-      <g stroke="white" stroke-opacity="0.16" stroke-width="1" fill="none">
-        <path class="auth-flow-line" d="M40,120 L150,190 L120,340" stroke-dasharray="6 14"></path>
-        <path class="auth-flow-line" style="animation-delay:-3s" d="M340,90 L250,220 L300,380" stroke-dasharray="6 14"></path>
-        <path class="auth-flow-line" style="animation-delay:-6s" d="M60,560 L180,480 L330,540" stroke-dasharray="6 14"></path>
-      </g>
-      <g fill="white">
-        <circle class="auth-node" cx="40" cy="120" r="3"></circle>
-        <circle class="auth-node" cx="150" cy="190" r="2.5" style="animation-delay:-0.6s"></circle>
-        <circle class="auth-node" cx="120" cy="340" r="3" style="animation-delay:-1.4s"></circle>
-        <circle class="auth-node" cx="340" cy="90" r="2.5" style="animation-delay:-2s"></circle>
-        <circle class="auth-node" cx="250" cy="220" r="3" style="animation-delay:-1s"></circle>
-        <circle class="auth-node" cx="300" cy="380" r="2.5" style="animation-delay:-2.6s"></circle>
-        <circle class="auth-node" cx="60" cy="560" r="3" style="animation-delay:-1.8s"></circle>
-        <circle class="auth-node" cx="180" cy="480" r="2.5" style="animation-delay:-0.3s"></circle>
-        <circle class="auth-node" cx="330" cy="540" r="3" style="animation-delay:-2.2s"></circle>
-      </g>
-    </svg>
+      <div class="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl auth-glow-a"></div>
+      <div class="absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-black/10 blur-3xl auth-glow-b"></div>
+
+      <svg class="absolute inset-0 h-full w-full" viewBox="0 0 400 700" preserveAspectRatio="none">
+        <g stroke="white" stroke-opacity="0.16" stroke-width="1" fill="none">
+          <path class="auth-flow-line" d="M40,120 L150,190 L120,340" stroke-dasharray="6 14"></path>
+          <path class="auth-flow-line" style="animation-delay:-3s" d="M340,90 L250,220 L300,380" stroke-dasharray="6 14"></path>
+          <path class="auth-flow-line" style="animation-delay:-6s" d="M60,560 L180,480 L330,540" stroke-dasharray="6 14"></path>
+        </g>
+        <g fill="white">
+          <circle class="auth-node" cx="40" cy="120" r="3"></circle>
+          <circle class="auth-node" cx="150" cy="190" r="2.5" style="animation-delay:-0.6s"></circle>
+          <circle class="auth-node" cx="120" cy="340" r="3" style="animation-delay:-1.4s"></circle>
+          <circle class="auth-node" cx="340" cy="90" r="2.5" style="animation-delay:-2s"></circle>
+          <circle class="auth-node" cx="250" cy="220" r="3" style="animation-delay:-1s"></circle>
+          <circle class="auth-node" cx="300" cy="380" r="2.5" style="animation-delay:-2.6s"></circle>
+          <circle class="auth-node" cx="60" cy="560" r="3" style="animation-delay:-1.8s"></circle>
+          <circle class="auth-node" cx="180" cy="480" r="2.5" style="animation-delay:-0.3s"></circle>
+          <circle class="auth-node" cx="330" cy="540" r="3" style="animation-delay:-2.2s"></circle>
+        </g>
+      </svg>
+
+      {# Slowly rising telemetry particles - distinct from the fixed/pulsing nodes above, these actually travel, each on its own duration/delay/horizontal drift so they never move in visible lockstep. #}
+      <span class="auth-particle absolute h-1 w-1 rounded-full bg-white/70" style="left:12%; top:88%; --drift-duration:12s; --drift-delay:-1s; --drift-x:18px;"></span>
+      <span class="auth-particle absolute h-[3px] w-[3px] rounded-full bg-white/50" style="left:28%; top:95%; --drift-duration:16s; --drift-delay:-6s; --drift-x:-14px;"></span>
+      <span class="auth-particle absolute h-1 w-1 rounded-full bg-white/60" style="left:47%; top:82%; --drift-duration:13.5s; --drift-delay:-3s; --drift-x:10px;"></span>
+      <span class="auth-particle absolute h-[3px] w-[3px] rounded-full bg-white/40" style="left:63%; top:98%; --drift-duration:18s; --drift-delay:-9s; --drift-x:-22px;"></span>
+      <span class="auth-particle absolute h-1 w-1 rounded-full bg-white/60" style="left:78%; top:90%; --drift-duration:15s; --drift-delay:-4.5s; --drift-x:16px;"></span>
+      <span class="auth-particle absolute h-[3px] w-[3px] rounded-full bg-white/50" style="left:90%; top:85%; --drift-duration:11s; --drift-delay:-7s; --drift-x:-12px;"></span>
+      <span class="auth-particle absolute h-1 w-1 rounded-full bg-white/45" style="left:6%; top:60%; --drift-duration:17s; --drift-delay:-2s; --drift-x:20px;"></span>
+      <span class="auth-particle absolute h-1 w-1 rounded-full bg-white/55" style="left:82%; top:55%; --drift-duration:14.5s; --drift-delay:-10s; --drift-x:-18px;"></span>
+    </div>
     {# ---- /ambience layer ---- #}
 
     <div class="relative px-10 pt-10">
@@ -336,6 +378,37 @@ redirect) with zero JS and no SPA rewrite.
 </div>
 
 <script>document.addEventListener('DOMContentLoaded', () => lucide.createIcons());</script>
+
+<script>
+  // Subtle pointer-parallax on the brand panel's decorative layer
+  // (glow orbs + node/line SVG + particles) - a few px of translate
+  // that eases back to rest on mouseleave (see #auth-parallax-layer's
+  // transition in the <style> block above). Desktop-pointer and
+  // reduced-motion gated up front, so this never attaches a listener
+  // it would just have to ignore on touch devices or for a user who's
+  // asked for less motion - not merely disabled via CSS.
+  (function () {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (!window.matchMedia('(pointer: fine)').matches) return;
+
+    const root = document.getElementById('auth-parallax-root');
+    const layer = document.getElementById('auth-parallax-layer');
+    if (!root || !layer) return;
+
+    const MAX_OFFSET_PX = 10;
+
+    root.addEventListener('mousemove', (event) => {
+      const rect = root.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width - 0.5) * 2;
+      const y = ((event.clientY - rect.top) / rect.height - 0.5) * 2;
+      layer.style.transform = `translate(${x * MAX_OFFSET_PX}px, ${y * MAX_OFFSET_PX}px)`;
+    });
+
+    root.addEventListener('mouseleave', () => {
+      layer.style.transform = 'translate(0, 0)';
+    });
+  })();
+</script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

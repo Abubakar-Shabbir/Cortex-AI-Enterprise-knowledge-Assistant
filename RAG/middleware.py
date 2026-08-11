@@ -167,4 +167,14 @@ class SystemConfigSyncMiddleware:
 
         apply_config_to_settings_cached()
 
+        # Best place to kick off the reranker's one-time model load in
+        # the background (see reranker_service.ensure_warm_started) -
+        # same "runs on every request, cheap after the first" shape
+        # this middleware already has for settings sync, and - unlike
+        # AppConfig.ready() - never fires for a bare `manage.py`
+        # command that isn't actually serving requests.
+        from .services.reranker_service import ensure_warm_started
+
+        ensure_warm_started()
+
         return self.get_response(request)

@@ -18,6 +18,19 @@ group header but only the System Health link.
 Active-item highlighting reuses active_nav
 (context_processors.breadcrumbs()), populated on every authenticated
 page render.
+
+h-dvh (dynamic viewport height) alongside inset-y-0, not instead of it:
+a `position: fixed` element pinned only via top:0/bottom:0 is what was
+making this sidebar look a different height per page - on a page whose
+content is short enough to fit without scrolling it renders at the
+expected full height, but on a page tall enough to require scrolling,
+mobile Safari/Chrome collapse their address bar as the user scrolls,
+which resizes the *layout* viewport those fixed offsets are computed
+against mid-scroll - the classic "fixed sidebar changes height as you
+scroll a tall page" mobile bug. h-dvh pins it to the actual current
+viewport instead and isn't affected by that toolbar collapse; inset-y-0
+stays as a harmless no-op fallback for browsers that don't understand
+dvh yet.
 {% endcomment %}
 
 <div
@@ -28,7 +41,7 @@ page render.
   class="fixed inset-0 z-30 bg-black/40 lg:hidden"
 ></div>
 
-<aside class="fixed inset-y-0 left-0 z-40 flex w-64 -translate-x-full flex-col bg-gradient-to-b from-sidebar to-sidebar-deep text-ink-dark shadow-[1px_0_0_rgba(255,255,255,0.04)] transition-transform duration-200 lg:translate-x-0" :class="sidebarOpen && '!translate-x-0'">
+<aside class="fixed inset-y-0 left-0 z-40 flex h-dvh w-64 -translate-x-full flex-col bg-gradient-to-b from-sidebar to-sidebar-deep text-ink-dark shadow-[1px_0_0_rgba(255,255,255,0.04)] transition-transform duration-200 lg:translate-x-0" :class="sidebarOpen && '!translate-x-0'">
 
   <a href="{% url 'home' %}" class="relative flex h-16 shrink-0 items-center gap-2.5 overflow-hidden border-b border-white/10 px-5">
     <div class="pointer-events-none absolute -left-6 -top-10 h-28 w-28 rounded-full bg-primary/25 blur-2xl"></div>
@@ -39,7 +52,16 @@ page render.
     </div>
   </a>
 
-  <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4 text-sm">
+  {% comment %}
+  sidebar-scroll: dark-themed scrollbar (see base.html) - the global
+  ::-webkit-scrollbar-thumb color is tuned for the light card/surface
+  backgrounds everywhere else in the app, so without this override, a
+  role with enough visible nav items to actually overflow (e.g. Admin,
+  with every group + Administration all showing) would get a pale
+  beige scrollbar thumb rendered on top of this dark sidebar - visibly
+  mismatched, not "enterprise-grade" at all.
+  {% endcomment %}
+  <nav class="sidebar-scroll flex-1 space-y-1 overflow-y-auto px-3 py-4 text-sm">
 
     {% comment %}
     Overview is never permission-gated - every authenticated account

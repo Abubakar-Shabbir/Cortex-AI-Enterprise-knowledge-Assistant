@@ -272,6 +272,22 @@ RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-base")
 # re-scoring an already-truncated list.
 RERANKER_CANDIDATE_MULTIPLIER = int(os.getenv("RERANKER_CANDIDATE_MULTIPLIER", 3))
 
+# Token cap passed to the cross-encoder's tokenizer (query + chunk
+# combined). A real chunk (CHUNK_SIZE=800 chars, ~150-220 tokens) plus
+# a typical question sits well under this, so normal reranking is
+# unaffected - this exists to bound the worst case: without it, the
+# model falls back to its tokenizer's own max_length (512 for
+# bge-reranker-base), and one unusually long outlier chunk in the
+# candidate pool drags the *entire* batch's compute up to that length
+# (CrossEncoder pads every pair in a batch to the longest one present).
+RERANKER_MAX_LENGTH = int(os.getenv("RERANKER_MAX_LENGTH", 320))
+
+# Passed straight to CrossEncoder.predict(). 23 candidates (a typical
+# reranker pool here) fit in one batch by default (32) - this only
+# matters once RERANKER_CANDIDATE_MULTIPLIER/DYNAMIC_TOP_K_MAX push the
+# pool past that.
+RERANKER_BATCH_SIZE = int(os.getenv("RERANKER_BATCH_SIZE", 32))
+
 # ==========================================
 # Context Compression (Sprint 8)
 # ==========================================
@@ -321,6 +337,15 @@ MAX_CONTEXT_CHARS = int(os.getenv("MAX_CONTEXT_CHARS", 12000))
 # opt-in.
 
 ANSWER_TEMPERATURE = float(os.getenv("ANSWER_TEMPERATURE", 0.2))
+
+# Defensive cap on generated output length (not input/prompt size - see
+# MAX_CONTEXT_CHARS above for why that one doesn't move the needle on
+# this provider). A concise, grounded answer following the prompt's own
+# "keep the answer clear and concise" rule never approaches this; it
+# bounds the tail case of a rambling/looping generation, which - unlike
+# prefill/TTFT - does add real wall-clock time one token at a time
+# regardless of provider.
+ANSWER_MAX_TOKENS = int(os.getenv("ANSWER_MAX_TOKENS", 1024))
 
 # ==========================================
 # Background Task Execution (free-tier refactor)
