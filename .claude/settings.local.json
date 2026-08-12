@@ -57,7 +57,8 @@
       "Bash(.venv/Scripts/python.exe -m pip list --format=freeze)",
       "Read(//tmp/**)",
       "Bash(netstat -ano)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(.venv/Scripts/python.exe -m py_compile myproject/settings.py RAG/views.py)"
     ]
   }
 }

@@ -185,11 +185,30 @@ def _recent_llm_provider_status() -> dict:
     uses. Every *configured* provider still gets an entry even with zero
     recent traffic ("No recent data"), so the UI never silently drops a
     provider the live check would have shown.
+
+    Never raises, unlike a previous version of this function - every
+    other check in this module already followed that contract
+    (_check_database, _check_background_jobs, _check_storage,
+    _check_resources), but this one called
+    observability_service.get_recent_provider_status() (a real DB
+    query, AIRequestTrace) unguarded. A DB outage - the exact condition
+    /health/ exists to report - used to turn into an unhandled 500 from
+    this function instead of a clean "degraded" JSON response, which is
+    worse for a platform healthcheck than a slow response: Railway
+    (or any orchestrator) sees an unexpected error rather than a
+    legible signal. An empty dict here is inert - get_health_status()
+    already treats "no LLM data" as "nothing to require", not a
+    failure, the same way it treats a provider with ok=None.
     """
 
     from .observability_service import get_recent_provider_status
 
-    recent = get_recent_provider_status()
+    try:
+        recent = get_recent_provider_status()
+    except Exception:
+        logger.warning("Health check: recent LLM provider status unavailable", exc_info=True)
+        return {}
+
     results = {}
 
     for provider in PROVIDER_REGISTRY:

@@ -93,6 +93,20 @@ CSRF_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SAMESITE = "Lax"
 
 SECURE_SSL_REDIRECT = not DEBUG
+
+# Railway's own deploy healthcheck prober hits this container's $PORT
+# directly (not through the public HTTPS edge that sets
+# X-Forwarded-Proto for real browser traffic - see
+# SECURE_PROXY_SSL_HEADER below), so request.is_secure() is False for
+# that probe specifically even though the app itself is correctly
+# deployed behind HTTPS. Without this exemption, SecurityMiddleware
+# 301-redirects that plain-HTTP health check to https://.../health/ -
+# a redirect Railway's prober does not follow, so it reads as a failed
+# check and the deploy never goes healthy. RAG/urls.py's `health/`
+# route is the only path that needs this; every real user-facing page
+# keeps the normal HTTP->HTTPS redirect.
+SECURE_REDIRECT_EXEMPT = [r"^health/?$"]
+
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"

@@ -3474,6 +3474,22 @@ def health_check(request):
     see health_service.get_health_status() vs. settings_view's full
     system_status for the detailed, admin-only view.
 
+    Always answers HTTP 200 - this is what a platform's *deploy* gate
+    (Railway's healthcheckPath, or any orchestrator restart policy)
+    should poll: "is the process up and able to answer HTTP", a
+    liveness check, not "is every dependency currently perfect", a
+    readiness check. The two used to be conflated (503 whenever
+    get_health_status() computed anything other than "ok"), which
+    means a transient DB/pgvector/LLM-provider blip - not the app
+    itself being broken - could fail Railway's deploy healthcheck and
+    trigger a restart loop, the same class of problem as the earlier
+    slow-startup fix. The actual health verdict is unchanged and still
+    fully present in the JSON body's "status" field
+    (ok/degraded/critical) for anything that needs the nuanced signal -
+    monitoring.html's auto-refresh already only reads `data.status`
+    from the parsed body, never this response's HTTP status code, so
+    that behavior is byte-for-byte unchanged by this.
+
     Excludes `recent_errors` from the JSON payload - it's a dict of raw
     RAG.models.ErrorGroup instances (health_service._recent_errors()),
     not JSON-serializable, and was never meant for this endpoint anyway:
@@ -3486,8 +3502,6 @@ def health_check(request):
 
     health = get_health_status(light=True)
 
-    status_code = 200 if health["status"] == "ok" else 503
-
     payload = {key: value for key, value in health.items() if key != "recent_errors"}
 
-    return JsonResponse(payload, status=status_code)
+    return JsonResponse(payload, status=200)
