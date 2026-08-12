@@ -162,14 +162,29 @@ animation.
   @keyframes app-boot-blink { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
   @keyframes app-boot-progress { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
 
-  #app-shell { opacity: 0; transform: translateY(6px) scale(0.995); transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1), transform 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
-  #app-shell.app-shell-ready { opacity: 1; transform: translateY(0) scale(1); }
+  {% comment %}
+  Opacity only - deliberately NO transform/scale here. #app-shell wraps
+  the sidebar (dashboard/_sidebar.html's <aside class="fixed ...">),
+  and a `transform` on ANY ancestor of a `position: fixed` element -
+  even a numerically-identity one like `scale(1)` once the reveal
+  finishes - creates a new containing block for it per the CSS spec,
+  silently turning "pinned to the viewport" into "pinned to this
+  element's own box" instead. That's what was actually causing the
+  sidebar to scroll with the page and look a different height per page
+  (its real height became #app-shell's content height, which varies by
+  page, not the viewport) - not a viewport-unit/mobile-toolbar issue as
+  first suspected. Confirmed by the reduced-motion override below
+  already stripping the transform entirely - that path was never
+  affected by this bug, which is what made it worth checking.
+  {% endcomment %}
+  #app-shell { opacity: 0; transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
+  #app-shell.app-shell-ready { opacity: 1; }
 
   @media (prefers-reduced-motion: reduce) {
     #app-boot .app-boot-mark circle, #app-boot .app-boot-mark line, #app-boot .app-boot-dot, #app-boot .app-boot-fill { animation: none !important; }
     #app-boot .app-boot-mark line { stroke-dashoffset: 0; }
     #app-boot { transition: opacity 0.15s linear, visibility 0.15s; }
-    #app-shell { transition: opacity 0.15s linear; transform: none !important; }
+    #app-shell { transition: opacity 0.15s linear; }
   }
 </style>
 
