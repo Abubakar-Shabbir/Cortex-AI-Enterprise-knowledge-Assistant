@@ -49,7 +49,15 @@
       "Bash(curl -s -o /dev/null -w \"forgot-password: %{http_code}\\\\n\" http://127.0.0.1:8000/password-reset/)",
       "Read(//c/Users/LAPTOPEXPERT/AppData/Local/Temp/claude/F--RAG-Project-Document-Intelligence-RAG-Assistant/60378a1b-5492-4177-87be-e8fdb02304b5/scratchpad/htmx-test/**)",
       "Bash(node test.js)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(.venv/Scripts/python.exe -m py_compile myproject/settings.py RAG/services/embedding_service.py RAG/services/health_service.py RAG/services/stats_service.py RAG/middleware.py RAG/views.py)",
+      "Bash(.venv/Scripts/python.exe -m py_compile myproject/settings.py)",
+      "Bash(.venv/Scripts/python.exe -c \"import importlib.metadata as m; d=m.metadata\\('Django'\\); print\\(d.get\\('Requires-Python'\\)\\)\")",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(.venv/Scripts/python.exe -m pip list --format=freeze)",
+      "Read(//tmp/**)",
+      "Bash(netstat -ano)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
