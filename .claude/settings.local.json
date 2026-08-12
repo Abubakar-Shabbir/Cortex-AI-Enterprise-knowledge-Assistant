@@ -58,7 +58,9 @@
       "Read(//tmp/**)",
       "Bash(netstat -ano)",
       "Bash(git commit -m ' *)",
-      "Bash(.venv/Scripts/python.exe -m py_compile myproject/settings.py RAG/views.py)"
+      "Bash(.venv/Scripts/python.exe -m py_compile myproject/settings.py RAG/views.py)",
+      "Bash(.venv/Scripts/python.exe -c \"import docx; print\\(docx.__file__\\)\")",
+      "Bash(.venv/Scripts/python.exe \"C:\\\\Users\\\\LAPTOPEXPERT\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\F--RAG-Project-Document-Intelligence-RAG-Assistant\\\\07b0ad4a-337b-4bc1-8667-f35572f142af\\\\scratchpad\\\\generate_overview_v2.py\")"
     ]
   }
 }
