@@ -17,7 +17,7 @@ from .geolocation_service import get_client_ip, lookup_ip_location
 logger = logging.getLogger(__name__)
 
 
-def log_activity(actor, action, description, request=None):
+def log_activity(actor, action, description, request=None, resolve_location=True):
     """
     Record one audit trail entry.
 
@@ -35,6 +35,20 @@ def log_activity(actor, action, description, request=None):
         and attach the client IP address and its coarse geolocation
         (city/region/country). Omit for system-initiated events with no
         request in scope; the row is written with those fields blank.
+    resolve_location : bool
+        Whether to resolve `ip_address` to a city/region/country via
+        geolocation_service.lookup_ip_location(). Defaults True for
+        every curated call site (login, document delete, role change,
+        ...), where the location is actually shown somewhere (e.g.
+        Profile's login history). RAG.middleware.RequestActivityMiddleware
+        passes False for its generic per-page "page.<url_name>" row -
+        geolocation_service.py's own docstring already documents the
+        intent that these lookups happen "on already-infrequent audit
+        events... never on every page view"; the middleware calling
+        this with the default previously contradicted that, putting a
+        synchronous external HTTP call (ip-api.com, up to
+        GEO_API_TIMEOUT=3s on a cache miss) in the hot path of every
+        single page load.
     """
 
     ip_address = None
@@ -44,7 +58,7 @@ def log_activity(actor, action, description, request=None):
     if request is not None:
         try:
             ip_address = get_client_ip(request)
-            if ip_address:
+            if ip_address and resolve_location:
                 location = lookup_ip_location(ip_address)
             user_agent = request.META.get("HTTP_USER_AGENT", "")
         except Exception:

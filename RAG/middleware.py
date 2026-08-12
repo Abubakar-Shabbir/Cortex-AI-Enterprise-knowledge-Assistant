@@ -101,11 +101,17 @@ class RequestActivityMiddleware:
     Placed after AuthenticationMiddleware (needs request.user) and
     wraps the full get_response() call so request.resolver_match and
     the response status code are both available by the time it logs.
-    IP/geolocation resolution (RAG.services.geolocation_service) is
-    cached per-IP, so the added cost per request is one cache read for
-    all but a client's first request; the exception is the DB write
-    itself, which happens unconditionally - see the module docstring
-    on ActivityLog for the retention/volume tradeoff this implies.
+    Calls log_activity(resolve_location=False) - geolocation resolution
+    (RAG.services.geolocation_service) is an external HTTP call
+    (ip-api.com, up to 3s on a cache miss) that this generic per-page
+    row doesn't need (nothing renders city/region/country for a
+    "page.*" row), so it's skipped here entirely rather than paying
+    even a cache-hit lookup on every single request; the curated
+    call sites (login, document delete, role change, ...) still
+    resolve it by default, since Profile's login history genuinely
+    displays it. The DB write itself still happens unconditionally -
+    see the module docstring on ActivityLog for the retention/volume
+    tradeoff this implies.
     """
 
     EXCLUDED_PATH_PREFIXES = ("/static/", "/media/", "/health/")
@@ -142,6 +148,7 @@ class RequestActivityMiddleware:
             action=action[:50],
             description=f"{actor_label} {request.method} {request.path} → {response.status_code}"[:255],
             request=request,
+            resolve_location=False,
         )
 
         return response
