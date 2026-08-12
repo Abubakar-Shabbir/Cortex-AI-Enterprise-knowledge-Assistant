@@ -1,3 +1,14 @@
+# CPU-only wheel index for torch (pulled in transitively by
+# sentence-transformers below). Without this, pip resolves torch from
+# plain PyPI, which ships a CUDA-bundled build several GB larger than
+# needed on a CPU-only host like Railway - a slow, sometimes
+# build-timeout-triggering download for wheels never used at runtime.
+# --extra-index-url only *adds* this index (PyPI is still used for
+# every other package here); PEP 440 sorts the "+cpu" local version as
+# newer than the plain PyPI release at the same version, so pip prefers
+# it automatically once both indexes are visible.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 # Core
 Django==6.0.6
 django-environ==0.14.0

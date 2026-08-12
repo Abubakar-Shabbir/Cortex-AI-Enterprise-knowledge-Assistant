@@ -3484,7 +3484,7 @@ def health_check(request):
     works fine.
     """
 
-    health = get_health_status()
+    health = get_health_status(light=True)
 
     status_code = 200 if health["status"] == "ok" else 503
 

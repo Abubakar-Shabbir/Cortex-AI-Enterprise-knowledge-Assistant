@@ -372,12 +372,22 @@ def get_comparison_report_data(user, days=14):
     }
 
 
-def get_system_status():
+def get_system_status(minimal=False):
     """
     Live, cheap infrastructure checks - a real
     SELECT 1 and a pg_extension lookup, plus
     configuration values already in settings.py.
     No external API calls are made here.
+
+    `minimal=True` (used by health_service._check_database(), which
+    backs the public /health/ endpoint) skips every query this
+    function's callers don't actually need for a liveness check -
+    total_documents/total_storage and the LLM-provider config lookup
+    exist only for settings_view's full dashboard. Polled repeatedly by
+    Railway (and any orchestrator) during every deploy, so shaving
+    unnecessary DB round trips off this path directly helps the health
+    check "return quickly" instead of accumulating latency query by
+    query on every poll.
     """
 
     db_online = False
@@ -399,6 +409,18 @@ def get_system_status():
 
     total_chunks = DocumentChunk.objects.count()
     total_embeddings = ChunkEmbedding.objects.count()
+
+    if minimal:
+        return {
+            "db_online": db_online,
+            "pgvector_enabled": pgvector_enabled,
+            "embedding_model": settings.EMBEDDING_MODEL,
+            "embedding_dimension": settings.EMBEDDING_DIMENSION,
+            "total_chunks": total_chunks,
+            "total_embeddings": total_embeddings,
+            "embeddings_complete": total_chunks == total_embeddings,
+        }
+
     total_storage = Document.objects.aggregate(total=Sum("file_size"))["total"] or 0
 
     # LLM_PROVIDER selects which key/model actually matters - checking

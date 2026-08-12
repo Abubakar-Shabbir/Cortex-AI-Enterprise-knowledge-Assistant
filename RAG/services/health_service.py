@@ -40,14 +40,28 @@ _SERVICE_MODULE_PREFIXES = {
 }
 
 
-def _check_resources() -> dict:
+def _check_resources(blocking: bool = True) -> dict:
     """
-    Host CPU/memory - psutil.cpu_percent(interval=0.1) blocks for
-    ~100ms (a short, deliberate sample window - psutil returns 0.0 on
-    an interval-less first call, which would be a fake-looking number
-    on a health page), virtual_memory() is instant. Never raises: any
-    failure (psutil missing, permission error under some sandboxes)
-    reports unavailable rather than taking the health endpoint down.
+    Host CPU/memory - virtual_memory() is instant; cpu_percent()'s cost
+    depends on `blocking`.
+
+    `blocking=True` (Monitoring's own dashboard render, called rarely
+    by a human) samples over interval=0.1 - a deliberate ~100ms wait so
+    the number reflects real recent usage instead of psutil's "0.0 on
+    an interval-less first call" default.
+
+    `blocking=False` (the public /health/ endpoint - see
+    get_health_status()'s `light` param) uses interval=None instead:
+    non-blocking, comparing against psutil's own internal last-call
+    timestamp. An orchestrator like Railway can poll /health/ many
+    times a second during a deploy; paying a guaranteed 100ms sleep on
+    every single poll is exactly the kind of avoidable latency that
+    turns into a health-check/upstream timeout, for a number this
+    endpoint doesn't even gate its `healthy` verdict on (see below).
+
+    Never raises: any failure (psutil missing, permission error under
+    some sandboxes) reports unavailable rather than taking the health
+    endpoint down.
     """
 
     try:
@@ -55,7 +69,7 @@ def _check_resources() -> dict:
 
         return {
             "available": True,
-            "cpu_percent": psutil.cpu_percent(interval=0.1),
+            "cpu_percent": psutil.cpu_percent(interval=0.1 if blocking else None),
             "memory_percent": psutil.virtual_memory().percent,
         }
     except Exception:
@@ -217,7 +231,7 @@ def _recent_errors(minutes: int = 60) -> dict:
     return results
 
 
-def _check_database() -> tuple[bool, bool, bool]:
+def _check_database(minimal: bool = False) -> tuple[bool, bool, bool]:
     """
     (db_online, pgvector_enabled, embeddings_complete), all False on
     any failure. get_system_status() guards its own "SELECT 1" /
@@ -226,10 +240,14 @@ def _check_database() -> tuple[bool, bool, bool]:
     can afford to error), not acceptable for a public health endpoint
     that has to stay up precisely when the database might not be, so
     the whole call is wrapped here instead.
+
+    `minimal=True` forwards to get_system_status(minimal=True), which
+    skips the total_documents/total_storage/LLM-provider-config queries
+    this function never reads anyway - see that function's docstring.
     """
 
     try:
-        system_status = get_system_status()
+        system_status = get_system_status(minimal=minimal)
         return (
             system_status["db_online"],
             system_status["pgvector_enabled"],
@@ -241,13 +259,25 @@ def _check_database() -> tuple[bool, bool, bool]:
         return False, False, False
 
 
-def get_health_status(live_llm_check: bool = False) -> dict:
+def get_health_status(live_llm_check: bool = False, light: bool = False) -> dict:
     """
     Aggregate infra health for the /health/ endpoint (and
     manage.py check_infra), Monitoring's auto-refresh, and Monitoring's
     manual "Check Now". Never raises: each check is independent, so one
     failing component still reports the rest accurately instead of
     taking the whole endpoint down.
+
+    `light=True` (RAG.views.health_check only - a public endpoint an
+    orchestrator like Railway polls repeatedly during every deploy)
+    drops every check that costs real time but whose result the caller
+    doesn't use: `_recent_errors()` is skipped outright (health_check's
+    own JSON payload already excludes it), `_check_resources()` samples
+    CPU non-blocking instead of sleeping ~100ms, and `_check_database()`
+    skips the count/aggregate queries only the full settings_view/
+    monitoring.html dashboard reads. None of this changes `status` -
+    the same database/pgvector/background_jobs/llm_providers signals
+    still gate it - it just removes work whose output was being
+    computed and thrown away on every single poll.
 
     `live_llm_check` picks which of two provider-status sources is used
     - both return the identical {provider: {ok, latency_ms, message}}
@@ -276,7 +306,7 @@ def get_health_status(live_llm_check: bool = False) -> dict:
     this app has always documented.
     """
 
-    db_online, pgvector_enabled, embeddings_complete = _check_database()
+    db_online, pgvector_enabled, embeddings_complete = _check_database(minimal=light)
 
     background_jobs = _check_background_jobs()
 
@@ -284,7 +314,7 @@ def get_health_status(live_llm_check: bool = False) -> dict:
 
     storage = _check_storage()
 
-    resources = _check_resources()
+    resources = _check_resources(blocking=not light)
 
     checks = {
         "database": db_online,
@@ -316,7 +346,7 @@ def get_health_status(live_llm_check: bool = False) -> dict:
         "embeddings_complete": embeddings_complete,
         "storage": storage,
         "resources": resources,
-        "recent_errors": _recent_errors(),
+        "recent_errors": {} if light else _recent_errors(),
         "uptime_seconds": _uptime_seconds(),
         "live_llm_check": live_llm_check,
     }

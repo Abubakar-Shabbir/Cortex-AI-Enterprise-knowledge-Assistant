@@ -173,8 +173,21 @@ class SystemConfigSyncMiddleware:
         # this middleware already has for settings sync, and - unlike
         # AppConfig.ready() - never fires for a bare `manage.py`
         # command that isn't actually serving requests.
-        from .services.reranker_service import ensure_warm_started
+        from .services.reranker_service import ensure_warm_started as ensure_reranker_warm_started
 
-        ensure_warm_started()
+        ensure_reranker_warm_started()
+
+        # Same warm-up shape for the core embedding model
+        # (embedding_service.py) - unlike the reranker this isn't
+        # behind a feature flag, since every upload/query needs it,
+        # but it's still loaded lazily rather than at import time (see
+        # embedding_service._get_model's docstring), so this is what
+        # actually loads it in the common case: on this process's
+        # first request (almost always Railway's own deploy health
+        # check) rather than blocking the process from binding to
+        # $PORT at all.
+        from .services.embedding_service import ensure_warm_started as ensure_embedding_warm_started
+
+        ensure_embedding_warm_started()
 
         return self.get_response(request)

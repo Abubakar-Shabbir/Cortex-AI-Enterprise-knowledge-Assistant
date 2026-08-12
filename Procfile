@@ -1,0 +1,1 @@
+web: python manage.py migrate --no-input && python manage.py seed_rbac && gunicorn myproject.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 --graceful-timeout 30 --access-logfile - --error-logfile -

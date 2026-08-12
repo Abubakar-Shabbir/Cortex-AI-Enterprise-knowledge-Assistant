@@ -1,0 +1,15 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "python manage.py collectstatic --no-input"
+  },
+  "deploy": {
+    "preDeployCommand": "python manage.py migrate --no-input && python manage.py seed_rbac",
+    "startCommand": "gunicorn myproject.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 --graceful-timeout 30 --access-logfile - --error-logfile -",
+    "healthcheckPath": "/health/",
+    "healthcheckTimeout": 120,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5
+  }
+}

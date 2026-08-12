@@ -49,6 +49,32 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
+# Railway (and Render, via RENDER_EXTERNAL_HOSTNAME - same idea) injects
+# the domain it just assigned this deploy as an env var, known only
+# once Railway generates/attaches it - easy to forget to copy into
+# ALLOWED_HOSTS/CSRF_TRUSTED_ORIGINS by hand after the fact, and every
+# request (including the platform's own health check) 400s with
+# DisallowedHost until someone does. Auto-trusting it removes that
+# manual step entirely without weakening anything: this only ever adds
+# the exact host Railway itself put this deployment behind, never a
+# wildcard. RAILWAY_PRIVATE_DOMAIN (the internal *.railway.internal
+# address other services on the project use to reach this one) is
+# added to ALLOWED_HOSTS only - it's never browsed to over HTTPS, so it
+# has no CSRF origin to trust.
+_railway_public_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "").strip()
+_railway_private_domain = os.getenv("RAILWAY_PRIVATE_DOMAIN", "").strip()
+
+if _railway_public_domain and _railway_public_domain not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_railway_public_domain)
+
+if _railway_private_domain and _railway_private_domain not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_railway_private_domain)
+
+if _railway_public_domain:
+    _railway_public_origin = f"https://{_railway_public_domain}"
+    if _railway_public_origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(_railway_public_origin)
+
 # Session/cookie hardening - Secure/SSL-redirect flags are conditioned
 # on DEBUG the same way the rest of this file already branches (see
 # ALLOWED_HOSTS/CSRF_TRUSTED_ORIGINS above): `manage.py runserver`
@@ -167,40 +193,64 @@ WSGI_APPLICATION = 'myproject.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+#
+# Two supported shapes, auto-detected by which env vars are present -
+# no separate settings flag to remember to flip per host:
+#
+# 1. DATABASE_URL (Railway's Postgres plugin - and Heroku-style hosts
+#    generally - injects this single connection string, not discrete
+#    DB_NAME/DB_USER/... vars under those names). Parsed with
+#    django-environ's own env.db(), already a dependency here.
+# 2. Discrete DB_NAME/DB_USER/DB_PASSWORD/DB_HOST/DB_PORT (Supabase,
+#    Render, local docker-compose - the original shape this project
+#    was built around). Used whenever DATABASE_URL isn't set, so every
+#    existing deployment/env-file is completely unaffected by this.
+#
+# Without this, a Railway deploy has no DB_HOST/DB_NAME/... set at all
+# (Railway never provisions those exact names), so env("DB_NAME") on
+# the discrete path below raises ImproperlyConfigured before the WSGI
+# app even finishes importing - the process never binds to $PORT, and
+# Railway's health check just times out waiting for a port that was
+# never going to open, surfacing as an upstream error with no useful
+# stack trace in the deploy logs.
+_database_url = env("DATABASE_URL", default="")
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-
-        "NAME": env("DB_NAME"),
-
-        "USER": env("DB_USER"),
-
-        "PASSWORD": env("DB_PASSWORD"),
-
-        "HOST": env("DB_HOST"),
-
-        "PORT": env("DB_PORT"),
-
-        # Without this, Django opens a fresh PostgreSQL connection
-        # (full TCP + auth handshake) on every single HTTP request and
-        # tears it down at the end - CONN_MAX_AGE keeps connections
-        # open and reused across requests instead. CONN_HEALTH_CHECKS
-        # (Django 4+) validates a reused connection isn't stale before
-        # handing it back out, so this stays safe across a Postgres
-        # restart/network blip rather than just being a raw perf flag.
-        "CONN_MAX_AGE": env.int("CONN_MAX_AGE", default=60),
-
-        "CONN_HEALTH_CHECKS": True,
-
-        # Supabase (and most hosted Postgres providers) require SSL on
-        # their public endpoint - "prefer" (psycopg2's own default)
-        # keeps a plain local docker-compose Postgres working
-        # unchanged, since that one has no SSL configured at all; set
-        # DB_SSLMODE=require in production (see DEPLOYMENT.md).
-        "OPTIONS": {"sslmode": env("DB_SSLMODE", default="prefer")},
+if _database_url:
+    DATABASES = {"default": env.db("DATABASE_URL")}
+    DATABASES["default"]["ENGINE"] = "django.db.backends.postgresql"
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": env("DB_NAME"),
+            "USER": env("DB_USER"),
+            "PASSWORD": env("DB_PASSWORD"),
+            "HOST": env("DB_HOST"),
+            "PORT": env("DB_PORT"),
+        }
     }
-}
+
+# Without this, Django opens a fresh PostgreSQL connection (full TCP +
+# auth handshake) on every single HTTP request and tears it down at the
+# end - CONN_MAX_AGE keeps connections open and reused across requests
+# instead. CONN_HEALTH_CHECKS (Django 4+) validates a reused connection
+# isn't stale before handing it back out, so this stays safe across a
+# Postgres restart/network blip rather than just being a raw perf flag.
+# Applies to both DATABASES shapes above.
+DATABASES["default"]["CONN_MAX_AGE"] = env.int("CONN_MAX_AGE", default=60)
+DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+
+# Supabase (and most hosted Postgres providers reached over the public
+# internet) require SSL on their public endpoint - "prefer" (psycopg2's
+# own default) keeps a plain local docker-compose Postgres working
+# unchanged, since that one has no SSL configured at all, and also
+# keeps a same-project internal connection (Railway's private network
+# between services, which isn't TLS-terminated) working unchanged; set
+# DB_SSLMODE=require for a public/cross-network Postgres endpoint (see
+# DEPLOYMENT.md). env.db() above doesn't populate OPTIONS on its own,
+# so this applies the same way regardless of which DATABASES shape was
+# selected.
+DATABASES["default"].setdefault("OPTIONS", {})["sslmode"] = env("DB_SSLMODE", default="prefer")
 
 
 # Password validation
