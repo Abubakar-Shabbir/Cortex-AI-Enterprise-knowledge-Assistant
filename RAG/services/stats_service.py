@@ -162,10 +162,17 @@ def get_dashboard_insights(user):
     }
 
 
-def get_analytics_data(user, days=14):
+def get_analytics_data(user, days=14, knowledge_overview=None):
     """
     Aggregates built entirely from real Document
     and QueryLog rows - no synthetic data.
+
+    `knowledge_overview`, when provided, is used as-is instead of
+    calling get_knowledge_overview(user) again - lets a caller that
+    already needs the full overview dict for its own purposes (e.g.
+    admin_dashboard_view, which also renders it directly) compute it
+    once and share it here instead of rebuilding the same topic
+    dataset twice per page load.
     """
 
     today = timezone.localdate()
@@ -219,7 +226,8 @@ def get_analytics_data(user, days=14):
     ai_task_status_labels = [ai_task_status_display.get(s, s) for s in ai_task_status_counts] or ["No runs yet"]
     ai_task_status_values = list(ai_task_status_counts.values()) or [0]
 
-    knowledge_overview = get_knowledge_overview(user)
+    if knowledge_overview is None:
+        knowledge_overview = get_knowledge_overview(user)
 
     top_docs = Document.objects.filter(user=user).order_by("-chunk_count")[:8]
 

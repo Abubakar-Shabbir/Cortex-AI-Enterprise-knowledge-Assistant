@@ -14,7 +14,7 @@ from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, F, Q, Sum
 from django.http import (
     FileResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseNotAllowed, JsonResponse,
     StreamingHttpResponse,
@@ -59,6 +59,7 @@ from .services.sharing_service import (
 from .services.tags_service import create_tag, delete_tag, list_tags, tag_document, untag_document
 from .services.knowledge_service import (
     ENTITY_TYPE_COLORS,
+    _build_topic_dataset,
     get_citation_explorer,
     get_document_knowledge,
     get_entity_type_color,
@@ -223,7 +224,8 @@ def admin_dashboard_view(request):
 
     stats = get_dashboard_stats(request.user)
     activity = get_recent_activity(request.user)
-    trends = get_analytics_data(request.user, days=7)
+    knowledge_overview = get_knowledge_overview(request.user)
+    trends = get_analytics_data(request.user, days=7, knowledge_overview=knowledge_overview)
 
     return render(
         request,
@@ -237,7 +239,7 @@ def admin_dashboard_view(request):
             "documents_over_time_ranges": DASHBOARD_CHART_RANGES,
             "document_types": get_document_type_breakdown(request.user),
             "recent_documents_table": get_recent_documents_table(request.user),
-            "knowledge_overview": get_knowledge_overview(request.user),
+            "knowledge_overview": knowledge_overview,
             **activity,
         },
     )
@@ -657,10 +659,9 @@ def documents_view(request):
     # Stat cards always reflect the full "My Documents" set, not the
     # currently filtered/paginated table below.
     total_documents = owned.count()
-    embedded_count = sum(
-        1 for doc in owned.annotate(embedded_chunks=Count("chunks__vector"))
-        if doc.chunk_count and doc.embedded_chunks >= doc.chunk_count
-    )
+    embedded_count = owned.annotate(embedded_chunks=Count("chunks__vector")).filter(
+        chunk_count__gt=0, embedded_chunks__gte=F("chunk_count")
+    ).count()
     total_storage = owned.aggregate(total=Sum("file_size"))["total"] or 0
     archived_count = owned.filter(is_archived=True).count()
     favorites_count = Favorite.objects.filter(user=request.user).count()
@@ -2006,12 +2007,12 @@ def admin_system_logs_view(request):
 
         listing = observability_service.list_traces(filters, page_size=25, page=page)
 
-        summary = {
-            "total": AIRequestTrace.objects.count(),
-            "failed": AIRequestTrace.objects.filter(status=AIRequestTrace.Status.FAILED).count(),
-            "ask_ai": AIRequestTrace.objects.filter(source=AIRequestTrace.Source.ASK_AI).count(),
-            "ai_task": AIRequestTrace.objects.filter(source=AIRequestTrace.Source.AI_TASK).count(),
-        }
+        summary = AIRequestTrace.objects.aggregate(
+            total=Count("id"),
+            failed=Count("id", filter=Q(status=AIRequestTrace.Status.FAILED)),
+            ask_ai=Count("id", filter=Q(source=AIRequestTrace.Source.ASK_AI)),
+            ai_task=Count("id", filter=Q(source=AIRequestTrace.Source.AI_TASK)),
+        )
 
         # Pending/running AI Task runs, admin-wide (not scoped to
         # request.user, unlike ai_task_status/ai_task_results) - the one
@@ -2874,19 +2875,25 @@ def knowledge_base_view(request):
     sidebar, keeping the main nav to one entry per section.
     """
 
-    overview = get_knowledge_overview(request.user)
+    # Built once and shared below - overview/insights/search_topics
+    # each need "this user's visible topics/relationships", and
+    # independently rebuilding it 3x per page load was the previous
+    # behavior (~5 duplicate queries each).
+    dataset = _build_topic_dataset(request.user)
+
+    overview = get_knowledge_overview(request.user, dataset=dataset)
 
     # Reuses get_knowledge_insights() (already computed for the Insights
     # tab) rather than a second aggregation - just surfaces a couple of
     # its fields (processing status, recent activity) here too, as an
     # at-a-glance preview with a link to the full Insights tab.
-    insights = get_knowledge_insights(request.user)
+    insights = get_knowledge_insights(request.user, dataset=dataset)
 
     query = request.GET.get("q", "").strip()
     entity_type = request.GET.get("type", "").strip()
 
     topics_page = search_topics(
-        request.user, query=query, entity_type=entity_type, page=request.GET.get("page")
+        request.user, query=query, entity_type=entity_type, page=request.GET.get("page"), dataset=dataset
     )
 
     return render(

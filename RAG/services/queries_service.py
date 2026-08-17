@@ -114,7 +114,15 @@ def get_queries_analytics(logs_queryset):
     for any "queries.view_all_logs" holder.
     """
 
-    total = logs_queryset.count()
+    counts = logs_queryset.aggregate(
+        total=Count("id"),
+        not_found=Count("id", filter=Q(answer__icontains="couldn't find the answer")),
+        flagged_count=Count("id", filter=Q(is_flagged=True)),
+        avg_confidence=Avg("confidence"),
+        avg_response_time=Avg("response_time_ms"),
+    )
+
+    total = counts["total"]
 
     if total == 0:
         return {
@@ -126,15 +134,8 @@ def get_queries_analytics(logs_queryset):
             "top_method": "—",
         }
 
-    not_found = logs_queryset.filter(answer__icontains="couldn't find the answer").count()
-    answered_pct = round(((total - not_found) / total) * 100)
-
-    aggregates = logs_queryset.aggregate(
-        avg_confidence=Avg("confidence"),
-        avg_response_time=Avg("response_time_ms"),
-    )
-
-    flagged_count = logs_queryset.filter(is_flagged=True).count()
+    answered_pct = round(((total - counts["not_found"]) / total) * 100)
+    flagged_count = counts["flagged_count"]
 
     top_method_row = (
         logs_queryset.values("search_method")
@@ -146,8 +147,8 @@ def get_queries_analytics(logs_queryset):
     return {
         "total": total,
         "answered_pct": answered_pct,
-        "avg_confidence": round(aggregates["avg_confidence"] or 0),
-        "avg_response_time": round(aggregates["avg_response_time"] or 0),
+        "avg_confidence": round(counts["avg_confidence"] or 0),
+        "avg_response_time": round(counts["avg_response_time"] or 0),
         "flagged_count": flagged_count,
         "top_method": top_method_row["search_method"] if top_method_row else "—",
     }

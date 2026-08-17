@@ -51,6 +51,7 @@ def bm25_search(
     top_k,
     filters=None,
     user=None,
+    accessible_document_ids=None,
 ):
     """
     Perform BM25 keyword search over `user`'s accessible document
@@ -60,6 +61,10 @@ def bm25_search(
     `user` is required for a non-empty result - a missing `user`
     fails closed (returns []) rather than indexing every user's
     chunks, matching graph_search()'s existing precedent.
+
+    `accessible_document_ids`, when provided, is used as-is instead of
+    recomputing it here - lets retrieve_chunks() compute it once and
+    share it across vector/BM25/graph search.
 
     The built BM25Okapi index (the expensive part - loading every
     accessible chunk and tokenizing the whole corpus) is cached per
@@ -78,14 +83,16 @@ def bm25_search(
         return []
 
     try:
-        return _bm25_search_impl(question, top_k, filters, user)
+        return _bm25_search_impl(question, top_k, filters, user, accessible_document_ids)
     except Exception:
         logger.exception("BM25 search failed")
         return []
 
 
-def _bm25_search_impl(question, top_k, filters, user):
-    accessible_ids = get_accessible_document_ids(user)
+def _bm25_search_impl(question, top_k, filters, user, accessible_document_ids=None):
+    accessible_ids = (
+        accessible_document_ids if accessible_document_ids is not None else get_accessible_document_ids(user)
+    )
 
     if not accessible_ids:
         return []

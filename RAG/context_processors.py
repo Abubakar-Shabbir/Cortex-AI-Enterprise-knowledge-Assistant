@@ -2,7 +2,7 @@ from django.core.cache import cache
 
 from .models import Document, QueryLog
 from .services import notification_service
-from .services.permission_service import get_user_permission_codenames, get_user_role, has_admin_area_access
+from .services.permission_service import get_user_access_snapshot
 from .services.stats_service import get_system_status
 
 # Maps a URL name to its breadcrumb trail: a list of (label, url_name)
@@ -127,6 +127,14 @@ def sidebar_status(request):
 
     events.sort(key=lambda e: e["at"], reverse=True)
 
+    # Computed once and shared below instead of calling
+    # has_admin_area_access()/get_user_permission_codenames()/
+    # get_user_role() independently - each of those re-queries
+    # UserRole (and, for a non-Admin role, the permission M2M) on its
+    # own, so calling all three back to back cost up to 4 duplicate
+    # queries on every authenticated page load.
+    role, can_view_admin_area, user_permissions = get_user_access_snapshot(request.user)
+
     return {
         "system_status": cache.get_or_set(
             "rag_system_status",
@@ -138,12 +146,12 @@ def sidebar_status(request):
         # admin-area permission (drives which sidebar shell renders -
         # see base.html); real per-page access is still enforced by
         # each view's own @permission_required.
-        "can_view_admin_area": has_admin_area_access(request.user),
+        "can_view_admin_area": can_view_admin_area,
         # Every permission codename the current viewer's role grants -
         # sorted list so nav templates can do
         # `{% if "pages.documents" in user_permissions %}` and
         # json_script it into partials/_command_palette.html.
-        "user_permissions": get_user_permission_codenames(request.user),
+        "user_permissions": user_permissions,
         # Deliberately uncached (see notification_service.get_unread_count's
         # own docstring) - must reflect mark_read/mark_all_read on the
         # very next page render, unlike the 30s-cached system_status
@@ -154,5 +162,5 @@ def sidebar_status(request):
         # show the real, current role name instead of a hardcoded
         # Administrator/Member label that doesn't reflect custom roles
         # created via Admin > Roles.
-        "sidebar_role": get_user_role(request.user),
+        "sidebar_role": role,
     }

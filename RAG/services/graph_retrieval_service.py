@@ -152,7 +152,7 @@ def _expand_neighbors(matched_entities, accessible_document_ids):
     return list(entities_by_id.values())
 
 
-def graph_search(question: str, user, top_k: int, filters=None):
+def graph_search(question: str, user, top_k: int, filters=None, accessible_document_ids=None):
     """
     Retrieve chunks connected to the question's entities via the
     knowledge graph, scoped to `user`'s full accessible document set
@@ -162,13 +162,18 @@ def graph_search(question: str, user, top_k: int, filters=None):
     existing vector+BM25-only behavior), no accessible documents, or
     no entities matched - this is intentionally a pure addition to
     retrieval, never a replacement.
+
+    `accessible_document_ids`, when provided, is used as-is instead of
+    recomputing it here - lets retrieve_chunks() compute it once and
+    share it across vector/BM25/graph search.
     """
 
     if user is None:
         return []
 
     try:
-        accessible_document_ids = get_accessible_document_ids(user)
+        if accessible_document_ids is None:
+            accessible_document_ids = get_accessible_document_ids(user)
 
         if not accessible_document_ids:
             return []

@@ -22,7 +22,7 @@ from .retrieval_filters import apply_document_filters
 logger = logging.getLogger(__name__)
 
 
-def _vector_similarity_search(embedding, top_k, search_type="vector", filters=None, user=None):
+def _vector_similarity_search(embedding, top_k, search_type="vector", filters=None, user=None, accessible_document_ids=None):
     """
     Shared pgvector L2Distance nearest-neighbor lookup. Both
     vector_search() (embeds the question) and hyde_search() (embeds a
@@ -39,6 +39,11 @@ def _vector_similarity_search(embedding, top_k, search_type="vector", filters=No
     accessible set (owned + Organization Library + shared-with-them),
     not just documents they own - see document_access_service.
 
+    `accessible_document_ids`, when provided, is used as-is instead of
+    recomputing it here - lets retrieve_chunks() compute it once and
+    share it across vector/BM25/graph search rather than each source
+    independently re-running the same accessible-scope query.
+
     Never raises, matching graph_search()/hyde_search()'s "a failed
     source degrades to no contribution" contract - previously this had
     no try/except at all, unlike every other retrieval source, so a DB
@@ -50,7 +55,9 @@ def _vector_similarity_search(embedding, top_k, search_type="vector", filters=No
         return []
 
     try:
-        accessible_ids = get_accessible_document_ids(user)
+        accessible_ids = (
+            accessible_document_ids if accessible_document_ids is not None else get_accessible_document_ids(user)
+        )
 
         if not accessible_ids:
             return []
@@ -100,7 +107,7 @@ def _vector_similarity_search(embedding, top_k, search_type="vector", filters=No
         return []
 
 
-def vector_search(question, top_k=None, filters=None, user=None):
+def vector_search(question, top_k=None, filters=None, user=None, accessible_document_ids=None):
     """
     Semantic Vector Search
 
@@ -121,10 +128,11 @@ def vector_search(question, top_k=None, filters=None, user=None):
         search_type="vector",
         filters=filters,
         user=user,
+        accessible_document_ids=accessible_document_ids,
     )
 
 
-def hyde_search(question, top_k=None, filters=None, user=None):
+def hyde_search(question, top_k=None, filters=None, user=None, accessible_document_ids=None):
     """
     HyDE Retrieval (Hypothetical Document Embeddings)
 
@@ -152,6 +160,7 @@ def hyde_search(question, top_k=None, filters=None, user=None):
         search_type="hyde",
         filters=filters,
         user=user,
+        accessible_document_ids=accessible_document_ids,
     )
 
 
@@ -271,6 +280,12 @@ def retrieve_chunks(question, user=None, filters=None, top_k=None):
         logger.info("[PERF] retrieve_chunks TOTAL %8.1fms cache=hit results=%d", overall_timer.stop(), len(cached))
         return cached
 
+    # Computed once and shared across vector/BM25/graph/HyDE/multi-query
+    # below instead of each source independently re-running the same
+    # "which documents can this user see" query - previously 3+ identical
+    # queries per question (more with HyDE/multi-query enabled).
+    accessible_document_ids = get_accessible_document_ids(user) if user is not None else None
+
     # When reranking is enabled, over-fetch a larger candidate pool
     # from each source so the reranker has real alternatives to
     # reorder, rather than just re-scoring an already-truncated list.
@@ -304,7 +319,10 @@ def retrieve_chunks(question, user=None, filters=None, top_k=None):
 
         def _bm25_after_expansion():
             lexical_query = expansion_future.result() if expansion_future is not None else question
-            return bm25_search(lexical_query, retrieval_top_k, filters=filters, user=user)
+            return bm25_search(
+                lexical_query, retrieval_top_k, filters=filters, user=user,
+                accessible_document_ids=accessible_document_ids,
+            )
 
         # Every submit below preserves each function's own original
         # positional-vs-keyword calling convention exactly (not just
@@ -313,17 +331,20 @@ def retrieve_chunks(question, user=None, filters=None, top_k=None):
         # each call site consistent with that function's own signature
         # elsewhere in the codebase.
         vector_future = _submit_timed(
-            executor, "vector search", vector_search, question, top_k=retrieval_top_k, filters=filters, user=user
+            executor, "vector search", vector_search, question, top_k=retrieval_top_k, filters=filters, user=user,
+            accessible_document_ids=accessible_document_ids,
         )
         bm25_future = _submit_timed(executor, "hybrid search (BM25)", _bm25_after_expansion)
         graph_future = _submit_timed(
-            executor, "knowledge graph retrieval", graph_search, question, user, retrieval_top_k, filters=filters
+            executor, "knowledge graph retrieval", graph_search, question, user, retrieval_top_k, filters=filters,
+            accessible_document_ids=accessible_document_ids,
         )
 
         hyde_future = None
         if settings.ENABLE_HYDE:
             hyde_future = _submit_timed(
-                executor, "HyDE retrieval", hyde_search, question, top_k=retrieval_top_k, filters=filters, user=user
+                executor, "HyDE retrieval", hyde_search, question, top_k=retrieval_top_k, filters=filters, user=user,
+                accessible_document_ids=accessible_document_ids,
             )
 
         multi_query_future = None
@@ -337,6 +358,7 @@ def retrieve_chunks(question, user=None, filters=None, top_k=None):
             multi_query_future = _submit_timed(
                 executor, "multi-query retrieval", multi_query_search,
                 question, top_k=retrieval_top_k, filters=filters, user=user,
+                accessible_document_ids=accessible_document_ids,
             )
 
         vector_results = vector_future.result()

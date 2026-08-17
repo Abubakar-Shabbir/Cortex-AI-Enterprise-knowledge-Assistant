@@ -590,7 +590,7 @@ class MultiQuerySearchTests(unittest.TestCase):
 
         call_count = {"n": 0}
 
-        def flaky_vector_search(variant, top_k=None, filters=None, user=None):
+        def flaky_vector_search(variant, top_k=None, filters=None, user=None, accessible_document_ids=None):
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise RuntimeError("transient failure")

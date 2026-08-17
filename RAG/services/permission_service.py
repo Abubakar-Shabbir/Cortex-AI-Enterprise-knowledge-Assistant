@@ -211,7 +211,6 @@ def get_user_permission_codenames(user):
     return sorted(get_user_permission_set(user))
 
 
-
 # Codename prefixes that gate at least one /admin/* view (see
 # RAG/urls.py's admin_* routes and their @permission_required /
 # settings_access_required / system_logs_access_required decorators).
@@ -250,6 +249,29 @@ def has_admin_area_access(user):
         codename.startswith(ADMIN_AREA_PERMISSION_PREFIXES)
         for codename in get_user_permission_set(user)
     )
+
+
+def get_user_access_snapshot(user):
+    """
+    role, has_admin_area_access(user), and get_user_permission_codenames(user)
+    computed from a single get_user_role() call and a single
+    role-permissions fetch, rather than each of those three calls
+    independently re-querying UserRole (and, for a non-Admin role, the
+    permission M2M) on its own. Same results as calling the three
+    individually - this is purely a shared-computation shortcut for a
+    caller (context_processors.sidebar_status, which needs all three
+    on every authenticated page load) that would otherwise call all
+    three back to back.
+    """
+
+    role = get_user_role(user)
+    permission_set = _role_permission_set(role)
+    is_admin_role = bool(role and role.slug == ADMIN)
+    admin_area_access = is_admin_role or any(
+        codename.startswith(ADMIN_AREA_PERMISSION_PREFIXES) for codename in permission_set
+    )
+
+    return role, admin_area_access, sorted(permission_set)
 
 
 def has_any_settings_permission(user):

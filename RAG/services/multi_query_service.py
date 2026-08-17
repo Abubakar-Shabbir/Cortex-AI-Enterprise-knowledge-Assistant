@@ -64,6 +64,7 @@ def multi_query_search(
     filters=None,
     num_variants: Optional[int] = None,
     user=None,
+    accessible_document_ids=None,
 ) -> list:
     """
     Retrieve using several LLM-generated phrasings of `question` in
@@ -78,7 +79,10 @@ def multi_query_search(
     `user` is forwarded to vector_search()/bm25_search() unchanged -
     both fail closed (return []) without it, so an omitted `user`
     here simply yields no fused results rather than searching every
-    user's chunks.
+    user's chunks. `accessible_document_ids`, when provided (e.g. by
+    retrieve_chunks(), which computes it once for the whole hybrid
+    retrieval call), is forwarded the same way so each variant's
+    vector_search()/bm25_search() call doesn't re-derive it.
     """
 
     top_k = top_k or settings.TOP_K
@@ -105,8 +109,14 @@ def multi_query_search(
     for variant in extra_variants:
 
         try:
-            ranked_lists.append(vector_search(variant, top_k=top_k, filters=filters, user=user))
-            ranked_lists.append(bm25_search(variant, top_k, filters=filters, user=user))
+            ranked_lists.append(vector_search(
+                variant, top_k=top_k, filters=filters, user=user,
+                accessible_document_ids=accessible_document_ids,
+            ))
+            ranked_lists.append(bm25_search(
+                variant, top_k, filters=filters, user=user,
+                accessible_document_ids=accessible_document_ids,
+            ))
         except Exception:
             logger.exception(
                 "Multi-query retrieval: search failed for variant %r", variant

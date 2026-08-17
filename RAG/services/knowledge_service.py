@@ -313,7 +313,7 @@ def _bucket_documents(documents):
 # Explore Topics
 # ==========================================================================
 
-def get_knowledge_overview(user):
+def get_knowledge_overview(user, dataset=None):
     """
     Summary counts + category breakdown for Explore Topics.
 
@@ -321,9 +321,17 @@ def get_knowledge_overview(user):
     counts (a plain .count() query) - deliberately NOT derived from
     get_knowledge_insights()'s `not_processed` list, which is capped at
     8 rows for display and would silently under-report past that.
+
+    `dataset`, when provided (an already-built _build_topic_dataset()
+    result), is used as-is instead of rebuilding it - lets a caller
+    that needs more than one of get_knowledge_overview()/
+    get_knowledge_insights()/search_topics() in the same request (e.g.
+    knowledge_base_view) build the ~5-query dataset once and share it,
+    instead of each function rebuilding it independently.
     """
 
-    dataset = _build_topic_dataset(user)
+    if dataset is None:
+        dataset = _build_topic_dataset(user)
     topics = dataset["topics"]
     accessible_document_ids = dataset["accessible_document_ids"]
 
@@ -389,15 +397,29 @@ def _build_category_breakdown(categories):
     return breakdown
 
 
-def search_topics(user, query="", entity_type="", page=1):
-    """Paginated, optionally filtered Topic list, ordered by aggregated mention count."""
+def search_topics(user, query="", entity_type="", page=1, dataset=None):
+    """
+    Paginated, optionally filtered Topic list, ordered by aggregated
+    mention count.
 
-    accessible_document_ids = get_accessible_document_ids(user)
+    `dataset`, when provided, supplies the already-computed
+    accessible_document_ids/visible_entity_ids instead of recomputing
+    them - see get_knowledge_overview()'s docstring for why. The
+    entity query itself still runs fresh (query/entity_type filtering
+    needs to happen in the database, not by re-filtering an
+    already-fetched Python list).
+    """
+
+    if dataset is not None:
+        accessible_document_ids = dataset["accessible_document_ids"]
+        visible_entity_ids = dataset["visible_entity_ids"]
+    else:
+        accessible_document_ids = get_accessible_document_ids(user)
+        visible_entity_ids = _visible_entity_ids(accessible_document_ids) if accessible_document_ids else set()
 
     if not accessible_document_ids:
         return Paginator([], ENTITIES_PER_PAGE).get_page(page)
 
-    visible_entity_ids = _visible_entity_ids(accessible_document_ids)
     entities = Entity.objects.filter(id__in=visible_entity_ids)
 
     if query:
@@ -914,16 +936,20 @@ def get_related_topics_for_citations(user, citations, limit=6):
 # Knowledge Insights
 # ==========================================================================
 
-def get_knowledge_insights(user):
+def get_knowledge_insights(user, dataset=None):
     """
     Read-only aggregates over the viewer's accessible knowledge - no
     LLM calls (that's Document Analysis, which belongs to AI Tasks, not
     here). See knowledge_service module docstring / CLAUDE.md for which
     insights are genuinely buildable this way and which are
     intentionally deferred (missing/conflicting information).
+
+    `dataset`, when provided, is used as-is - see
+    get_knowledge_overview()'s docstring.
     """
 
-    dataset = _build_topic_dataset(user)
+    if dataset is None:
+        dataset = _build_topic_dataset(user)
     accessible_document_ids = dataset["accessible_document_ids"]
 
     if not accessible_document_ids:
