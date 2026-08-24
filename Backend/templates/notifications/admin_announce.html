@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Send Announcement{% endblock %}
+
+{% block content %}
+
+<div x-data="{ submitting: false }">
+
+  {% include "partials/_page_header.html" with icon="megaphone" title="Send Announcement" subtitle="Broadcast a system-wide notification to every active user, in-app and by email." %}
+
+  <div class="max-w-xl rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <form method="POST" @submit="submitting = true">
+      {% csrf_token %}
+
+      <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Title</label>
+      <input
+        type="text"
+        name="title"
+        maxlength="200"
+        required
+        placeholder="e.g. Scheduled maintenance tonight"
+        class="mb-4 w-full rounded-lg border border-line bg-surface p-3 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
+      >
+
+      <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Message</label>
+      <textarea
+        name="message"
+        rows="4"
+        maxlength="500"
+        required
+        placeholder="What do you want every user to know?"
+        class="mb-4 w-full resize-none rounded-lg border border-line bg-surface p-3 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
+      ></textarea>
+
+      <button
+        type="submit"
+        :disabled="submitting"
+        class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-70"
+      >
+        <i data-lucide="loader-2" class="h-4 w-4 animate-spin" x-show="submitting"></i>
+        <i data-lucide="send" class="h-4 w-4" x-show="!submitting"></i>
+        <span x-text="submitting ? 'Sending…' : 'Send to everyone'"></span>
+      </button>
+    </form>
+  </div>
+
+</div>
+
+{% endblock %}

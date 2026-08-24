@@ -1,0 +1,70 @@
+{% comment %}
+System Status — real live checks, reusing the same system_status
+context var the app's shared sidebar/Monitoring page already read
+(supplied globally by context_processors.sidebar_status). No new
+health checks were added here.
+{% endcomment %}
+
+<div class="flex h-full flex-col rounded-xl border border-line bg-card p-3 shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+  <div class="mb-2 flex items-center justify-between">
+    <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">System Status</h2>
+    <span class="flex items-center gap-1.5 text-xs font-medium">
+      {% if system_status.db_online and system_status.pgvector_enabled and system_status.llm_configured %}
+        <span class="text-success dark:text-success-dark">All systems operational</span>
+        <span class="h-1.5 w-1.5 rounded-full bg-success dark:bg-success-dark"></span>
+      {% else %}
+        <span class="text-warning dark:text-warning-dark">Attention needed</span>
+        <span class="h-1.5 w-1.5 rounded-full bg-warning dark:bg-warning-dark"></span>
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="space-y-1.5 text-sm">
+
+    <div class="flex items-center justify-between">
+      <span class="flex items-center gap-2 text-muted dark:text-muted-dark"><i data-lucide="database" class="h-4 w-4"></i> PostgreSQL</span>
+      <span class="flex items-center gap-1.5 font-medium {% if system_status.db_online %}text-success dark:text-success-dark{% else %}text-danger dark:text-danger-dark{% endif %}">
+        <span class="h-1.5 w-1.5 rounded-full {% if system_status.db_online %}bg-success dark:bg-success-dark{% else %}bg-danger dark:bg-danger-dark{% endif %}"></span>
+        {% if system_status.db_online %}Healthy{% else %}Offline{% endif %}
+      </span>
+    </div>
+
+    <div class="flex items-center justify-between">
+      <span class="flex items-center gap-2 text-muted dark:text-muted-dark"><i data-lucide="boxes" class="h-4 w-4"></i> pgvector</span>
+      <span class="flex items-center gap-1.5 font-medium {% if system_status.pgvector_enabled %}text-success dark:text-success-dark{% else %}text-danger dark:text-danger-dark{% endif %}">
+        <span class="h-1.5 w-1.5 rounded-full {% if system_status.pgvector_enabled %}bg-success dark:bg-success-dark{% else %}bg-danger dark:bg-danger-dark{% endif %}"></span>
+        {% if system_status.pgvector_enabled %}Healthy{% else %}Not enabled{% endif %}
+      </span>
+    </div>
+
+    <div class="flex items-center justify-between">
+      <span class="flex items-center gap-2 text-muted dark:text-muted-dark"><i data-lucide="cpu" class="h-4 w-4"></i> Embedding Model</span>
+      <span class="flex items-center gap-1.5 font-medium text-success dark:text-success-dark" title="{{ system_status.embedding_model }}">
+        <span class="h-1.5 w-1.5 rounded-full bg-success dark:bg-success-dark"></span> Healthy
+      </span>
+    </div>
+
+    <div class="flex items-center justify-between">
+      <span class="flex items-center gap-2 text-muted dark:text-muted-dark"><i data-lucide="bot" class="h-4 w-4"></i> LLM ({% if system_status.llm_provider == "openrouter" %}OpenRouter{% else %}Gemini{% endif %})</span>
+      <span class="flex items-center gap-1.5 font-medium {% if system_status.llm_configured %}text-success dark:text-success-dark{% else %}text-warning dark:text-warning-dark{% endif %}" title="{{ system_status.llm_model }}">
+        <span class="h-1.5 w-1.5 rounded-full {% if system_status.llm_configured %}bg-success dark:bg-success-dark{% else %}bg-warning dark:bg-warning-dark{% endif %}"></span>
+        {% if system_status.llm_configured %}Healthy{% else %}Not configured{% endif %}
+      </span>
+    </div>
+
+    <div class="flex items-center justify-between">
+      <span class="flex items-center gap-2 text-muted dark:text-muted-dark"><i data-lucide="plug-zap" class="h-4 w-4"></i> API Services</span>
+      <span class="flex items-center gap-1.5 font-medium {% if system_status.db_online and system_status.llm_configured %}text-success dark:text-success-dark{% else %}text-warning dark:text-warning-dark{% endif %}">
+        <span class="h-1.5 w-1.5 rounded-full {% if system_status.db_online and system_status.llm_configured %}bg-success dark:bg-success-dark{% else %}bg-warning dark:bg-warning-dark{% endif %}"></span>
+        {% if system_status.db_online and system_status.llm_configured %}Healthy{% else %}Degraded{% endif %}
+      </span>
+    </div>
+
+  </div>
+
+  <a href="{% url 'monitoring' %}" class="mt-auto block rounded-lg bg-primary/10 px-3 py-1.5 text-center text-sm font-semibold text-primary transition-colors hover:bg-primary/15 dark:text-primary-soft">
+    View System Health
+  </a>
+
+</div>

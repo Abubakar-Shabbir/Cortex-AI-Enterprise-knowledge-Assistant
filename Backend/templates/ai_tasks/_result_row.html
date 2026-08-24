@@ -1,0 +1,205 @@
+{% load ai_tasks_extras %}
+{% comment %} _structured_findings.html renders result.data.key_points below - shared with Ask AI's answer card, see its own comment. {% endcomment %}
+{% comment %}
+Usage: {% include "ai_tasks/_result_row.html" with result=result is_corpus=True %}
+Shared across all 8 task types - branches on which `data` keys are
+present (a small, closed set ai_tasks_engine_service.py itself
+controls), not on run.task_type, so this stays one partial rather than
+eight templates.
+{% endcomment %}
+<div class="rounded-xl border {% if is_corpus %}border-primary/30 bg-primary/5 dark:border-primary/40 dark:bg-primary/10{% else %}border-line bg-card dark:border-line-dark dark:bg-card-dark{% endif %} p-5 shadow-soft">
+
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="flex items-center gap-2.5">
+      {% if is_corpus %}
+        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-white">
+          <i data-lucide="sparkles" class="h-4 w-4"></i>
+        </div>
+      {% else %}
+        <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
+          <i data-lucide="file-text" class="h-4 w-4"></i>
+        </div>
+      {% endif %}
+      <div>
+        <h3 class="text-sm font-semibold text-ink dark:text-ink-dark">{{ result.title }}</h3>
+        {% if result.rank %}<p class="text-xs text-muted dark:text-muted-dark">Rank #{{ result.rank }}</p>{% endif %}
+      </div>
+    </div>
+    {% if result.score is not None %}
+      <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold
+        {% if result.score >= 70 %} bg-success/10 text-success dark:text-success-dark
+        {% elif result.score >= 40 %} bg-warning/10 text-warning dark:text-warning-dark
+        {% else %} bg-danger/10 text-danger dark:text-danger-dark {% endif %}">
+        {{ result.score|floatformat:0 }}%
+      </span>
+    {% endif %}
+  </div>
+
+  {% if result.data.error %}
+    <p class="mt-3 text-sm text-danger dark:text-danger-dark">{{ result.summary }}</p>
+  {% else %}
+
+    {% if result.summary %}
+      {% comment %} render_citations (citation_service.render_answer_html()) can produce block HTML (Markdown) - div, not p, to avoid invalid block-in-<p> nesting. {% endcomment %}
+      <div class="mt-3 text-sm text-ink dark:text-ink-dark [&>*+*]:mt-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_strong]:font-semibold">{{ result.summary|render_citations }}</div>
+    {% endif %}
+
+    {% if result.data.cluster_label and not is_corpus %}
+      <p class="mt-2 text-xs text-muted dark:text-muted-dark">Group: <span class="font-medium text-ink dark:text-ink-dark">{{ result.data.cluster_label }}</span></p>
+    {% endif %}
+
+    {% if result.data.findings %}
+      <div class="mt-3">
+        <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Findings</p>
+        <ul class="space-y-1 text-sm text-ink dark:text-ink-dark">
+          {% for finding in result.data.findings %}
+            <li class="flex items-start gap-1.5"><i data-lucide="check" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-success dark:text-success-dark"></i> {{ finding.point }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    {% if result.data.missing_requirements %}
+      <div class="mt-3">
+        <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Missing Requirements</p>
+        <ul class="space-y-1 text-sm text-ink dark:text-ink-dark">
+          {% for item in result.data.missing_requirements %}
+            <li class="flex items-start gap-1.5"><i data-lucide="x" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger dark:text-danger-dark"></i> {{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    {% if result.data.common_gaps %}
+      <div class="mt-3">
+        <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Common Gaps</p>
+        <ul class="space-y-1 text-sm text-ink dark:text-ink-dark">
+          {% for item in result.data.common_gaps %}<li>• {{ item }}</li>{% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    {% if result.data.violations %}
+      <div class="mt-3">
+        <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Violations</p>
+        <ul class="space-y-1 text-sm text-ink dark:text-ink-dark">
+          {% for v in result.data.violations %}
+            <li class="flex items-start gap-1.5">
+              <span class="mt-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase
+                {% if v.severity == 'high' %} bg-danger/10 text-danger dark:text-danger-dark
+                {% elif v.severity == 'medium' %} bg-warning/10 text-warning dark:text-warning-dark
+                {% else %} bg-line text-muted dark:bg-white/10 dark:text-muted-dark {% endif %}">{{ v.severity|default:"—" }}</span>
+              {{ v.issue }}
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    {% if result.data.compliant_points %}
+      <div class="mt-3">
+        <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Compliant Points</p>
+        <ul class="space-y-1 text-sm text-ink dark:text-ink-dark">
+          {% for p in result.data.compliant_points %}
+            <li class="flex items-start gap-1.5"><i data-lucide="check" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-success dark:text-success-dark"></i> {{ p.point }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    {% include "partials/_structured_findings.html" with key_points=result.data.key_points %}
+
+    {% if result.data.topics or result.data.common_topics %}
+      <div class="mt-3 flex flex-wrap gap-1.5">
+        {% for topic in result.data.topics %}<span class="rounded-full bg-line px-2.5 py-0.5 text-xs text-muted dark:bg-white/10 dark:text-muted-dark">{{ topic }}</span>{% endfor %}
+        {% for topic in result.data.common_topics %}<span class="rounded-full bg-line px-2.5 py-0.5 text-xs text-muted dark:bg-white/10 dark:text-muted-dark">{{ topic }}</span>{% endfor %}
+      </div>
+    {% endif %}
+
+    {% if result.data.fields %}
+      <div class="mt-3 overflow-hidden rounded-lg border border-line dark:border-line-dark">
+        <table class="w-full text-left text-xs">
+          <tbody class="divide-y divide-line dark:divide-line-dark">
+            {% for name, field in result.data.fields.items %}
+              <tr>
+                <td class="px-3 py-2 font-medium text-muted dark:text-muted-dark">{{ name }}</td>
+                <td class="px-3 py-2 text-ink dark:text-ink-dark">{{ field.value|default:"—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+
+    {% if result.data.table %}
+      <div class="mt-3 overflow-x-auto rounded-lg border border-line dark:border-line-dark">
+        <table class="w-full min-w-[480px] text-left text-xs">
+          <thead class="bg-surface dark:bg-white/5">
+            <tr>
+              <th class="px-3 py-2 font-semibold text-muted dark:text-muted-dark">Document</th>
+              <th class="px-3 py-2 font-semibold text-muted dark:text-muted-dark">Extracted Fields</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-line dark:divide-line-dark">
+            {% for doc_title, fields in result.data.table.items %}
+              <tr>
+                <td class="px-3 py-2 font-medium text-ink dark:text-ink-dark">{{ doc_title }}</td>
+                <td class="px-3 py-2 text-muted dark:text-muted-dark">
+                  {% for name, field in fields.items %}{{ name }}: {{ field.value|default:"—" }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+
+    {% if result.data.dimensions %}
+      <div class="mt-3 space-y-2">
+        {% for dim in result.data.dimensions %}
+          <div class="rounded-lg border border-line p-2.5 text-sm dark:border-line-dark">
+            <p class="font-medium text-ink dark:text-ink-dark">{{ dim.dimension }}</p>
+            <div class="mt-0.5 text-xs text-muted dark:text-muted-dark [&_ul]:list-disc [&_ul]:pl-4 [&_strong]:font-semibold">{{ dim.finding|render_citations }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if result.data.relevant_points %}
+      <div class="mt-3">
+        <ul class="space-y-1 text-sm text-ink dark:text-ink-dark">
+          {% for point in result.data.relevant_points %}<li>• {{ point.point }}</li>{% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    {% if result.data.sections %}
+      <div class="mt-3 space-y-3">
+        {% for section in result.data.sections %}
+          <div>
+            <p class="text-sm font-semibold text-ink dark:text-ink-dark">{{ section.heading }}</p>
+            <div class="mt-1 text-sm text-muted dark:text-muted-dark [&>*+*]:mt-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_strong]:font-semibold">{{ section.body|render_citations }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if is_corpus and result.data.member_count %}
+      <p class="mt-3 text-xs text-muted dark:text-muted-dark">{{ result.data.member_count }} document{{ result.data.member_count|pluralize }} in this group.</p>
+    {% endif %}
+
+    {% if result.data.average_score is not None %}
+      <p class="mt-2 text-xs text-muted dark:text-muted-dark">{{ result.data.validated_count }} document(s) validated · average compliance {{ result.data.average_score }}%.</p>
+    {% endif %}
+
+    {% if result.citations %}
+      <div class="mt-3 flex flex-wrap gap-1.5 border-t border-line pt-3 dark:border-line-dark">
+        <span class="text-[11px] font-medium text-muted dark:text-muted-dark">Sources:</span>
+        {% for citation in result.citations %}
+          <span class="rounded-full border border-line px-2 py-0.5 text-[11px] text-muted dark:border-line-dark dark:text-muted-dark" title="{{ citation.document }}">[{{ citation.number }}] {{ citation.document|truncatechars:24 }}</span>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+  {% endif %}
+</div>

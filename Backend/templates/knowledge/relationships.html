@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Relationships{% endblock %}
+
+{% block content %}
+
+{% include "partials/_page_header.html" with icon="git-branch" title="Relationship Explorer" subtitle="Directed connections between topics across everything you can access, weighted by how often they're re-confirmed." %}
+
+{% include "partials/_kb_tabs.html" with active="relationships" %}
+
+<p class="mb-4 max-w-2xl text-sm text-muted dark:text-muted-dark">Relationships show how pieces of knowledge are connected — a source topic, a directed connection, and a target topic, reinforced each time it's found again across your documents.</p>
+
+<div class="mb-4 rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <form method="GET" class="flex flex-wrap items-center gap-3">
+    <select name="type" onchange="this.form.submit()" class="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+      <option value="">All relationship types</option>
+      {% for rtype in relation_types %}
+        <option value="{{ rtype }}" {% if selected_type == rtype %}selected{% endif %}>{{ rtype|lower }}</option>
+      {% endfor %}
+    </select>
+    {% if selected_type %}
+      <a href="{% url 'relationships' %}" class="text-sm font-medium text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark">Clear</a>
+    {% endif %}
+  </form>
+</div>
+
+<div class="overflow-hidden rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <div class="overflow-x-auto">
+    <table class="w-full text-left text-sm">
+      <thead class="border-b border-line bg-surface dark:border-line-dark dark:bg-white/5">
+        <tr class="text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">
+          <th class="px-5 py-3.5">Source</th>
+          <th class="px-5 py-3.5">Relationship</th>
+          <th class="px-5 py-3.5">Target</th>
+          <th class="px-5 py-3.5">Confirmations</th>
+          <th class="px-5 py-3.5">Last Updated</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-line dark:divide-line-dark">
+        {% for rel in relationships_page %}
+          <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
+            <td class="px-5 py-3.5">
+              <a href="{% url 'entity_detail' rel.source.id %}" class="inline-flex items-center gap-1.5 font-medium text-ink hover:text-primary dark:text-ink-dark dark:hover:text-primary-soft">
+                <span class="h-2 w-2 shrink-0 rounded-full" style="background-color: {{ rel.source.color }}"></span> {{ rel.source.display_name }}
+              </a>
+            </td>
+            <td class="px-5 py-3.5">
+              <span class="inline-flex items-center gap-1.5 rounded-full bg-primary-soft/40 px-2.5 py-1 text-xs font-medium text-primary dark:bg-primary/15 dark:text-primary-soft">
+                <i data-lucide="arrow-right" class="h-3 w-3"></i> {{ rel.relation_type|lower }}
+              </span>
+            </td>
+            <td class="px-5 py-3.5">
+              <a href="{% url 'entity_detail' rel.target.id %}" class="inline-flex items-center gap-1.5 font-medium text-ink hover:text-primary dark:text-ink-dark dark:hover:text-primary-soft">
+                <span class="h-2 w-2 shrink-0 rounded-full" style="background-color: {{ rel.target.color }}"></span> {{ rel.target.display_name }}
+              </a>
+            </td>
+            <td class="px-5 py-3.5 text-muted dark:text-muted-dark">×{{ rel.weight }}</td>
+            <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ rel.updated_at|timesince }} ago</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5">
+              {% include "partials/_empty_state.html" with icon="git-branch" title="No relationships yet" message="Relationships appear here once documents mentioning connected entities are processed." %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if relationships_page.paginator.num_pages > 1 %}
+    <div class="flex items-center justify-between border-t border-line px-5 py-3.5 dark:border-line-dark">
+      <p class="text-xs text-muted dark:text-muted-dark">Page {{ relationships_page.number }} of {{ relationships_page.paginator.num_pages }}</p>
+      <div class="flex gap-1.5">
+        {% if relationships_page.has_previous %}
+          <a href="?page={{ relationships_page.previous_page_number }}&type={{ selected_type }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Previous</a>
+        {% endif %}
+        {% if relationships_page.has_next %}
+          <a href="?page={{ relationships_page.next_page_number }}&type={{ selected_type }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Next</a>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}

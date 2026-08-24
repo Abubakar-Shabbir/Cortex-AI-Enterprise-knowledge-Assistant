@@ -1,0 +1,7 @@
+<div class="flex items-center justify-between gap-4 px-4 py-2.5">
+  <div>
+    <p class="text-sm font-medium text-ink dark:text-ink-dark">{{ label }}</p>
+    {% if description %}<p class="text-xs text-muted dark:text-muted-dark">{{ description }}</p>{% endif %}
+  </div>
+  <span class="shrink-0 rounded-lg bg-surface px-3 py-1.5 text-sm font-semibold text-ink dark:bg-white/5 dark:text-ink-dark">{{ value }}</span>
+</div>

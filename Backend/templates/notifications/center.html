@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Notifications{% endblock %}
+
+{% block content %}
+
+<div x-data="{ marking: false }">
+
+  {% include "partials/_page_header.html" with icon="bell" title="Notifications" subtitle="Everything that's happened across your account." %}
+
+  <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-wrap gap-1.5">
+      <a href="{% url 'notifications' %}" class="rounded-full border px-3 py-1.5 text-xs font-medium {% if not active_category %}border-primary bg-primary/10 text-primary dark:text-primary-soft{% else %}border-line text-ink hover:border-primary/30 dark:border-line-dark dark:text-ink-dark{% endif %}">All</a>
+      {% for cat in categories %}
+        <a href="?category={{ cat }}" class="rounded-full border px-3 py-1.5 text-xs font-medium capitalize {% if active_category == cat %}border-primary bg-primary/10 text-primary dark:text-primary-soft{% else %}border-line text-ink hover:border-primary/30 dark:border-line-dark dark:text-ink-dark{% endif %}">{{ cat }}</a>
+      {% endfor %}
+    </div>
+
+    <form method="POST" action="{% url 'notification_mark_all_read' %}" @submit="marking = true">
+      {% csrf_token %}
+      <button type="submit" :disabled="marking" class="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-xs font-medium text-ink transition-colors hover:border-primary/30 hover:text-primary disabled:opacity-60 dark:border-line-dark dark:text-ink-dark">
+        <i data-lucide="check-check" class="h-3.5 w-3.5"></i> Mark all as read
+      </button>
+    </form>
+  </div>
+
+  <div class="overflow-hidden rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+    {% if page_obj.object_list %}
+      <div class="divide-y divide-line dark:divide-line-dark">
+        {% for notification in page_obj %}
+          <a
+            href="{{ notification.action_url|default:'#' }}"
+            {% if not notification.is_read %}
+            @click="fetch('{% url 'notification_mark_read' notification.id %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })"
+            {% endif %}
+            class="flex items-start gap-3 px-5 py-4 transition-colors hover:bg-surface dark:hover:bg-white/5 {% if not notification.is_read %}bg-primary/[0.03] dark:bg-primary/[0.06]{% endif %}"
+          >
+            <div class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
+              <i data-lucide="{{ notification.icon }}" class="h-4 w-4"></i>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-medium text-ink dark:text-ink-dark">{{ notification.title }}</p>
+              <p class="mt-0.5 text-sm text-muted dark:text-muted-dark">{{ notification.message }}</p>
+              <p class="mt-1 text-xs text-muted dark:text-muted-dark">{{ notification.created_at|timesince }} ago</p>
+            </div>
+            {% if not notification.is_read %}
+              <span class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" title="Unread"></span>
+            {% endif %}
+          </a>
+        {% endfor %}
+      </div>
+
+      {% if page_obj.paginator.num_pages > 1 %}
+        <div class="flex items-center justify-between border-t border-line px-5 py-3 dark:border-line-dark">
+          <p class="text-xs text-muted dark:text-muted-dark">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} &middot; {{ page_obj.paginator.count }} total</p>
+          <div class="flex gap-2">
+            {% if page_obj.has_previous %}
+              <a href="?page={{ page_obj.previous_page_number }}{% if active_category %}&category={{ active_category }}{% endif %}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Previous</a>
+            {% endif %}
+            {% if page_obj.has_next %}
+              <a href="?page={{ page_obj.next_page_number }}{% if active_category %}&category={{ active_category }}{% endif %}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+    {% else %}
+      {% include "partials/_empty_state.html" with icon="bell" title="You're all caught up" message="Notifications about shared documents, AI Tasks, and account activity will show up here." %}
+    {% endif %}
+  </div>
+
+</div>
+
+{% endblock %}

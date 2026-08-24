@@ -1,0 +1,778 @@
+{% extends "base.html" %}
+
+{% block title %}System Logs{% endblock %}
+
+{% block content %}
+
+{% comment %}CSRF source for cancelRun()'s fetch POST - same #csrf-source pattern documents.html/admin/queries.html use for their own AJAX POSTs.{% endcomment %}
+<form id="csrf-source" class="hidden">{% csrf_token %}</form>
+
+<div x-data="systemLogsPage()">
+
+  {% include "partials/_page_header.html" with title="System Logs" subtitle="Every AI request trace, deduped application error, and workspace activity event — one page, one nav entry." %}
+
+  {% if can_view_traces %}
+    <div class="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+      {% include "partials/_stat_card.html" with label="Total Requests" icon="activity" value=summary.total numeric=True %}
+      {% include "partials/_stat_card.html" with label="Ask AI" icon="message-square-text" value=summary.ask_ai numeric=True %}
+      {% include "partials/_stat_card.html" with label="AI Tasks" icon="sparkles" value=summary.ai_task numeric=True %}
+      {% include "partials/_stat_card.html" with label="Failed" icon="triangle-alert" value=summary.failed numeric=True %}
+    </div>
+  {% endif %}
+
+  {% if can_view_traces and can_view_activity %}
+    <div class="mb-3 flex w-fit gap-1 rounded-xl border border-line bg-card p-1 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <button type="button" @click="activeTab = 'traces'"
+        :class="activeTab === 'traces' ? 'bg-primary text-white' : 'text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark'"
+        class="rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors">
+        Request Traces
+      </button>
+      <button type="button" @click="activeTab = 'errors'"
+        :class="activeTab === 'errors' ? 'bg-primary text-white' : 'text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark'"
+        class="rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors">
+        Error Groups
+        {% if eg_total %}<span class="ml-1 rounded-full bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold text-danger dark:text-danger-dark">{{ eg_total }}</span>{% endif %}
+      </button>
+      <button type="button" @click="activeTab = 'activity'"
+        :class="activeTab === 'activity' ? 'bg-primary text-white' : 'text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark'"
+        class="rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors">
+        Activity
+      </button>
+    </div>
+  {% elif can_view_traces %}
+    <div class="mb-3 flex w-fit gap-1 rounded-xl border border-line bg-card p-1 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <button type="button" @click="activeTab = 'traces'"
+        :class="activeTab === 'traces' ? 'bg-primary text-white' : 'text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark'"
+        class="rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors">
+        Request Traces
+      </button>
+      <button type="button" @click="activeTab = 'errors'"
+        :class="activeTab === 'errors' ? 'bg-primary text-white' : 'text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark'"
+        class="rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors">
+        Error Groups
+        {% if eg_total %}<span class="ml-1 rounded-full bg-danger/10 px-1.5 py-0.5 text-[10px] font-semibold text-danger dark:text-danger-dark">{{ eg_total }}</span>{% endif %}
+      </button>
+    </div>
+  {% endif %}
+
+  {% if can_view_traces %}
+  <div x-show="activeTab === 'traces'" x-cloak>
+
+  {% comment %}
+  Active (pending/running) AI Task Runs - the one gap the trace table
+  below can't fill: AIRequestTrace only gets a row once execute_run()
+  finishes (RAG.tasks.run_ai_task), so a run stuck at PENDING (most
+  commonly: the server process restarted mid-task and orphaned it -
+  AI Tasks have no inline fallback or automatic resume) is otherwise
+  invisible on this page until either it finishes or an admin thinks
+  to check AITaskRun in /admin/. This panel reads it directly instead.
+  Not live-polled (this page is otherwise a static filter-and-reload
+  page throughout) - Refresh or reload to see updated state; the
+  per-row Stop button reloads on success for the same reason.
+  {% endcomment %}
+  {% if active_ai_task_runs %}
+    <div class="mb-3 overflow-hidden rounded-2xl border border-warning/30 bg-warning/5 shadow-soft dark:border-warning-dark/30 dark:bg-warning-dark/10">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-warning/20 px-4 py-3 dark:border-warning-dark/20">
+        <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+          <span class="h-2 w-2 animate-pulse rounded-full bg-warning dark:bg-warning-dark"></span>
+          Active AI Task Runs
+          <span class="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-semibold text-warning dark:text-warning-dark">{{ active_ai_task_runs|length }}</span>
+        </h2>
+        <a href="{% url 'admin_system_logs' %}" class="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline dark:text-primary-soft">
+          <i data-lucide="refresh-cw" class="h-3 w-3"></i> Refresh
+        </a>
+      </div>
+      <div class="divide-y divide-warning/15 dark:divide-warning-dark/15">
+        {% for run in active_ai_task_runs %}
+          <div class="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium
+                  {% if run.status == 'running' %} bg-warning/15 text-warning dark:text-warning-dark
+                  {% else %} bg-line text-muted dark:bg-white/10 dark:text-muted-dark {% endif %}">
+                  {{ run.get_status_display }}
+                </span>
+                <a href="{% url 'ai_task_results' run.id %}" class="text-sm font-medium text-ink hover:text-primary dark:text-ink-dark dark:hover:text-primary-soft">{{ run.get_task_type_display }}</a>
+                <span class="text-xs text-muted dark:text-muted-dark">{{ run.user.username|default:"—" }} · {{ run.document_count }} doc{{ run.document_count|pluralize }} · {{ run.created_at|timesince }} ago</span>
+              </div>
+              {% if run.stuck_pending %}
+                <p class="mt-1 flex items-center gap-1.5 text-xs text-warning dark:text-warning-dark">
+                  <i data-lucide="alert-triangle" class="h-3 w-3 shrink-0"></i>
+                  This run may have been interrupted by a server restart — stop it and start a new one.
+                </p>
+              {% endif %}
+            </div>
+            <button type="button" @click="cancelRun({{ run.id }})" :disabled="cancellingRunId === {{ run.id }}"
+              class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-danger/30 bg-danger/5 px-2.5 py-1 text-xs font-medium text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-danger-dark/30 dark:text-danger-dark dark:hover:bg-danger-dark/10">
+              <i data-lucide="loader-2" class="h-3 w-3 animate-spin" x-show="cancellingRunId === {{ run.id }}"></i>
+              <i data-lucide="square" class="h-3 w-3" x-show="cancellingRunId !== {{ run.id }}"></i>
+              Stop
+            </button>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="mb-3 rounded-2xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <form method="GET" class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-7">
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Source</label>
+        <select name="source" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          <option value="ask_ai" {% if filters.source == "ask_ai" %}selected{% endif %}>Ask AI</option>
+          <option value="ai_task" {% if filters.source == "ai_task" %}selected{% endif %}>AI Task</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Status</label>
+        <select name="status" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          <option value="completed" {% if filters.status == "completed" %}selected{% endif %}>Completed</option>
+          <option value="failed" {% if filters.status == "failed" %}selected{% endif %}>Failed</option>
+          <option value="running" {% if filters.status == "running" %}selected{% endif %}>Running</option>
+          <option value="cancelled" {% if filters.status == "cancelled" %}selected{% endif %}>Cancelled</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Provider</label>
+        <select name="provider" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          {% for provider in filter_options.providers %}
+            <option value="{{ provider }}" {% if filters.provider == provider %}selected{% endif %}>{{ provider }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Model</label>
+        <select name="model" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          {% for model in filter_options.models %}
+            <option value="{{ model }}" {% if filters.model == model %}selected{% endif %}>{{ model }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Error type</label>
+        <select name="error_type" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          {% for error_type in filter_options.error_types %}
+            <option value="{{ error_type }}" {% if filters.error_type == error_type %}selected{% endif %}>{{ error_type }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">From</label>
+        <input type="date" name="date_from" value="{{ filters.date_from }}"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">To</label>
+        <input type="date" name="date_to" value="{{ filters.date_to }}"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      <div class="lg:col-span-2">
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Request ID</label>
+        <input type="text" name="trace_id" value="{{ filters.trace_id }}" placeholder="e.g. 2f986667"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      <div class="flex items-end gap-2 lg:col-span-2">
+        <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+          <i data-lucide="filter" class="h-4 w-4"></i> Apply
+        </button>
+        <a href="{% url 'admin_system_logs' %}" class="inline-flex items-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">
+          Reset
+        </a>
+      </div>
+    </form>
+  </div>
+
+  <div class="rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+    {% if traces %}
+      <div class="overflow-auto">
+        <table class="w-full min-w-[960px] text-left text-sm">
+          <thead class="sticky top-0 z-10 bg-card dark:bg-card-dark">
+            <tr class="border-b border-line text-xs font-semibold uppercase tracking-wide text-muted dark:border-line-dark dark:text-muted-dark">
+              <th class="px-4 py-2.5">Request ID</th>
+              <th class="px-3 py-2.5">Source</th>
+              <th class="px-3 py-2.5">User</th>
+              <th class="px-3 py-2.5">Status</th>
+              <th class="px-3 py-2.5">Provider / Model</th>
+              <th class="px-3 py-2.5 text-right">Duration</th>
+              <th class="px-3 py-2.5">Bottleneck</th>
+              <th class="px-3 py-2.5 text-right">Tokens</th>
+              <th class="px-3 py-2.5">When</th>
+              <th class="px-4 py-2.5 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-line dark:divide-line-dark">
+            {% for trace in traces %}
+              <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
+                <td class="px-4 py-2 font-mono text-xs text-ink dark:text-ink-dark">{{ trace.trace_id }}</td>
+                <td class="px-3 py-2 text-muted dark:text-muted-dark">{{ trace.get_source_display }}</td>
+                <td class="px-3 py-2 text-muted dark:text-muted-dark">{{ trace.user.username|default:"—" }}</td>
+                <td class="px-3 py-2">
+                  <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold
+                    {% if trace.status == "completed" %} bg-success/10 text-success dark:text-success-dark
+                    {% elif trace.status == "failed" %} bg-danger/10 text-danger dark:text-danger-dark
+                    {% elif trace.status == "cancelled" %} bg-line text-muted dark:bg-white/10 dark:text-muted-dark
+                    {% else %} bg-warning/10 text-warning dark:text-warning-dark {% endif %}">
+                    {{ trace.get_status_display }}
+                  </span>
+                </td>
+                <td class="px-3 py-2 text-muted dark:text-muted-dark">
+                  {{ trace.provider|default:"—" }}
+                  {% if trace.providers_attempted|length > 1 %}
+                    <span class="ml-1 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning" title="Fell back across {{ trace.providers_attempted|join:' → ' }}">fallback</span>
+                  {% endif %}
+                  <div class="text-xs">{{ trace.model|default:"" }}</div>
+                </td>
+                <td class="px-3 py-2 text-right text-muted dark:text-muted-dark">{{ trace.total_duration_ms }} ms</td>
+                <td class="px-3 py-2 text-muted dark:text-muted-dark">{{ trace.bottleneck_label|default:"—" }}</td>
+                <td class="px-3 py-2 text-right text-muted dark:text-muted-dark">{{ trace.total_tokens|default:"—" }}</td>
+                <td class="px-3 py-2 text-muted dark:text-muted-dark">{{ trace.created_at|timesince }} ago</td>
+                <td class="px-4 py-2 text-right">
+                  <button type="button" @click="openDetail('{{ trace.trace_id }}')"
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-ink transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary dark:border-line-dark dark:text-ink-dark dark:hover:bg-primary/10">
+                    <i data-lucide="eye" class="h-3.5 w-3.5"></i> View
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if num_pages > 1 %}
+        <div class="flex items-center justify-between border-t border-line px-4 py-2.5 dark:border-line-dark">
+          <p class="text-xs text-muted dark:text-muted-dark">Page {{ page }} of {{ num_pages }} · {{ total }} total</p>
+          <div class="flex gap-2">
+            {% if page > 1 %}
+              <a href="?{{ request.GET.urlencode }}&page={{ page|add:"-1" }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Previous</a>
+            {% endif %}
+            {% if page < num_pages %}
+              <a href="?{{ request.GET.urlencode }}&page={{ page|add:"1" }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      {% include "partials/_empty_state.html" with icon="terminal" title="No AI requests match these filters" %}
+    {% endif %}
+
+  </div>
+
+  </div>
+
+  <div x-show="activeTab === 'errors'" x-cloak>
+
+  <div class="mb-3 rounded-2xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <form method="GET" class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-6">
+      <input type="hidden" name="eg_page" value="1">
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Module</label>
+        <input type="text" name="eg_logger" value="{{ eg_filters.logger_name }}" placeholder="e.g. RAG.services.health_service"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Level</label>
+        <select name="eg_level" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          <option value="WARNING" {% if eg_filters.level == "WARNING" %}selected{% endif %}>Warning</option>
+          <option value="ERROR" {% if eg_filters.level == "ERROR" %}selected{% endif %}>Error</option>
+          <option value="CRITICAL" {% if eg_filters.level == "CRITICAL" %}selected{% endif %}>Critical</option>
+        </select>
+      </div>
+
+      <div class="sm:col-span-2">
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Message contains</label>
+        <input type="text" name="eg_q" value="{{ eg_filters.q }}" placeholder="e.g. connection refused"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">From</label>
+        <input type="date" name="eg_date_from" value="{{ eg_filters.date_from }}"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">To</label>
+        <input type="date" name="eg_date_to" value="{{ eg_filters.date_to }}"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      <div class="flex items-end gap-2 sm:col-span-2 lg:col-span-6">
+        <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+          <i data-lucide="filter" class="h-4 w-4"></i> Apply
+        </button>
+        <a href="{% url 'admin_system_logs' %}?tab=errors" class="inline-flex items-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">
+          Reset
+        </a>
+      </div>
+    </form>
+  </div>
+
+  <div class="rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+    {% if error_groups %}
+      <div class="overflow-auto">
+        <table class="w-full min-w-[860px] text-left text-sm">
+          <thead class="sticky top-0 z-10 bg-card dark:bg-card-dark">
+            <tr class="border-b border-line text-xs font-semibold uppercase tracking-wide text-muted dark:border-line-dark dark:text-muted-dark">
+              <th class="px-4 py-2.5">Module</th>
+              <th class="px-3 py-2.5">Level</th>
+              <th class="px-3 py-2.5">Severity</th>
+              <th class="px-3 py-2.5">Message</th>
+              <th class="px-3 py-2.5 text-right">Occurrences</th>
+              <th class="px-3 py-2.5">First Seen</th>
+              <th class="px-3 py-2.5">Last Seen</th>
+              <th class="px-4 py-2.5 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-line dark:divide-line-dark">
+            {% for group in error_groups %}
+              <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
+                <td class="px-4 py-2 font-mono text-xs text-ink dark:text-ink-dark" title="{{ group.logger_name }}">{{ group.logger_name|truncatechars:40 }}</td>
+                <td class="px-3 py-2">
+                  <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold
+                    {% if group.level == "CRITICAL" %} bg-danger/10 text-danger dark:text-danger-dark
+                    {% elif group.level == "ERROR" %} bg-danger/10 text-danger dark:text-danger-dark
+                    {% else %} bg-warning/10 text-warning dark:text-warning-dark {% endif %}">
+                    {{ group.level }}
+                  </span>
+                </td>
+                <td class="px-3 py-2">
+                  <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold
+                    {% if group.severity == "critical" %} bg-danger/10 text-danger dark:text-danger-dark
+                    {% elif group.severity == "high" %} bg-warning/10 text-warning dark:text-warning-dark
+                    {% else %} bg-muted/10 text-muted dark:text-muted-dark {% endif %}">
+                    {{ group.severity }}
+                  </span>
+                </td>
+                <td class="px-3 py-2 text-muted dark:text-muted-dark" title="{{ group.message }}">{{ group.message|truncatechars:60 }}</td>
+                <td class="px-3 py-2 text-right text-muted dark:text-muted-dark">×{{ group.occurrence_count }}</td>
+                <td class="px-3 py-2 text-muted dark:text-muted-dark">{{ group.first_seen|timesince }} ago</td>
+                <td class="px-3 py-2 text-muted dark:text-muted-dark">{{ group.last_seen|timesince }} ago</td>
+                <td class="px-4 py-2 text-right">
+                  <button type="button" @click="openErrorDetail({{ group.id }})"
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-ink transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary dark:border-line-dark dark:text-ink-dark dark:hover:bg-primary/10">
+                    <i data-lucide="eye" class="h-3.5 w-3.5"></i> View
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if eg_num_pages > 1 %}
+        <div class="flex items-center justify-between border-t border-line px-4 py-2.5 dark:border-line-dark">
+          <p class="text-xs text-muted dark:text-muted-dark">Page {{ eg_page }} of {{ eg_num_pages }} · {{ eg_total }} total</p>
+          <div class="flex gap-2">
+            {% if eg_page > 1 %}
+              <a href="?{{ request.GET.urlencode }}&eg_page={{ eg_page|add:"-1" }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Previous</a>
+            {% endif %}
+            {% if eg_page < eg_num_pages %}
+              <a href="?{{ request.GET.urlencode }}&eg_page={{ eg_page|add:"1" }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      {% include "partials/_empty_state.html" with icon="shield-check" title="No errors captured" subtitle="Every logger.warning()/error()/exception() call app-wide flows here automatically - nothing recent matches these filters." %}
+    {% endif %}
+
+  </div>
+
+  </div>
+  {% endif %}
+
+  {% if can_view_activity %}
+  <div x-show="activeTab === 'activity'" x-cloak>
+
+  <div class="mb-3 grid grid-cols-2 gap-2.5 {% if can_view_activity_location %}sm:grid-cols-4{% else %}sm:grid-cols-2{% endif %}">
+    {% include "partials/_stat_card.html" with label="Total Events" icon="activity" value=act_summary.total_events numeric=True %}
+    {% if can_view_activity_location %}
+      {% include "partials/_stat_card.html" with label="Tracked IPs" icon="globe" value=act_summary.tracked_ips numeric=True %}
+      {% include "partials/_stat_card.html" with label="Countries" icon="map-pin" value=act_summary.countries numeric=True %}
+    {% endif %}
+    {% include "partials/_stat_card.html" with label="Security Alerts" icon="shield-alert" value=act_summary.security_alerts numeric=True %}
+  </div>
+
+  {% if not can_view_activity_location %}
+    <div class="mb-3 flex items-center gap-2 rounded-xl border border-line bg-card px-3.5 py-2.5 text-xs text-muted shadow-soft dark:border-line-dark dark:bg-card-dark dark:text-muted-dark">
+      <i data-lucide="lock" class="h-3.5 w-3.5 shrink-0"></i>
+      IP address and location are hidden - your role doesn't hold the "View IP & location data" permission.
+    </div>
+  {% endif %}
+
+  <div class="mb-3 rounded-2xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <form method="GET" class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-6">
+      <input type="hidden" name="act_page" value="1">
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Event type</label>
+        <select name="act_type" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          {% for t in activity_types %}
+            <option value="{{ t }}" {% if act_filters.type == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Actor</label>
+        <input type="text" name="act_actor" value="{{ act_filters.actor }}" placeholder="username"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Description contains</label>
+        <input type="text" name="act_q" value="{{ act_filters.q }}" placeholder="e.g. deleted"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      {% if can_view_activity_location %}
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">IP / Location</label>
+        <input type="text" name="act_location" value="{{ act_filters.location }}" placeholder="IP, city, country…"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+      {% endif %}
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">From</label>
+        <input type="date" name="act_date_from" value="{{ act_filters.date_from }}"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">To</label>
+        <input type="date" name="act_date_to" value="{{ act_filters.date_to }}"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      <div class="flex items-end gap-2 sm:col-span-2 lg:col-span-6">
+        <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+          <i data-lucide="filter" class="h-4 w-4"></i> Apply
+        </button>
+        <a href="{% url 'admin_system_logs' %}?tab=activity" class="inline-flex items-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">
+          Reset
+        </a>
+      </div>
+    </form>
+  </div>
+
+  <div class="rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+    {% if act_page_obj %}
+      <div class="overflow-auto">
+        <table class="w-full {% if can_view_activity_location %}min-w-[860px]{% else %}min-w-[640px]{% endif %} text-left text-sm">
+          <thead class="sticky top-0 z-10 bg-card dark:bg-card-dark">
+            <tr class="border-b border-line text-xs font-semibold uppercase tracking-wide text-muted dark:border-line-dark dark:text-muted-dark">
+              <th class="px-4 py-2.5">Event</th>
+              <th class="px-3 py-2.5">Type</th>
+              <th class="px-3 py-2.5">Actor</th>
+              {% if can_view_activity_location %}<th class="px-3 py-2.5">IP / Location</th>{% endif %}
+              <th class="px-4 py-2.5 text-right">When</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-line dark:divide-line-dark">
+            {% for event in act_page_obj %}
+              <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
+                <td class="px-4 py-2">
+                  <span class="flex items-center gap-2 text-ink dark:text-ink-dark">
+                    <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full
+                      {% if event.category == "success" %} bg-success/10 text-success dark:text-success-dark
+                      {% elif event.category == "danger" %} bg-danger/10 text-danger dark:text-danger-dark
+                      {% elif event.category == "warning" %} bg-warning/10 text-warning dark:text-warning-dark
+                      {% else %} bg-primary/10 text-primary dark:text-primary-soft {% endif %}">
+                      <i data-lucide="{{ event.icon }}" class="h-3.5 w-3.5"></i>
+                    </span>
+                    {{ event.text }}
+                  </span>
+                </td>
+                <td class="px-3 py-2">
+                  <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold
+                    {% if event.category == "success" %} bg-success/10 text-success dark:text-success-dark
+                    {% elif event.category == "danger" %} bg-danger/10 text-danger dark:text-danger-dark
+                    {% elif event.category == "warning" %} bg-warning/10 text-warning dark:text-warning-dark
+                    {% else %} bg-muted/10 text-muted dark:text-muted-dark {% endif %}">
+                    {{ event.type }}
+                  </span>
+                </td>
+                <td class="px-3 py-2 text-muted dark:text-muted-dark">{{ event.actor }}</td>
+                {% if can_view_activity_location %}
+                <td class="px-3 py-2">
+                  {% if event.ip_address %}
+                    <div class="flex flex-col leading-tight">
+                      <span class="font-mono text-xs text-ink dark:text-ink-dark">{{ event.ip_address }}</span>
+                      {% if event.location %}
+                        <span class="flex items-center gap-1 text-xs text-muted dark:text-muted-dark">
+                          <i data-lucide="map-pin" class="h-3 w-3 shrink-0"></i> {{ event.location }}
+                        </span>
+                      {% else %}
+                        <span class="text-xs text-muted dark:text-muted-dark">Location unknown</span>
+                      {% endif %}
+                    </div>
+                  {% else %}
+                    <span class="text-xs text-muted dark:text-muted-dark">—</span>
+                  {% endif %}
+                </td>
+                {% endif %}
+                <td class="px-4 py-2 text-right text-muted dark:text-muted-dark">{{ event.at|timesince }} ago</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if act_page_obj.paginator.num_pages > 1 %}
+        <div class="flex items-center justify-between border-t border-line px-4 py-2.5 dark:border-line-dark">
+          <p class="text-xs text-muted dark:text-muted-dark">Page {{ act_page_obj.number }} of {{ act_page_obj.paginator.num_pages }} · {{ act_total }} total</p>
+          <div class="flex gap-2">
+            {% if act_page_obj.has_previous %}
+              <a href="?{{ request.GET.urlencode }}&act_page={{ act_page_obj.previous_page_number }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Previous</a>
+            {% endif %}
+            {% if act_page_obj.has_next %}
+              <a href="?{{ request.GET.urlencode }}&act_page={{ act_page_obj.next_page_number }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      {% include "partials/_empty_state.html" with icon="scroll-text" title="No activity matches these filters" %}
+    {% endif %}
+
+  </div>
+
+  </div>
+  {% endif %}
+
+  {% if can_view_traces %}
+  <!-- Trace detail modal -->
+  <div x-show="detail.open" x-cloak x-transition.opacity
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+    @click.self="closeDetail()">
+    <div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-line bg-card p-6 shadow-2xl dark:border-line-dark dark:bg-card-dark">
+      <template x-if="detail.loading">
+        <p class="text-sm text-muted dark:text-muted-dark">Loading…</p>
+      </template>
+      <template x-if="!detail.loading && detail.data">
+        <div class="space-y-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-xs font-medium uppercase tracking-wide text-muted dark:text-muted-dark"><span x-text="detail.data.source"></span> · <span x-text="detail.data.trace_id" class="font-mono"></span></p>
+              <p class="text-xs text-muted dark:text-muted-dark" x-text="detail.data.created_at"></p>
+            </div>
+            <button type="button" @click="closeDetail()" class="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5">
+              <i data-lucide="x" class="h-4 w-4"></i>
+            </button>
+          </div>
+
+          <div class="grid grid-cols-3 gap-3 text-center text-xs sm:grid-cols-4">
+            <div class="rounded-lg border border-line p-2 dark:border-line-dark">
+              <div class="font-semibold text-ink dark:text-ink-dark" x-text="detail.data.total_duration_ms + ' ms'"></div>
+              <div class="text-muted dark:text-muted-dark">Total Duration</div>
+            </div>
+            <div class="rounded-lg border border-line p-2 dark:border-line-dark">
+              <div class="font-semibold text-ink dark:text-ink-dark" x-text="detail.data.bottleneck_label || '—'"></div>
+              <div class="text-muted dark:text-muted-dark">Bottleneck</div>
+            </div>
+            <div class="rounded-lg border border-line p-2 dark:border-line-dark">
+              <div class="font-semibold text-ink dark:text-ink-dark" x-text="(detail.data.total_tokens ?? '—')"></div>
+              <div class="text-muted dark:text-muted-dark">Total Tokens</div>
+            </div>
+            <div class="rounded-lg border border-line p-2 dark:border-line-dark">
+              <div class="font-semibold text-ink dark:text-ink-dark" x-text="detail.data.retry_count"></div>
+              <div class="text-muted dark:text-muted-dark">Retries</div>
+            </div>
+          </div>
+
+          <div>
+            <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Provider</p>
+            <p class="text-sm text-ink dark:text-ink-dark">
+              <span x-text="detail.data.provider || '—'"></span> / <span x-text="detail.data.model || '—'"></span>
+              <template x-if="detail.data.providers_attempted && detail.data.providers_attempted.length > 1">
+                <span class="ml-2 text-xs text-warning">fell back across <span x-text="detail.data.providers_attempted.join(' → ')"></span></span>
+              </template>
+            </p>
+          </div>
+
+          <template x-if="detail.data.error_type">
+            <div class="rounded-lg border border-dashed border-danger/30 bg-danger/5 p-3 dark:border-danger-dark/30 dark:bg-danger/10">
+              <p class="text-xs font-semibold text-danger dark:text-danger-dark" x-text="detail.data.error_type"></p>
+              <p class="mt-0.5 text-xs text-muted dark:text-muted-dark" x-text="detail.data.error_message"></p>
+            </div>
+          </template>
+
+          <div>
+            <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Stage Timeline</p>
+            <p class="mb-1.5 text-[11px] text-muted dark:text-muted-dark">
+              <i data-lucide="triangle-alert" class="inline h-3 w-3 text-warning"></i> marks the bottleneck stage (<span x-text="detail.data.bottleneck_label || '—'"></span>) that accounted for the most of this request's total time; <i data-lucide="rotate-cw" class="inline h-3 w-3 text-muted dark:text-muted-dark"></i> marks a stage that retried or fell back across providers.
+            </p>
+            <div class="space-y-1">
+              <template x-for="(stage, idx) in detail.data.stages" :key="idx">
+                <div class="flex items-center justify-between rounded-lg border px-3 py-2 text-xs"
+                  :class="stage.tags && stage.tags.includes('bottleneck') ? 'border-warning/30 bg-warning/5 dark:border-warning-dark/30' : 'border-line dark:border-line-dark'">
+                  <span class="flex items-center gap-1.5 text-ink dark:text-ink-dark">
+                    <template x-if="stage.tags && stage.tags.includes('bottleneck')">
+                      <i data-lucide="triangle-alert" class="h-3.5 w-3.5 shrink-0 text-warning"></i>
+                    </template>
+                    <template x-if="!stage.tags || !stage.tags.includes('bottleneck')">
+                      <i data-lucide="check" class="h-3.5 w-3.5 shrink-0 text-success dark:text-success-dark"></i>
+                    </template>
+                    <template x-if="stage.tags && stage.tags.includes('retry')">
+                      <i data-lucide="rotate-cw" class="h-3.5 w-3.5 shrink-0 text-muted dark:text-muted-dark" title="retried / fell back"></i>
+                    </template>
+                    <span x-text="stage.name"></span>
+                  </span>
+                  <span class="font-mono text-muted dark:text-muted-dark" x-text="stage.duration_ms + ' ms'"></span>
+                </div>
+              </template>
+              <template x-if="!detail.data.stages || !detail.data.stages.length">
+                <p class="text-xs text-muted dark:text-muted-dark">No stage data recorded for this request.</p>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Error group detail modal -->
+  <div x-show="errorDetail.open" x-cloak x-transition.opacity
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+    @click.self="closeErrorDetail()">
+    <div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-line bg-card p-6 shadow-2xl dark:border-line-dark dark:bg-card-dark">
+      <template x-if="errorDetail.loading">
+        <p class="text-sm text-muted dark:text-muted-dark">Loading…</p>
+      </template>
+      <template x-if="!errorDetail.loading && errorDetail.data">
+        <div class="space-y-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-xs font-medium uppercase tracking-wide text-muted dark:text-muted-dark"><span x-text="errorDetail.data.level"></span> · <span x-text="errorDetail.data.logger_name" class="font-mono"></span></p>
+              <p class="text-xs text-muted dark:text-muted-dark">First seen <span x-text="errorDetail.data.first_seen"></span> · last seen <span x-text="errorDetail.data.last_seen"></span></p>
+            </div>
+            <button type="button" @click="closeErrorDetail()" class="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5">
+              <i data-lucide="x" class="h-4 w-4"></i>
+            </button>
+          </div>
+
+          <div class="grid grid-cols-3 gap-3 text-center text-xs">
+            <div class="rounded-lg border border-line p-2 dark:border-line-dark">
+              <div class="font-semibold text-ink dark:text-ink-dark" x-text="errorDetail.data.occurrence_count"></div>
+              <div class="text-muted dark:text-muted-dark">Occurrences</div>
+            </div>
+            <div class="rounded-lg border border-line p-2 dark:border-line-dark">
+              <div class="font-semibold text-ink dark:text-ink-dark" x-text="errorDetail.data.severity"></div>
+              <div class="text-muted dark:text-muted-dark">Severity</div>
+            </div>
+            <div class="rounded-lg border border-line p-2 dark:border-line-dark">
+              <div class="font-semibold text-ink dark:text-ink-dark" x-text="errorDetail.data.error_type || '—'"></div>
+              <div class="text-muted dark:text-muted-dark">Exception Type</div>
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-dashed border-danger/30 bg-danger/5 p-3 dark:border-danger-dark/30 dark:bg-danger/10">
+            <p class="whitespace-pre-wrap break-words text-xs text-ink dark:text-ink-dark" x-text="errorDetail.data.message"></p>
+          </div>
+
+          <div>
+            <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Recent Occurrences</p>
+            <div class="space-y-1">
+              <template x-for="(occ, idx) in errorDetail.data.occurrences" :key="idx">
+                <div class="flex items-center justify-between rounded-lg border border-line px-3 py-2 text-xs dark:border-line-dark">
+                  <span class="text-muted dark:text-muted-dark" x-text="occ.timestamp"></span>
+                  <template x-if="occ.trace_exists">
+                    <button type="button" @click="closeErrorDetail(); openDetail(occ.trace_id)"
+                      class="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 font-mono text-[11px] text-primary hover:bg-primary/5 dark:border-line-dark">
+                      <i data-lucide="external-link" class="h-3 w-3"></i> <span x-text="occ.trace_id"></span>
+                    </button>
+                  </template>
+                  <template x-if="!occ.trace_exists">
+                    <span class="font-mono text-[11px] text-muted dark:text-muted-dark" x-text="occ.trace_id || '—'"></span>
+                  </template>
+                </div>
+              </template>
+              <template x-if="!errorDetail.data.occurrences || !errorDetail.data.occurrences.length">
+                <p class="text-xs text-muted dark:text-muted-dark">No individual occurrence records kept for this error.</p>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  function systemLogsPage() {
+    return {
+      activeTab: '{{ default_tab }}',
+      detail: { open: false, loading: false, data: null },
+      errorDetail: { open: false, loading: false, data: null },
+      cancellingRunId: null,
+
+      cancelRun(runId) {
+        if (this.cancellingRunId) return;
+        if (!confirm('Stop this AI Task run? Results already produced are kept.')) return;
+        this.cancellingRunId = runId;
+        const csrftoken = document.querySelector('#csrf-source [name=csrfmiddlewaretoken]').value;
+        const cancelUrlTemplate = '{% url "ai_task_cancel" 999999999 %}';
+        fetch(cancelUrlTemplate.replace('999999999', runId), { method: 'POST', headers: { 'X-CSRFToken': csrftoken } })
+          .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+          .then(({ ok, data }) => {
+            if (!ok) { alert(data.error || 'Could not stop this run.'); this.cancellingRunId = null; return; }
+            window.location.reload();
+          })
+          .catch(() => { alert('Could not stop this run - check your connection.'); this.cancellingRunId = null; });
+      },
+
+      openDetail(traceId) {
+        this.detail = { open: true, loading: true, data: null };
+        fetch(`/admin/system-logs/traces/${traceId}/`)
+          .then(r => r.json())
+          .then(data => { this.detail = { open: true, loading: false, data }; $nextTick(() => window.lucide && window.lucide.createIcons()); });
+      },
+
+      closeDetail() {
+        this.detail = { open: false, loading: false, data: null };
+      },
+
+      openErrorDetail(groupId) {
+        this.errorDetail = { open: true, loading: true, data: null };
+        fetch(`/admin/system-logs/errors/${groupId}/`)
+          .then(r => r.json())
+          .then(data => { this.errorDetail = { open: true, loading: false, data }; $nextTick(() => window.lucide && window.lucide.createIcons()); });
+      },
+
+      closeErrorDetail() {
+        this.errorDetail = { open: false, loading: false, data: null };
+      },
+    };
+  }
+</script>
+{% endblock %}

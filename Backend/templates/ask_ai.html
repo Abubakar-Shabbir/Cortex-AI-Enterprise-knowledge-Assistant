@@ -1,0 +1,638 @@
+{% extends "base.html" %}
+
+{% block title %}AI Search{% endblock %}
+
+{% block extra_head %}
+  {% comment %}
+  Only loaded here (route-based, same pattern vis-network uses in
+  knowledge/graph.html) - streamAnswer() below needs a client-side
+  Markdown renderer + sanitizer for the live-typing phase, since the
+  server-rendered/sanitized HTML (citation_service.render_answer_html())
+  only arrives once at the very end (the "done" SSE event). Without
+  this, live tokens were appended as raw text - the model's own
+  Markdown ("**bold**", "```code```", bullet lists) showed up as
+  literal syntax while typing instead of being rendered.
+  {% endcomment %}
+  <script defer src="https://unpkg.com/marked@12/marked.min.js"></script>
+  <script defer src="https://unpkg.com/dompurify@3/dist/purify.min.js"></script>
+  {% comment %}
+  Blinking caret shown at the end of #ask-ai-live-answer while a token
+  stream is in flight (streamAnswer() toggles the "streaming-cursor"
+  class on that element once the first token arrives) - a ::after bar
+  rather than a text glyph so it doesn't depend on font coverage. The
+  whole element is discarded and replaced by the server-rendered
+  partial on the "done" SSE event, so the cursor disappears on its own
+  the moment streaming finishes - nothing has to explicitly remove it
+  on the success path, only on cancel (see stopStreaming()).
+  {% endcomment %}
+  <style>
+    @keyframes ask-ai-cursor-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+    .streaming-cursor::after {
+      content: '';
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      background-color: currentColor;
+      animation: ask-ai-cursor-blink 0.85s steps(1) infinite;
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+
+<div
+  x-data="askAiPage()"
+>
+
+  <div class="mb-6 flex items-center gap-3">
+    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary-light text-white shadow-soft">
+      <i data-lucide="sparkles" class="h-5 w-5"></i>
+    </div>
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">AI Search</h1>
+      <p class="text-sm text-muted dark:text-muted-dark">Ask anything about your uploaded documents — answers are grounded only in retrieved context.</p>
+    </div>
+  </div>
+
+  {% if suggested_questions %}
+    <div class="mb-6 flex flex-wrap items-center gap-2">
+      <span class="flex items-center gap-1 text-xs font-medium text-muted dark:text-muted-dark"><i data-lucide="wand-2" class="h-3.5 w-3.5"></i> Suggested:</span>
+      {% for suggestion in suggested_questions %}
+        <button
+          type="button"
+          @click="useQuestion('{{ suggestion|escapejs }}')"
+          class="rounded-full border border-line px-3 py-1.5 text-xs font-medium text-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-primary hover:text-primary hover:shadow-softer dark:border-line-dark dark:text-ink-dark dark:hover:border-primary-soft dark:hover:text-primary-soft"
+        >
+          {{ suggestion }}
+        </button>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+
+    <div class="min-w-0 space-y-6 lg:col-span-2">
+
+      <div class="relative overflow-hidden rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+        <form method="POST" @submit.prevent="streamAnswer($event)">
+          {% csrf_token %}
+          <textarea
+            x-ref="questionInput"
+            name="question"
+            x-model="question"
+            rows="4"
+            maxlength="2000"
+            required
+            placeholder="e.g. What are the key findings in the Q3 report?"
+            class="w-full resize-none rounded-lg border border-line bg-surface p-3.5 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
+            @keydown.enter.ctrl.prevent="$event.target.form.requestSubmit()"
+            @keydown.enter.meta.prevent="$event.target.form.requestSubmit()"
+          ></textarea>
+
+          <div class="mt-1 flex items-center justify-between">
+            <span class="text-[11px] text-muted dark:text-muted-dark">
+              <kbd class="rounded border border-line px-1 py-0.5 font-mono dark:border-line-dark">{% if "Mac" in request.META.HTTP_USER_AGENT %}⌘{% else %}Ctrl{% endif %}+Enter</kbd> to ask
+            </span>
+            <span class="text-[11px] text-muted dark:text-muted-dark" x-text="question.length + ' / 2000'"></span>
+          </div>
+
+          <div class="mt-3 flex flex-wrap items-end justify-between gap-3">
+            <div class="flex flex-wrap items-end gap-3">
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Search in</label>
+                {% include "partials/_select_documents_dialog.html" with field_name="document_ids" initial_selected=selected_documents_json trigger_label="All documents" %}
+              </div>
+
+              <button
+                type="button"
+                @click="showFilters = !showFilters"
+                class="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-xs font-medium text-ink transition-colors hover:border-primary/30 hover:text-primary dark:border-line-dark dark:text-ink-dark"
+                :class="showFilters && 'border-primary/40 text-primary dark:text-primary-soft'"
+              >
+                <i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i> Advanced Filters
+                <span x-show="activeFilterCount > 0" x-text="activeFilterCount" class="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white dark:bg-primary-soft dark:text-card-dark"></span>
+                <i data-lucide="chevron-down" class="h-3.5 w-3.5 transition-transform duration-150" :class="showFilters && 'rotate-180'"></i>
+              </button>
+            </div>
+
+            <button
+              type="submit"
+              x-show="!submitting"
+              class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+            >
+              <i data-lucide="send" class="h-4 w-4"></i>
+              <span>Ask AI</span>
+            </button>
+            <button
+              type="button"
+              x-show="submitting"
+              x-cloak
+              @click="stopStreaming()"
+              class="inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-semibold text-ink transition-colors hover:border-danger/40 hover:text-danger dark:border-line-dark dark:bg-white/5 dark:text-ink-dark"
+            >
+              <i data-lucide="loader-2" class="h-4 w-4 animate-spin"></i>
+              <span>Stop generating</span>
+            </button>
+          </div>
+
+          {% comment %}
+          Always visible, whether or not the Advanced Filters panel is
+          expanded - so a filter set earlier (or carried over from the
+          last question) is never invisible to the user. Each chip
+          clears just that one filter; "Clear all" resets everything.
+          {% endcomment %}
+          <div x-show="activeFilterCount > 0" x-cloak class="mt-2 flex flex-wrap items-center gap-1.5">
+            <span class="text-[11px] font-medium text-muted dark:text-muted-dark">Active filters:</span>
+            <template x-if="filters.fileTypes.length">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                Type: <span x-text="filters.fileTypes.map(t => t.toUpperCase()).join(', ')"></span>
+                <button type="button" @click="clearFilter('fileTypes')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <template x-if="filters.uploadedAfter">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                After <span x-text="filters.uploadedAfter"></span>
+                <button type="button" @click="clearFilter('uploadedAfter')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <template x-if="filters.uploadedBefore">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                Before <span x-text="filters.uploadedBefore"></span>
+                <button type="button" @click="clearFilter('uploadedBefore')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <template x-if="filters.collectionId">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                Collection: <span x-text="filters.collectionLabel"></span>
+                <button type="button" @click="clearFilter('collectionId')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <template x-if="filters.categoryId">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                Category: <span x-text="filters.categoryLabel"></span>
+                <button type="button" @click="clearFilter('categoryId')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <template x-if="filters.tagId">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                Tag: <span x-text="filters.tagLabel"></span>
+                <button type="button" @click="clearFilter('tagId')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <template x-if="filters.orgLibraryOnly">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary-soft">
+                Organization Library only
+                <button type="button" @click="clearFilter('orgLibraryOnly')"><i data-lucide="x" class="h-3 w-3"></i></button>
+              </span>
+            </template>
+            <button type="button" @click="clearAllFilters()" class="text-[11px] font-medium text-muted underline hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark">Clear all</button>
+          </div>
+
+          <div x-show="showFilters" x-cloak x-transition class="mt-4 grid grid-cols-1 gap-4 rounded-lg border border-line bg-surface p-4 dark:border-line-dark dark:bg-white/5 sm:grid-cols-3">
+            <div>
+              <span class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">File type</span>
+              <div class="flex flex-wrap gap-3">
+                {% for ext in allowed_file_extensions %}
+                  <label class="flex items-center gap-1.5 text-sm text-ink dark:text-ink-dark">
+                    <input type="checkbox" name="file_types" value="{{ ext }}" x-model="filters.fileTypes" class="rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark">
+                    {{ ext|upper }}
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+            <div>
+              <label for="uploaded_after" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Uploaded after</label>
+              <input type="date" name="uploaded_after" id="uploaded_after" x-model="filters.uploadedAfter" class="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+            </div>
+            <div>
+              <label for="uploaded_before" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Uploaded before</label>
+              <input type="date" name="uploaded_before" id="uploaded_before" x-model="filters.uploadedBefore" class="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+            </div>
+            <div>
+              <label for="collection_id" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Collection</label>
+              <select name="collection_id" id="collection_id" x-model="filters.collectionId" @change="filters.collectionLabel = $event.target.selectedOptions[0].text" {% if not collections %}disabled{% endif %} class="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:opacity-50 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+                <option value="">Any collection</option>
+                {% for collection in collections %}
+                  <option value="{{ collection.id }}">{{ collection.name }}</option>
+                {% endfor %}
+              </select>
+              {% if not collections %}
+                <p class="mt-1 text-[11px] text-muted dark:text-muted-dark">No collections yet — create one from <a href="{% url 'collections' %}" class="text-primary hover:underline dark:text-primary-soft">Documents &rsaquo; Collections</a>.</p>
+              {% endif %}
+            </div>
+            <div>
+              <label for="category_id" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Category</label>
+              <select name="category_id" id="category_id" x-model="filters.categoryId" @change="filters.categoryLabel = $event.target.selectedOptions[0].text" {% if not categories %}disabled{% endif %} class="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:opacity-50 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+                <option value="">Any category</option>
+                {% for category in categories %}
+                  <option value="{{ category.id }}">{{ category.name }}</option>
+                {% endfor %}
+              </select>
+              {% if not categories %}
+                <p class="mt-1 text-[11px] text-muted dark:text-muted-dark">No categories yet — add one to a document in <a href="{% url 'documents' %}" class="text-primary hover:underline dark:text-primary-soft">My Documents</a>.</p>
+              {% endif %}
+            </div>
+            <div>
+              <label for="tag_id" class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Tag</label>
+              <select name="tag_id" id="tag_id" x-model="filters.tagId" @change="filters.tagLabel = $event.target.selectedOptions[0].text" {% if not tags %}disabled{% endif %} class="w-full rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:opacity-50 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+                <option value="">Any tag</option>
+                {% for tag in tags %}
+                  <option value="{{ tag.id }}">{{ tag.name }}</option>
+                {% endfor %}
+              </select>
+              {% if not tags %}
+                <p class="mt-1 text-[11px] text-muted dark:text-muted-dark">No tags yet — add one to a document in <a href="{% url 'documents' %}" class="text-primary hover:underline dark:text-primary-soft">My Documents</a>.</p>
+              {% endif %}
+            </div>
+            <div class="flex items-end sm:col-span-3">
+              <label class="flex items-center gap-2 text-sm text-ink dark:text-ink-dark">
+                <input type="checkbox" name="org_library_only" value="1" x-model="filters.orgLibraryOnly" class="rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark">
+                <span class="flex items-center gap-1.5"><i data-lucide="library" class="h-3.5 w-3.5"></i> Organization Library only</span>
+              </label>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      {% comment %}
+      A persistent container (same #id across every render) so the
+      streaming JS below can update it in place: it fills in with a
+      plain-text live skeleton as answer tokens arrive, then swaps to
+      this exact server-rendered partial's markup (fetched from
+      ask_ai_stream's final SSE event) once the answer completes - the
+      same template runs either way, so the end state here and the
+      classic full-page-POST end state below are always identical.
+      {% endcomment %}
+      <div id="ask-ai-result-container">
+        {% include "partials/_ask_ai_result.html" %}
+      </div>
+
+    </div>
+
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark h-fit">
+      <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Questions</h2>
+      </div>
+      <div class="divide-y divide-line dark:divide-line-dark">
+        {% for log in recent_questions %}
+          <div class="group flex items-center gap-1 px-2 py-1.5 transition-colors hover:bg-surface dark:hover:bg-white/5">
+            <a
+              href="{% url 'ask_ai' %}?log_id={{ log.id }}"
+              class="min-w-0 flex-1 rounded-lg px-3 py-2 {% if result.id == log.id %}bg-primary/5{% endif %}"
+            >
+              <p class="truncate text-sm font-medium text-ink dark:text-ink-dark">{{ log.question }}</p>
+              <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">{{ log.confidence }}% confidence · {{ log.created_at|timesince }} ago</p>
+            </a>
+            <button
+              type="button"
+              @click="useQuestion('{{ log.question|escapejs }}')"
+              title="Ask again"
+              class="shrink-0 rounded-lg p-2 text-muted opacity-0 transition-opacity hover:text-primary group-hover:opacity-100 dark:text-muted-dark dark:hover:text-primary-soft"
+            >
+              <i data-lucide="rotate-ccw" class="h-3.5 w-3.5"></i>
+            </button>
+          </div>
+        {% empty %}
+          <p class="px-5 py-8 text-center text-sm text-muted dark:text-muted-dark">Your recent questions will appear here.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  // Defined here (a real <script> block, in extra_scripts - loaded
+  // after Alpine's own `defer` script, per base.html, so it's always
+  // ready before Alpine evaluates x-data="askAiPage()") rather than as
+  // an inline x-data="{ ... }" object literal on the element itself.
+  //
+  // That inline form was the actual bug behind "Answer section shows
+  // raw JavaScript": x-data's value is itself a double-quoted HTML
+  // attribute, and streamAnswer() below builds HTML strings containing
+  // double-quoted attributes like class="...". Nested unescaped `"`
+  // characters inside a double-quoted HTML attribute close that
+  // attribute early - the HTML parser has no idea it's "inside a JS
+  // template literal", it just sees the next `"` and ends x-data()
+  // right there. Everything after that point (the rest of this
+  // function's source) got tokenized as bogus HTML attribute soup on
+  // the <div>, until an unrelated `>` (e.g. from an arrow function
+  // "=>") force-closed the tag early and dumped the remaining raw JS
+  // source into the page as literal text content - exactly the
+  // symptom reported. Using a named function referenced by
+  // x-data="askAiPage()" (the same pattern admin/queries.html and
+  // admin/ai_logs.html already use) moves the object literal into a
+  // real <script> block, where double quotes in HTML template strings
+  // are just normal JS string content - no attribute to collide with.
+  function askAiPage() {
+    return {
+      submitting: false,
+      abortController: null,
+      question: '{{ result.question|escapejs }}',
+      filters: {
+        collectionId: '{{ selected_collection_id|escapejs }}',
+        collectionLabel: '{{ selected_collection_name|escapejs }}',
+        categoryId: '{{ selected_category_id|escapejs }}',
+        categoryLabel: '{{ selected_category_name|escapejs }}',
+        tagId: '{{ selected_tag_id|escapejs }}',
+        tagLabel: '{{ selected_tag_name|escapejs }}',
+        orgLibraryOnly: {{ selected_org_library_only|yesno:'true,false' }},
+        fileTypes: [{% for ext in selected_file_types %}'{{ ext|escapejs }}',{% endfor %}],
+        uploadedAfter: '{{ selected_uploaded_after|escapejs }}',
+        uploadedBefore: '{{ selected_uploaded_before|escapejs }}',
+      },
+      get activeFilterCount() {
+        let n = 0;
+        if (this.filters.fileTypes.length) n++;
+        if (this.filters.uploadedAfter) n++;
+        if (this.filters.uploadedBefore) n++;
+        if (this.filters.collectionId) n++;
+        if (this.filters.categoryId) n++;
+        if (this.filters.tagId) n++;
+        if (this.filters.orgLibraryOnly) n++;
+        return n;
+      },
+      clearFilter(key) {
+        if (key === 'fileTypes') this.filters.fileTypes = [];
+        else if (key === 'collectionId') { this.filters.collectionId = ''; this.filters.collectionLabel = ''; }
+        else if (key === 'categoryId') { this.filters.categoryId = ''; this.filters.categoryLabel = ''; }
+        else if (key === 'tagId') { this.filters.tagId = ''; this.filters.tagLabel = ''; }
+        else if (key === 'orgLibraryOnly') this.filters.orgLibraryOnly = false;
+        else this.filters[key] = '';
+      },
+      clearAllFilters() {
+        this.filters = {
+          collectionId: '', collectionLabel: '', categoryId: '', categoryLabel: '',
+          tagId: '', tagLabel: '', orgLibraryOnly: false, fileTypes: [],
+          uploadedAfter: '', uploadedBefore: '',
+        };
+      },
+      showFilters: {{ selected_file_types|yesno:'true,false' }} || {{ selected_uploaded_after|yesno:'true,false' }} || {{ selected_uploaded_before|yesno:'true,false' }} || {{ selected_collection_id|yesno:'true,false' }} || {{ selected_category_id|yesno:'true,false' }} || {{ selected_tag_id|yesno:'true,false' }} || {{ selected_org_library_only|yesno:'true,false' }},
+      expandedSources: {},
+      copied: false,
+      useQuestion(text) {
+        this.question = text;
+        this.$refs.questionInput.focus();
+        this.$refs.questionInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      },
+      toggleSource(n) {
+        this.expandedSources[n] = !this.expandedSources[n];
+      },
+      scrollToSource(n) {
+        const el = document.querySelector(`[data-source-number="${n}"]`);
+        if (!el) return;
+        this.expandedSources[n] = true;
+        this.$nextTick(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('ring-2', 'ring-primary', 'ring-offset-2', 'ring-offset-card');
+          setTimeout(() => el.classList.remove('ring-2', 'ring-primary', 'ring-offset-2', 'ring-offset-card'), 1600);
+        });
+      },
+      copyAnswer(text) {
+        navigator.clipboard.writeText(text).then(() => {
+          this.copied = true;
+          setTimeout(() => this.copied = false, 1800);
+        });
+      },
+      async streamAnswer(event) {
+        // Progressive reveal of the answer, into the same
+        // #ask-ai-result-container the classic full-page POST renders
+        // into - see ask_ai_stream (RAG/views.py). A real network/
+        // server failure keeps whatever text already streamed in and
+        // shows an inline error + Retry instead of discarding it; only
+        // a failure with zero rendered text (nothing to lose) falls
+        // back to a normal form submit through the classic path. A
+        // user-initiated stop (stopStreaming() below) is neither - it
+        // preserves the partial answer and never resubmits, since that
+        // would silently re-ask the question the user just stopped.
+        this.submitting = true;
+        const form = event.target;
+        const container = document.getElementById('ask-ai-result-container');
+        const csrftoken = form.querySelector('[name=csrfmiddlewaretoken]').value;
+
+        this.abortController = new AbortController();
+
+        // Declared here, not inside the try block below, so the catch
+        // block (a real network drop can land at any point) can always
+        // see how much - if any - of the answer already rendered.
+        let liveAnswer = null;
+        let liveAnswerRaw = '';
+        let firstTokenReceived = false;
+        let streamEnded = false;
+        let renderScheduled = false;
+        let slowHintTimer = null;
+
+        // Coalesces rapid "token" events into at most one DOM write per
+        // animation frame - a chunky/fast provider can emit several
+        // tokens well within one 16ms frame, and re-parsing+re-painting
+        // Markdown on every single one is wasted work that shows up as
+        // visible flicker. The cursor itself needs no part in this - it's
+        // a CSS ::after on the container, unaffected by the children's
+        // innerHTML being replaced.
+        const isNearBottom = (thresholdPx = 140) =>
+          (window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - thresholdPx);
+
+        const scheduleRender = () => {
+          if (renderScheduled) return;
+          renderScheduled = true;
+          requestAnimationFrame(() => {
+            renderScheduled = false;
+            if (streamEnded || !liveAnswer) return;
+            // Only follow new content down if the viewer was already
+            // at (or near) the bottom right before this update - once
+            // they scroll up to reread something, auto-scroll backs
+            // off instead of yanking them back down on the next token.
+            const wasNearBottom = isNearBottom();
+            liveAnswer.innerHTML = DOMPurify.sanitize(marked.parse(liveAnswerRaw));
+            if (wasNearBottom) {
+              window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+            }
+          });
+        };
+
+        try {
+          const response = await fetch('{% url "ask_ai_stream" %}', {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrftoken },
+            body: new FormData(form),
+            signal: this.abortController.signal,
+          });
+
+          if (!response.ok || !response.body) throw new Error('stream unavailable');
+
+          container.innerHTML = `
+            <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+              <div id="ask-ai-live-card-body" class="px-5 py-5">
+                <div class="mb-2 flex items-center gap-2">
+                  <h3 class="text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Answer</h3>
+                  <i id="ask-ai-stream-spinner" data-lucide="loader-2" class="h-3.5 w-3.5 animate-spin text-primary"></i>
+                </div>
+                <div id="ask-ai-live-answer" class="text-sm leading-relaxed text-ink dark:text-ink-dark [&>*+*]:mt-3 [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs dark:[&_code]:bg-white/10 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-surface [&_pre]:p-3 [&_pre]:text-xs dark:[&_pre]:bg-white/5 [&_pre_code]:bg-transparent [&_pre_code]:p-0">
+                  <span class="inline-flex items-center gap-1 py-1" aria-live="polite" aria-label="Thinking">
+                    <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-muted dark:bg-muted-dark" style="animation-delay:0ms"></span>
+                    <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-muted dark:bg-muted-dark" style="animation-delay:150ms"></span>
+                    <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-muted dark:bg-muted-dark" style="animation-delay:300ms"></span>
+                  </span>
+                </div>
+                <p id="ask-ai-slow-hint" class="mt-2 hidden text-xs text-muted dark:text-muted-dark">Still working — complex questions can take a little longer…</p>
+              </div>
+            </div>
+          `;
+          lucide.createIcons();
+          container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          liveAnswer = document.getElementById('ask-ai-live-answer');
+
+          // Slow first-token latency isn't an error - just reassure
+          // the user the request is still alive instead of leaving a
+          // bare, unexplained "thinking" dot forever.
+          slowHintTimer = setTimeout(() => {
+            const hint = document.getElementById('ask-ai-slow-hint');
+            if (hint) hint.classList.remove('hidden');
+          }, 6000);
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            let boundary;
+            while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+              const frame = buffer.slice(0, boundary);
+              buffer = buffer.slice(boundary + 2);
+              if (!frame.startsWith('data: ')) continue;
+
+              const payload = JSON.parse(frame.slice(6));
+
+              if (payload.type === 'token') {
+                if (!firstTokenReceived) {
+                  // Swap the "thinking" dots for the live answer, and
+                  // start the blinking cursor - both only make sense
+                  // once real content is actually landing.
+                  firstTokenReceived = true;
+                  clearTimeout(slowHintTimer);
+                  liveAnswer.classList.add('streaming-cursor');
+                }
+                // Accumulated raw Markdown, re-parsed/re-sanitized as a
+                // whole on each rendered frame (see scheduleRender)
+                // rather than incrementally - partial/unclosed Markdown
+                // syntax (an unfinished "**" or code fence) doesn't
+                // parse sensibly token-by-token anyway. DOMPurify runs
+                // client-side because this is a live preview only - the
+                // authoritative, stored answer is always the server-
+                // rendered/nh3-sanitized HTML that replaces this
+                // element on the "done" event below.
+                liveAnswerRaw += payload.text;
+                scheduleRender();
+              } else if (payload.type === 'done') {
+                // Replaces #ask-ai-live-answer entirely, so the
+                // blinking cursor (a class on that element) is
+                // discarded along with it - nothing to clean up here.
+                streamEnded = true;
+                clearTimeout(slowHintTimer);
+                container.innerHTML = payload.html;
+                lucide.createIcons();
+                Alpine.initTree(container);
+              } else if (payload.type === 'error') {
+                throw new Error('stream error');
+              }
+            }
+          }
+        } catch (err) {
+          clearTimeout(slowHintTimer);
+          streamEnded = true;
+
+          if (err.name === 'AbortError') {
+            // User clicked "Stop generating" - drop the cursor and
+            // leave whatever text already streamed in exactly as it
+            // is, same as ChatGPT-style stop behavior. No fallback
+            // resubmit: the user asked for generation to stop, not
+            // for the question to be re-asked.
+            if (liveAnswer) liveAnswer.classList.remove('streaming-cursor');
+            const spinner = document.getElementById('ask-ai-stream-spinner');
+            if (spinner) spinner.remove();
+            const hint = document.getElementById('ask-ai-slow-hint');
+            if (hint) hint.remove();
+            this.submitting = false;
+            this.abortController = null;
+            return;
+          }
+
+          if (firstTokenReceived) {
+            // A real failure (connection drop, provider error) after
+            // some of the answer already rendered - keep it exactly as
+            // generated and surface a professional inline error rather
+            // than discarding it via a full-page reload/resubmit.
+            if (liveAnswer) liveAnswer.classList.remove('streaming-cursor');
+            const hint = document.getElementById('ask-ai-slow-hint');
+            if (hint) hint.remove();
+            const spinner = document.getElementById('ask-ai-stream-spinner');
+            if (spinner) {
+              const errorIcon = document.createElement('i');
+              errorIcon.id = 'ask-ai-stream-spinner';
+              errorIcon.setAttribute('data-lucide', 'alert-triangle');
+              errorIcon.className = 'h-3.5 w-3.5 text-danger';
+              spinner.replaceWith(errorIcon);
+            }
+            const body = document.getElementById('ask-ai-live-card-body');
+            if (body) {
+              renderStreamErrorBanner(body, () => this.streamAnswer({ target: form }));
+            }
+            lucide.createIcons();
+            this.submitting = false;
+            this.abortController = null;
+            return;
+          }
+
+          // Nothing rendered yet (failed before the first token, or
+          // fetch/ReadableStream unsupported) - nothing to lose, so
+          // fall back to the classic non-streaming POST and let
+          // ask_ai() answer the question the normal way.
+          form.submit();
+          return;
+        }
+
+        this.abortController = null;
+        this.submitting = false;
+      },
+      stopStreaming() {
+        if (this.abortController) this.abortController.abort();
+      },
+    };
+  }
+
+  // Renders a small "response may be incomplete, here's why, try
+  // again" notice below a partially-streamed answer - a plain DOM
+  // helper (not an Alpine method) since it's built once, outside any
+  // reactive state, right when a stream fails mid-answer.
+  function renderStreamErrorBanner(bodyEl, onRetry) {
+    const banner = document.createElement('div');
+    banner.className = 'mt-4 flex items-start gap-2.5 rounded-lg border border-danger/30 bg-danger/5 px-3.5 py-3 text-xs dark:border-danger/40 dark:bg-danger/10';
+    banner.innerHTML = `
+      <i data-lucide="alert-triangle" class="mt-0.5 h-4 w-4 shrink-0 text-danger"></i>
+      <div class="min-w-0">
+        <p class="font-medium text-danger">Connection interrupted</p>
+        <p class="mt-0.5 text-danger/80 dark:text-danger/70">The response above may be incomplete. This can happen if your connection drops or the AI provider is momentarily unavailable.</p>
+      </div>
+    `;
+    const retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.className = 'ml-auto shrink-0 self-center rounded-lg border border-danger/30 px-2.5 py-1.5 text-xs font-semibold text-danger transition-colors hover:bg-danger/10';
+    retryBtn.textContent = 'Retry';
+    retryBtn.addEventListener('click', onRetry);
+    banner.appendChild(retryBtn);
+    bodyEl.appendChild(banner);
+    lucide.createIcons();
+  }
+</script>
+{% endblock %}

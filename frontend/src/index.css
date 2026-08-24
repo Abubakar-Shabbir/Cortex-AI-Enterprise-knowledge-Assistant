@@ -1,0 +1,15 @@
+/* Tailwind (CDN, see index.html) handles all styling - this file only
+   resets the browser/Vite-template defaults that would otherwise fight
+   with it (centered flex body, default margins, etc). */
+* {
+  margin: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  min-height: 100%;
+}
+
+[x-cloak] {
+  display: none !important;
+}

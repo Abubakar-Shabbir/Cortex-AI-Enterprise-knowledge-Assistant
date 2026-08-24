@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block title %}Users{% endblock %}
+
+{% block content %}
+
+<div class="mb-6 flex flex-col gap-1">
+  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Users</h1>
+  <p class="text-sm text-muted dark:text-muted-dark">Account status and role assignment. Metadata only — document content and Q&A answers stay private to their owner.</p>
+</div>
+
+<div class="rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+  {% if users_list %}
+    <div class="overflow-auto">
+      <table class="w-full min-w-[760px] text-left text-sm">
+        <thead class="sticky top-0 z-10 bg-card dark:bg-card-dark">
+          <tr class="border-b border-line text-xs font-semibold uppercase tracking-wide text-muted dark:border-line-dark dark:text-muted-dark">
+            <th class="px-5 py-3">User</th>
+            <th class="px-3 py-3">Role</th>
+            <th class="px-3 py-3">Status</th>
+            <th class="px-3 py-3">Joined</th>
+            <th class="px-5 py-3 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-line dark:divide-line-dark">
+          {% for member in users_list %}
+            <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
+              <td class="px-5 py-3">
+                <a href="{% url 'admin_user_profile' member.id %}" class="flex items-center gap-2.5 group">
+                  {% if member.profile.avatar %}
+                    <img src="{{ member.profile.avatar.url }}" alt="" class="h-8 w-8 shrink-0 rounded-full object-cover">
+                  {% else %}
+                    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                      {{ member.first_name|first|default:member.username|first|upper }}
+                    </div>
+                  {% endif %}
+                  <div class="min-w-0">
+                    <p class="truncate font-medium text-ink group-hover:text-primary dark:text-ink-dark dark:group-hover:text-primary-soft">{{ member.get_full_name|default:member.username }}</p>
+                    <p class="truncate text-xs text-muted dark:text-muted-dark">{{ member.profile.headline|default:member.email|default:"—" }}</p>
+                  </div>
+                </a>
+              </td>
+              <td class="px-3 py-3">
+                <span
+                  class="inline-flex items-center rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent"
+                  {% if member.role_assignment.assigned_at %}
+                    title="Set to {{ member.role_assignment.role.name }} by {{ member.role_assignment.assigned_by.username|default:"the system" }}, {{ member.role_assignment.assigned_at|timesince }} ago"
+                  {% endif %}
+                >
+                  {{ member.role_assignment.role.name|default:"Unassigned" }}
+                </span>
+              </td>
+              <td class="px-3 py-3">
+                <span class="inline-flex items-center gap-1.5 text-xs font-medium {% if member.is_active %}text-success dark:text-success-dark{% else %}text-danger dark:text-danger-dark{% endif %}">
+                  <span class="h-1.5 w-1.5 rounded-full {% if member.is_active %}bg-success dark:bg-success-dark{% else %}bg-danger dark:bg-danger-dark{% endif %}"></span>
+                  {% if member.is_active %}Active{% else %}Suspended{% endif %}
+                </span>
+              </td>
+              <td class="px-3 py-3 text-muted dark:text-muted-dark">{{ member.date_joined|date:"M d, Y" }}</td>
+              <td class="px-5 py-3 text-right">
+                {% comment %}
+                  A single trigger per row, one dropdown, one modal
+                  (opened from a menu item, not a second row-level
+                  button) - deliberately not two separate buttons side
+                  by side, which is what made the previous layout read
+                  as cramped/overlapping. x-teleport moves the modal to
+                  the end of <body> so it's never clipped by the
+                  table's "overflow-auto" wrapper and always centers on
+                  the full viewport regardless of which row opened it.
+                  {% endcomment %}
+                  <div class="relative inline-block text-left" x-data="{ menuOpen: false, roleModalOpen: false }" @click.outside="menuOpen = false">
+                    <button
+                      type="button"
+                      @click="menuOpen = !menuOpen"
+                      class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-line text-muted transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary dark:border-line-dark dark:text-muted-dark dark:hover:bg-primary/10 dark:hover:text-primary-soft"
+                      aria-label="User actions"
+                      :aria-expanded="menuOpen"
+                    >
+                      <i data-lucide="more-horizontal" class="h-4 w-4"></i>
+                    </button>
+
+                    <div
+                      x-show="menuOpen"
+                      x-cloak
+                      x-transition
+                      class="absolute right-0 z-20 mt-2 w-56 max-w-[calc(100vw-2rem)] space-y-0.5 overflow-hidden rounded-xl border border-line bg-card p-1.5 shadow-soft dark:border-line-dark dark:bg-card-dark"
+                    >
+                      <a
+                        href="{% url 'admin_user_profile' member.id %}"
+                        class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-ink transition-colors hover:bg-surface dark:text-ink-dark dark:hover:bg-white/5"
+                      >
+                        <i data-lucide="id-card" class="h-4 w-4 shrink-0"></i> View Profile
+                      </a>
+
+                      {% if "users.assign_role" in user_permissions or "users.suspend" in user_permissions or "users.delete" in user_permissions %}
+                        <div class="my-1 border-t border-line dark:border-line-dark"></div>
+                      {% endif %}
+
+                      {% if "users.assign_role" in user_permissions %}
+                        <button
+                          type="button"
+                          @click="menuOpen = false; roleModalOpen = true"
+                          class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-ink transition-colors hover:bg-surface dark:text-ink-dark dark:hover:bg-white/5"
+                        >
+                          <i data-lucide="shield" class="h-4 w-4 shrink-0"></i> Change Role
+                        </button>
+                      {% endif %}
+
+                      {% if "users.assign_role" in user_permissions and "users.suspend" in user_permissions or "users.assign_role" in user_permissions and "users.delete" in user_permissions %}
+                        <div class="my-1 border-t border-line dark:border-line-dark"></div>
+                      {% endif %}
+
+                      {% if "users.suspend" in user_permissions %}
+                        <form method="POST">
+                          {% csrf_token %}
+                          <input type="hidden" name="user_id" value="{{ member.id }}">
+                          {% if member.is_active %}
+                            <input type="hidden" name="action" value="suspend">
+                            <button type="submit" class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-warning transition-colors hover:bg-warning/10 dark:text-warning-dark">
+                              <i data-lucide="user-x" class="h-4 w-4 shrink-0"></i> Suspend
+                            </button>
+                          {% else %}
+                            <input type="hidden" name="action" value="activate">
+                            <button type="submit" class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-success transition-colors hover:bg-success/10 dark:text-success-dark">
+                              <i data-lucide="user-check" class="h-4 w-4 shrink-0"></i> Reactivate
+                            </button>
+                          {% endif %}
+                        </form>
+                      {% endif %}
+
+                      {% if "users.delete" in user_permissions and member != request.user %}
+                        <form method="POST" onsubmit="return confirm('Delete this user permanently? This cannot be undone.');">
+                          {% csrf_token %}
+                          <input type="hidden" name="user_id" value="{{ member.id }}">
+                          <input type="hidden" name="action" value="delete">
+                          <button type="submit" class="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-danger transition-colors hover:bg-danger/10 dark:text-danger-dark">
+                            <i data-lucide="trash-2" class="h-4 w-4 shrink-0"></i> Delete
+                          </button>
+                        </form>
+                      {% endif %}
+                    </div>
+
+                    {% if "users.assign_role" in user_permissions %}
+                      <template x-teleport="body">
+                        <div
+                          x-show="roleModalOpen"
+                          x-cloak
+                          class="fixed inset-0 z-50 flex items-center justify-center p-4"
+                          @keydown.escape.window="roleModalOpen = false"
+                        >
+                          <div x-show="roleModalOpen" x-transition.opacity @click="roleModalOpen = false" class="absolute inset-0 bg-black/50"></div>
+
+                          <div
+                            x-show="roleModalOpen"
+                            x-transition.opacity.scale.95
+                            @click.outside="roleModalOpen = false"
+                            class="relative flex w-full max-w-md flex-col overflow-hidden rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark"
+                          >
+
+                            <div class="flex items-start justify-between gap-4 border-b border-line px-6 py-5 dark:border-line-dark">
+                              <div class="min-w-0">
+                                <h3 class="text-base font-semibold text-ink dark:text-ink-dark">Change Role</h3>
+                                <p class="mt-0.5 truncate text-sm text-muted dark:text-muted-dark">{{ member.get_full_name|default:member.username }}</p>
+                              </div>
+                              <button type="button" @click="roleModalOpen = false" class="shrink-0 rounded-lg p-1.5 text-muted transition-colors hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5" aria-label="Close">
+                                <i data-lucide="x" class="h-4 w-4"></i>
+                              </button>
+                            </div>
+
+                            <form method="POST" class="flex min-h-0 flex-col">
+                              {% csrf_token %}
+                              <input type="hidden" name="user_id" value="{{ member.id }}">
+                              <input type="hidden" name="action" value="assign_role">
+
+                              <div class="max-h-[60vh] space-y-2 overflow-y-auto px-6 py-5">
+                                <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Select a role</p>
+                                {% for role in assignable_roles %}
+                                  <label class="flex cursor-pointer items-start gap-3 rounded-xl border border-line px-4 py-3 transition-colors hover:bg-surface has-[:checked]:border-primary has-[:checked]:bg-primary/5 dark:border-line-dark dark:hover:bg-white/5 dark:has-[:checked]:bg-primary/10">
+                                    <input
+                                      type="radio"
+                                      name="role"
+                                      value="{{ role.slug }}"
+                                      {% if member.role_assignment.role_id == role.id %}checked{% endif %}
+                                      class="mt-0.5 shrink-0 border-line text-primary focus:ring-primary/30 dark:border-line-dark"
+                                    >
+                                    <span class="min-w-0">
+                                      <span class="block text-sm font-medium text-ink dark:text-ink-dark">{{ role.name }}</span>
+                                      {% if role.description %}
+                                        <span class="mt-0.5 block text-xs text-muted dark:text-muted-dark">{{ role.description }}</span>
+                                      {% endif %}
+                                    </span>
+                                  </label>
+                                {% endfor %}
+                                {% if member.role_assignment.role_id == admin_role_id and admin_role_id not in assignable_role_ids %}
+                                  <p class="rounded-xl border border-line bg-surface px-4 py-3 text-xs text-muted dark:border-line-dark dark:bg-white/5 dark:text-muted-dark">
+                                    This account is Admin. Only an Admin can change an Admin's role.
+                                  </p>
+                                {% endif %}
+                              </div>
+
+                              <div class="flex items-center justify-end gap-2.5 border-t border-line bg-surface/60 px-6 py-4 dark:border-line-dark dark:bg-white/[0.03]">
+                                <button type="button" @click="roleModalOpen = false" class="rounded-lg px-4 py-2 text-sm font-medium text-muted transition-colors hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5">
+                                  Cancel
+                                </button>
+                                <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+                                  <i data-lucide="check" class="h-4 w-4"></i> Save Role
+                                </button>
+                              </div>
+                            </form>
+
+                          </div>
+                        </div>
+                      </template>
+                    {% endif %}
+
+                  </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    {% include "partials/_empty_state.html" with icon="users" title="No users yet" %}
+  {% endif %}
+
+</div>
+
+{% endblock %}

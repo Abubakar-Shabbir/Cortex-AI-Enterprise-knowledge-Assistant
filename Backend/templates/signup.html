@@ -1,0 +1,176 @@
+{% extends "auth_base.html" %}
+
+{% block title %}Sign up{% endblock %}
+
+{% block auth_content %}
+
+<h1 class="auth-pop-in text-xl font-bold tracking-tight text-ink dark:text-ink-dark">Create your account</h1>
+<p class="mb-6 mt-1 text-sm text-muted dark:text-muted-dark">Fill in your details below to get started.</p>
+
+<form
+  method="POST"
+  class="space-y-4"
+  x-data="{
+    showPassword: false, showConfirm: false, submitting: false, password: '', confirmPassword: '',
+    email: '{{ form.email.value|default:''|escapejs }}',
+    get hasMinLength() { return this.password.length >= 8; },
+    get hasLetter() { return /[a-zA-Z]/.test(this.password); },
+    get hasNumberOrSymbol() { return /[0-9]/.test(this.password) || /[^a-zA-Z0-9]/.test(this.password); },
+    get hasLongLength() { return this.password.length >= 12; },
+    get strengthScore() {
+      if (!this.password) return 0;
+      return [this.hasMinLength, this.hasLetter, this.hasNumberOrSymbol, this.hasLongLength].filter(Boolean).length;
+    },
+    get strengthLabel() { return ['Too short', 'Weak', 'Fair', 'Good', 'Strong'][this.strengthScore]; },
+    get strengthColor() { return ['bg-line dark:bg-line-dark', 'bg-danger', 'bg-warning', 'bg-warning', 'bg-success'][this.strengthScore]; },
+    get emailValid() { return this.email.length > 0 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.email); },
+    get passwordsMatch() { return this.confirmPassword.length > 0 && this.password === this.confirmPassword; },
+    get passwordsMismatch() { return this.confirmPassword.length > 0 && this.password !== this.confirmPassword; },
+  }"
+  @submit="submitting = true"
+>
+  {% csrf_token %}
+
+  {% if form.non_field_errors %}
+    <div role="alert" aria-live="polite" class="auth-error-banner flex items-start gap-2 rounded-lg border border-danger/20 bg-danger/10 px-3.5 py-3 text-sm text-danger dark:text-danger-dark">
+      <i data-lucide="alert-circle" class="mt-0.5 h-4 w-4 shrink-0"></i>
+      {{ form.non_field_errors.0 }}
+    </div>
+  {% endif %}
+
+  <div class="group">
+    <label for="full_name" class="mb-1.5 block text-xs font-medium text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft">Full name</label>
+    <div class="relative">
+      <i data-lucide="user-round" class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft"></i>
+      <input
+        id="full_name" type="text" name="full_name" placeholder="Enter your full name" value="{{ form.full_name.value|default:'' }}"
+        required autofocus autocomplete="name"
+        aria-invalid="{% if form.full_name.errors %}true{% else %}false{% endif %}" aria-describedby="full_name-error"
+        class="w-full rounded-lg border {% if form.full_name.errors %}border-danger{% else %}border-line dark:border-line-dark{% endif %} bg-surface py-2.5 pl-10 pr-3.5 text-sm text-ink placeholder:text-muted transition-all duration-150 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
+      >
+    </div>
+    {% if form.full_name.errors %}<p id="full_name-error" class="mt-1 text-xs text-danger dark:text-danger-dark">{{ form.full_name.errors.0 }}</p>{% endif %}
+  </div>
+
+  <div class="group">
+    <label for="email" class="mb-1.5 block text-xs font-medium text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft">Email</label>
+    <div class="relative">
+      <i data-lucide="mail" class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft"></i>
+      <input
+        id="email" type="email" name="email" placeholder="Enter your email"
+        x-model="email"
+        required autocomplete="email"
+        aria-invalid="{% if form.email.errors %}true{% else %}false{% endif %}" aria-describedby="email-error"
+        class="w-full rounded-lg border {% if form.email.errors %}border-danger{% else %}border-line dark:border-line-dark{% endif %} bg-surface py-2.5 pl-10 pr-9 text-sm text-ink placeholder:text-muted transition-all duration-150 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
+      >
+      <i data-lucide="check-circle-2" class="field-valid-icon pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-success dark:text-success-dark" x-show="emailValid" x-cloak x-transition.opacity></i>
+    </div>
+    {% if form.email.errors %}<p id="email-error" class="mt-1 text-xs text-danger dark:text-danger-dark">{{ form.email.errors.0 }}</p>{% endif %}
+  </div>
+
+  <div class="group">
+    <label for="username" class="mb-1.5 block text-xs font-medium text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft">Username</label>
+    <div class="relative">
+      <i data-lucide="at-sign" class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft"></i>
+      <input
+        id="username" type="text" name="username" placeholder="Choose a username" value="{{ form.username.value|default:'' }}"
+        required autocomplete="username"
+        aria-invalid="{% if form.username.errors %}true{% else %}false{% endif %}" aria-describedby="username-error"
+        class="w-full rounded-lg border {% if form.username.errors %}border-danger{% else %}border-line dark:border-line-dark{% endif %} bg-surface py-2.5 pl-10 pr-3.5 text-sm text-ink placeholder:text-muted transition-all duration-150 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
+      >
+    </div>
+    {% if form.username.errors %}<p id="username-error" class="mt-1 text-xs text-danger dark:text-danger-dark">{{ form.username.errors.0 }}</p>{% endif %}
+  </div>
+
+  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <div class="group">
+      <label for="password" class="mb-1.5 block text-xs font-medium text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft">Password</label>
+      <div class="relative">
+        <i data-lucide="lock" class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft"></i>
+        <input
+          :type="showPassword ? 'text' : 'password'" id="password" name="password" placeholder="Create a password"
+          x-model="password" required autocomplete="new-password"
+          aria-invalid="{% if form.password.errors %}true{% else %}false{% endif %}" aria-describedby="password-error password-hints"
+          class="w-full rounded-lg border {% if form.password.errors %}border-danger{% else %}border-line dark:border-line-dark{% endif %} bg-surface py-2.5 pl-10 pr-9 text-sm text-ink placeholder:text-muted transition-all duration-150 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
+        >
+        <button type="button" @click="showPassword = !showPassword" class="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark" :aria-label="showPassword ? 'Hide password' : 'Show password'">
+          <i data-lucide="eye" class="h-4 w-4" x-show="!showPassword"></i>
+          <i data-lucide="eye-off" class="h-4 w-4" x-show="showPassword" x-cloak></i>
+        </button>
+      </div>
+      {% if form.password.errors %}<p id="password-error" class="mt-1 text-xs text-danger dark:text-danger-dark">{{ form.password.errors.0 }}</p>{% endif %}
+    </div>
+    <div class="group">
+      <label for="confirm_password" class="mb-1.5 block text-xs font-medium text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft">Confirm</label>
+      <div class="relative">
+        <i data-lucide="lock" class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft"></i>
+        <input
+          :type="showConfirm ? 'text' : 'password'" id="confirm_password" name="confirm_password" placeholder="Re-enter password"
+          x-model="confirmPassword"
+          required autocomplete="new-password"
+          :class="passwordsMismatch && 'border-danger'"
+          aria-invalid="{% if form.confirm_password.errors %}true{% else %}false{% endif %}" aria-describedby="confirm_password-error"
+          class="w-full rounded-lg border {% if form.confirm_password.errors %}border-danger{% else %}border-line dark:border-line-dark{% endif %} bg-surface py-2.5 pl-10 pr-9 text-sm text-ink placeholder:text-muted transition-all duration-150 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
+        >
+        <button type="button" @click="showConfirm = !showConfirm" class="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark" :aria-label="showConfirm ? 'Hide password' : 'Show password'">
+          <i data-lucide="eye" class="h-4 w-4" x-show="!showConfirm"></i>
+          <i data-lucide="eye-off" class="h-4 w-4" x-show="showConfirm" x-cloak></i>
+        </button>
+      </div>
+      {% if form.confirm_password.errors %}
+        <p id="confirm_password-error" class="mt-1 text-xs text-danger dark:text-danger-dark">{{ form.confirm_password.errors.0 }}</p>
+      {% else %}
+        <p class="mt-1 flex items-center gap-1 text-xs transition-opacity duration-200" :class="passwordsMatch ? 'text-success dark:text-success-dark opacity-100' : 'opacity-0'">
+          <i data-lucide="check" class="h-3 w-3"></i> Passwords match
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% comment %}
+  Client-side hint only, not enforcement - SignupForm.clean_password()
+  calls Django's real validate_password() server-side regardless of
+  what this meter/checklist shows. Shown once the user starts typing
+  so an empty field doesn't open with a red meter.
+  {% endcomment %}
+  <div id="password-hints" x-show="password.length > 0" x-cloak x-transition.opacity class="space-y-2.5 rounded-lg bg-surface px-3 py-3 dark:bg-white/5">
+    <div class="flex items-center justify-between text-xs">
+      <span class="font-medium text-muted dark:text-muted-dark">Password strength</span>
+      <span class="font-semibold" :class="{ 'text-danger dark:text-danger-dark': strengthScore <= 1, 'text-warning dark:text-warning-dark': strengthScore === 2 || strengthScore === 3, 'text-success dark:text-success-dark': strengthScore >= 4 }" x-text="strengthLabel"></span>
+    </div>
+    <div class="flex gap-1">
+      <template x-for="i in 4" :key="i">
+        <div class="h-1.5 flex-1 rounded-full transition-colors duration-300" :class="i <= strengthScore ? strengthColor : 'bg-line dark:bg-line-dark'"></div>
+      </template>
+    </div>
+    <div class="space-y-1 pt-0.5 text-xs">
+      <p class="flex items-center gap-1.5 transition-colors" :class="hasMinLength ? 'text-success dark:text-success-dark' : 'text-muted dark:text-muted-dark'">
+        <i data-lucide="check" class="h-3 w-3" x-show="hasMinLength"></i><i data-lucide="circle" class="h-3 w-3" x-show="!hasMinLength"></i>
+        At least 8 characters
+      </p>
+      <p class="flex items-center gap-1.5 transition-colors" :class="hasLetter ? 'text-success dark:text-success-dark' : 'text-muted dark:text-muted-dark'">
+        <i data-lucide="check" class="h-3 w-3" x-show="hasLetter"></i><i data-lucide="circle" class="h-3 w-3" x-show="!hasLetter"></i>
+        Contains a letter
+      </p>
+      <p class="flex items-center gap-1.5 transition-colors" :class="hasNumberOrSymbol ? 'text-success dark:text-success-dark' : 'text-muted dark:text-muted-dark'">
+        <i data-lucide="check" class="h-3 w-3" x-show="hasNumberOrSymbol"></i><i data-lucide="circle" class="h-3 w-3" x-show="!hasNumberOrSymbol"></i>
+        Contains a number or symbol
+      </p>
+    </div>
+  </div>
+
+  <button
+    type="submit"
+    :disabled="submitting"
+    class="btn-sheen flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white shadow-softer transition-all duration-150 hover:bg-primary-dark hover:shadow-glow active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
+  >
+    <i data-lucide="loader-2" class="h-4 w-4 animate-spin" x-show="submitting"></i>
+    <span x-text="submitting ? 'Creating account…' : 'Sign up'"></span>
+  </button>
+
+  <p class="text-center text-sm text-muted dark:text-muted-dark">
+    Already have an account? <a href="{% url 'login' %}" class="font-semibold text-primary transition-colors hover:underline dark:text-primary-soft">Log in</a>
+  </p>
+</form>
+
+{% endblock %}

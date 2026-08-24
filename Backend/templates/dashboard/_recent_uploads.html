@@ -1,0 +1,32 @@
+{% comment %}
+Recent Uploads — reuses recent_documents from stats_service.get_recent_activity
+(already passed into the dashboard view's context).
+{% endcomment %}
+
+<div class="flex h-full flex-col rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+  <div class="flex items-center justify-between border-b border-line px-3.5 py-2 dark:border-line-dark">
+    <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Uploads</h2>
+    <a href="{% url 'documents' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+  </div>
+
+  <div class="divide-y divide-line dark:divide-line-dark">
+    {% for doc in recent_documents %}
+      <div class="flex items-center gap-2.5 px-3.5 py-1.5">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <i data-lucide="file-text" class="h-4 w-4"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-medium leading-snug text-ink dark:text-ink-dark">{{ doc.title }}</p>
+          <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">{{ doc.uploaded_at|timesince }} ago</p>
+        </div>
+        <span class="shrink-0 text-xs text-muted dark:text-muted-dark">{{ doc.file_size|filesizeformat }}</span>
+      </div>
+    {% empty %}
+      <div class="px-3.5 py-4 text-center">
+        <p class="text-sm text-muted dark:text-muted-dark">No uploads yet.</p>
+      </div>
+    {% endfor %}
+  </div>
+
+</div>

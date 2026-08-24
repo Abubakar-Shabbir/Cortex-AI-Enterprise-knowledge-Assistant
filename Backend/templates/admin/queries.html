@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+
+{% block title %}Queries{% endblock %}
+
+{% block content %}
+
+<div x-data="queriesPage()">
+  <form id="csrf-source">{% csrf_token %}</form>
+
+  {% include "partials/_page_header.html" with title="Queries" subtitle="Every question asked across the workspace, with search, filters, and analytics. Question/answer content stays private unless you hold the auditing permission." %}
+
+  <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    {% include "partials/_stat_card.html" with label="Total Queries" icon="search" value=analytics.total numeric=True %}
+    {% include "partials/_stat_card.html" with label="Answered" icon="check-circle-2" value=analytics.answered_pct sublabel="% of all queries" numeric=True %}
+    {% include "partials/_stat_card.html" with label="Avg Confidence" icon="gauge" value=analytics.avg_confidence sublabel="percent" numeric=True %}
+    {% include "partials/_stat_card.html" with label="Avg Response" icon="timer" value=analytics.avg_response_time sublabel="milliseconds" numeric=True %}
+    {% include "partials/_stat_card.html" with label="Flagged" icon="flag" value=analytics.flagged_count numeric=True %}
+    {% include "partials/_stat_card.html" with label="Top Method" icon="git-branch" value=analytics.top_method %}
+  </div>
+
+  <div class="mb-4 rounded-2xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <form method="GET" class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+
+      {% if can_view_content %}
+        <div class="lg:col-span-2">
+          <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Search content</label>
+          <input type="text" name="q" value="{{ filters.q }}" placeholder="Question or answer text…"
+            class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+        </div>
+      {% else %}
+        <div class="lg:col-span-2">
+          <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Owner</label>
+          <input type="text" name="owner" value="{{ filters.owner }}" placeholder="Username…"
+            class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+        </div>
+      {% endif %}
+
+      {% if can_view_content %}
+        <div>
+          <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Owner</label>
+          <input type="text" name="owner" value="{{ filters.owner }}" placeholder="Username…"
+            class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+        </div>
+      {% endif %}
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Scope</label>
+        <select name="scope" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Everyone</option>
+          <option value="mine" {% if filters.scope == "mine" %}selected{% endif %}>My own queries</option>
+          <option value="others" {% if filters.scope == "others" %}selected{% endif %}>Other members' queries</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Status</label>
+        <select name="status" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          <option value="answered" {% if filters.status == "answered" %}selected{% endif %}>Answered</option>
+          <option value="not_found" {% if filters.status == "not_found" %}selected{% endif %}>No Answer Found</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Method</label>
+        <select name="method" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          {% for method in search_methods %}
+            <option value="{{ method }}" {% if filters.method == method %}selected{% endif %}>{{ method }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Min. confidence</label>
+        <select name="min_confidence" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          <option value="25" {% if filters.min_confidence == "25" %}selected{% endif %}>25%+</option>
+          <option value="50" {% if filters.min_confidence == "50" %}selected{% endif %}>50%+</option>
+          <option value="75" {% if filters.min_confidence == "75" %}selected{% endif %}>75%+</option>
+          <option value="90" {% if filters.min_confidence == "90" %}selected{% endif %}>90%+</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Sort</label>
+        <select name="sort" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="newest" {% if filters.sort == "newest" or not filters.sort %}selected{% endif %}>Newest first</option>
+          <option value="oldest" {% if filters.sort == "oldest" %}selected{% endif %}>Oldest first</option>
+          <option value="confidence_high" {% if filters.sort == "confidence_high" %}selected{% endif %}>Confidence: high → low</option>
+          <option value="confidence_low" {% if filters.sort == "confidence_low" %}selected{% endif %}>Confidence: low → high</option>
+          <option value="slowest" {% if filters.sort == "slowest" %}selected{% endif %}>Slowest first</option>
+          <option value="fastest" {% if filters.sort == "fastest" %}selected{% endif %}>Fastest first</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">From</label>
+        <input type="date" name="date_from" value="{{ filters.date_from }}"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">To</label>
+        <input type="date" name="date_to" value="{{ filters.date_to }}"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      <label class="flex items-center gap-2 self-end pb-2 text-sm text-ink dark:text-ink-dark">
+        <input type="checkbox" name="flagged" value="1" {% if filters.flagged == "1" %}checked{% endif %}
+          class="h-4 w-4 rounded border-line text-primary focus:ring-primary dark:border-line-dark">
+        Flagged only
+      </label>
+
+      <div class="flex items-end gap-2 lg:col-span-2">
+        <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+          <i data-lucide="filter" class="h-4 w-4"></i> Apply
+        </button>
+        <a href="{% url 'admin_queries' %}" class="inline-flex items-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">
+          Reset
+        </a>
+        <a href="{% url 'export_queries_report' %}?{{ request.GET.urlencode }}" class="ml-auto inline-flex items-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary dark:border-line-dark dark:text-ink-dark dark:hover:bg-primary/10">
+          <i data-lucide="download" class="h-4 w-4"></i> Export CSV
+        </a>
+      </div>
+    </form>
+  </div>
+
+  <div class="rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+    {% if page_obj %}
+      <div class="overflow-auto">
+        <table class="w-full min-w-[920px] text-left text-sm">
+          <thead class="sticky top-0 z-10 bg-card dark:bg-card-dark">
+            <tr class="border-b border-line text-xs font-semibold uppercase tracking-wide text-muted dark:border-line-dark dark:text-muted-dark">
+              <th class="px-5 py-3">Question</th>
+              <th class="px-3 py-3">Owner</th>
+              <th class="px-3 py-3">Status</th>
+              <th class="px-3 py-3">Method</th>
+              <th class="px-3 py-3 text-right">Confidence</th>
+              <th class="px-3 py-3 text-right">Response</th>
+              <th class="px-3 py-3 text-right">Sources</th>
+              <th class="px-3 py-3">Asked</th>
+              <th class="px-5 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-line dark:divide-line-dark">
+            {% for log in page_obj %}
+              <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
+                <td class="max-w-[280px] px-5 py-3 font-medium text-ink dark:text-ink-dark">
+                  {% if can_view_content %}
+                    <span class="truncate block" title="{{ log.question }}">{{ log.question }}</span>
+                  {% else %}
+                    <span class="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
+                      <i data-lucide="lock" class="h-3.5 w-3.5"></i> Protected
+                    </span>
+                  {% endif %}
+                </td>
+                <td class="px-3 py-3 text-muted dark:text-muted-dark">{{ log.user.username }}</td>
+                <td class="px-3 py-3">
+                  <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold
+                    {% if log.status_answered %} bg-success/10 text-success dark:text-success-dark
+                    {% else %} bg-danger/10 text-danger dark:text-danger-dark {% endif %}">
+                    {{ log.status_label }}
+                  </span>
+                </td>
+                <td class="px-3 py-3 text-muted dark:text-muted-dark">{{ log.search_method }}</td>
+                <td class="px-3 py-3 text-right text-muted dark:text-muted-dark">{{ log.confidence }}%</td>
+                <td class="px-3 py-3 text-right text-muted dark:text-muted-dark">{{ log.response_time_ms }} ms</td>
+                <td class="px-3 py-3 text-right text-muted dark:text-muted-dark">{{ log.sources|length }}</td>
+                <td class="px-3 py-3 text-muted dark:text-muted-dark">{{ log.created_at|timesince }} ago</td>
+                <td class="px-5 py-3">
+                  <div class="flex items-center justify-end gap-1.5" x-init="if (!(({{ log.id }}) in flagged)) flagged[{{ log.id }}] = {{ log.is_flagged|yesno:"true,false" }}">
+                    <button type="button" @click="toggleFlag({{ log.id }})"
+                      class="flex h-8 w-8 items-center justify-center rounded-lg transition-colors"
+                      :title="flagged[{{ log.id }}] ? 'Unpin' : 'Pin for follow-up'"
+                      :class="flagged[{{ log.id }}] ? 'text-warning hover:bg-warning/10' : 'text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5'">
+                      <i data-lucide="flag" class="h-4 w-4"></i>
+                    </button>
+                    {% if can_view_content %}
+                      <button type="button" @click="openDetail({{ log.id }})"
+                        class="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-ink transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary dark:border-line-dark dark:text-ink-dark dark:hover:bg-primary/10">
+                        <i data-lucide="eye" class="h-3.5 w-3.5"></i> View
+                      </button>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if page_obj.paginator.num_pages > 1 %}
+        <div class="flex items-center justify-between border-t border-line px-5 py-3 dark:border-line-dark">
+          <p class="text-xs text-muted dark:text-muted-dark">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} total</p>
+          <div class="flex gap-2">
+            {% if page_obj.has_previous %}
+              <a href="?{{ request.GET.urlencode }}&page={{ page_obj.previous_page_number }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Previous</a>
+            {% endif %}
+            {% if page_obj.has_next %}
+              <a href="?{{ request.GET.urlencode }}&page={{ page_obj.next_page_number }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Next</a>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      {% include "partials/_empty_state.html" with icon="search" title="No queries match these filters" %}
+    {% endif %}
+
+  </div>
+
+  <!-- Content detail modal -->
+  <div x-show="detail.open" x-cloak x-transition.opacity
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+    @click.self="closeDetail()">
+    <div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-line bg-card p-6 shadow-2xl dark:border-line-dark dark:bg-card-dark">
+      <template x-if="detail.loading">
+        <p class="text-sm text-muted dark:text-muted-dark">Loading…</p>
+      </template>
+      <template x-if="!detail.loading && detail.data">
+        <div class="space-y-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-xs font-medium uppercase tracking-wide text-muted dark:text-muted-dark">Query by <span x-text="detail.data.owner"></span></p>
+              <p class="text-xs text-muted dark:text-muted-dark" x-text="detail.data.created_at"></p>
+            </div>
+            <button type="button" @click="closeDetail()" class="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5">
+              <i data-lucide="x" class="h-4 w-4"></i>
+            </button>
+          </div>
+
+          <div>
+            <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Question</p>
+            <p class="rounded-lg bg-surface p-3 text-sm text-ink dark:bg-white/5 dark:text-ink-dark" x-text="detail.data.question"></p>
+          </div>
+
+          <div>
+            <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Answer</p>
+            <p class="whitespace-pre-wrap rounded-lg bg-surface p-3 text-sm text-ink dark:bg-white/5 dark:text-ink-dark" x-text="detail.data.answer"></p>
+          </div>
+
+          <div class="grid grid-cols-3 gap-3 text-center text-xs">
+            <div class="rounded-lg border border-line p-2 dark:border-line-dark">
+              <div class="font-semibold text-ink dark:text-ink-dark" x-text="detail.data.confidence + '%'"></div>
+              <div class="text-muted dark:text-muted-dark">Confidence</div>
+            </div>
+            <div class="rounded-lg border border-line p-2 dark:border-line-dark">
+              <div class="font-semibold text-ink dark:text-ink-dark" x-text="detail.data.response_time_ms + ' ms'"></div>
+              <div class="text-muted dark:text-muted-dark">Response Time</div>
+            </div>
+            <div class="rounded-lg border border-line p-2 dark:border-line-dark">
+              <div class="font-semibold text-ink dark:text-ink-dark" x-text="detail.data.sources.length"></div>
+              <div class="text-muted dark:text-muted-dark">Sources</div>
+            </div>
+          </div>
+
+          <template x-if="detail.data.sources.length">
+            <div>
+              <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Source References</p>
+              <div class="space-y-2">
+                <template x-for="(src, idx) in detail.data.sources" :key="idx">
+                  <div class="rounded-lg border border-line p-2.5 text-xs dark:border-line-dark">
+                    <div class="mb-1 font-medium text-ink dark:text-ink-dark" x-text="(src.document || 'Document') + ' · chunk ' + src.chunk_number"></div>
+                    <div class="text-muted dark:text-muted-dark" x-text="src.content"></div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  function getCsrfToken() {
+    return document.querySelector('#csrf-source [name=csrfmiddlewaretoken]').value;
+  }
+
+  function queriesPage() {
+    return {
+      flagged: {},
+      detail: { open: false, loading: false, data: null },
+
+      toggleFlag(id) {
+        fetch(`/admin/queries/${id}/toggle-flag/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': getCsrfToken() },
+        })
+          .then(r => r.json())
+          .then(data => { this.flagged[data.id] = data.is_flagged; });
+      },
+
+      openDetail(id) {
+        this.detail = { open: true, loading: true, data: null };
+        fetch(`/admin/queries/${id}/detail/`)
+          .then(r => r.json())
+          .then(data => { this.detail = { open: true, loading: false, data }; });
+      },
+
+      closeDetail() {
+        this.detail = { open: false, loading: false, data: null };
+      },
+    };
+  }
+</script>
+{% endblock %}

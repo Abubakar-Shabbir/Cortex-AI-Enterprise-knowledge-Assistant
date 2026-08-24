@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+
+<div class="mb-4 flex flex-col gap-1">
+  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Settings</h1>
+  <p class="text-sm text-muted dark:text-muted-dark">Live RAG pipeline configuration — changes here take effect immediately, no redeploy.</p>
+</div>
+
+<form method="POST" x-data="settingsPage('{{ config.llm_provider }}', {{ config.answer_temperature }})" @input="dirty = true" @change="dirty = true" class="pb-16">
+  {% csrf_token %}
+
+  <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+
+    {% if "settings.manage_llm" in user_permissions %}
+    <div class="rounded-2xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark lg:col-span-2">
+      <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="bot" class="h-4 w-4 text-primary dark:text-primary-soft"></i> LLM Configuration
+      </h2>
+      <p class="mb-3 text-xs text-muted dark:text-muted-dark">The active provider below is what actually answers every request. By default there is no fallback — if it fails, times out, or hits a rate limit, the request fails with a clear error instead of silently switching providers. Turn on "Allow fallback" if you'd rather the request fall through to another configured provider than fail outright.</p>
+
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Active Provider</label>
+          <select name="llm_provider" x-model="provider" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+            {% for opt in llm_provider_options %}
+              <option value="{{ opt.key }}" {% if opt.key == config.llm_provider %}selected{% endif %}>{{ opt.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {% for opt in llm_provider_options %}
+          <template x-if="provider === '{{ opt.key }}'">
+            <div>
+              <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">{{ opt.label }} Model</label>
+              <select name="{{ opt.field_name }}" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+                {% for m in opt.model_choices %}
+                  <option value="{{ m }}" {% if m == opt.current_model %}selected{% endif %}>{{ m }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </template>
+          {# Hidden fallback inputs for the two providers not currently shown, so the form always POSTs all three model fields unchanged. #}
+          <template x-if="provider !== '{{ opt.key }}'">
+            <input type="hidden" name="{{ opt.field_name }}" value="{{ opt.current_model }}">
+          </template>
+        {% endfor %}
+      </div>
+
+      <div class="mt-3">
+        <label class="mb-1 flex items-center justify-between text-xs font-medium text-muted dark:text-muted-dark">
+          <span>Answer temperature</span>
+          <span class="rounded-md bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-primary dark:text-primary-soft" x-text="temperature.toFixed(2)"></span>
+        </label>
+        <input type="range" step="0.05" min="0" max="1" name="answer_temperature" x-model.number="temperature"
+          class="h-1.5 w-full max-w-xs cursor-pointer appearance-none rounded-full bg-line accent-primary dark:bg-line-dark">
+        <div class="mt-0.5 flex max-w-xs justify-between text-[10px] text-muted dark:text-muted-dark"><span>0 — deterministic</span><span>1 — creative</span></div>
+      </div>
+
+      <div class="mt-3 flex items-start gap-2">
+        <input type="checkbox" id="enable_fallback" name="enable_fallback" {% if config.enable_fallback %}checked{% endif %}
+          class="mt-0.5 h-4 w-4 rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark">
+        <label for="enable_fallback" class="text-xs text-ink dark:text-ink-dark">
+          <span class="font-medium">Allow fallback to another provider</span>
+          <span class="block text-muted dark:text-muted-dark">Off by default. When off, a failure on the active provider fails the request instead of silently answering via a different provider/model.</span>
+        </label>
+      </div>
+
+      <div class="mt-3 border-t border-line pt-3 dark:border-line-dark">
+        <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Provider Status</p>
+        <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {% for opt in llm_provider_options %}
+            <div class="rounded-lg border border-line px-3 py-2 dark:border-line-dark">
+              <div class="flex items-center justify-between gap-2">
+                <p class="flex items-center gap-1.5 text-sm font-medium text-ink dark:text-ink-dark">
+                  {{ opt.label }}
+                  {% if opt.key == config.llm_provider %}
+                    <span class="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary dark:text-primary-soft">Active</span>
+                  {% endif %}
+                </p>
+                <button type="button" @click="testConnection('{{ opt.key }}')" :disabled="testing['{{ opt.key }}']"
+                  class="shrink-0 inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-[11px] font-medium text-ink transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary disabled:opacity-50 dark:border-line-dark dark:text-ink-dark dark:hover:bg-primary/10">
+                  <i data-lucide="loader-2" class="h-3 w-3 animate-spin" x-show="testing['{{ opt.key }}']"></i>
+                  <i data-lucide="zap" class="h-3 w-3" x-show="!testing['{{ opt.key }}']"></i>
+                  Test
+                </button>
+              </div>
+              <p class="mt-1 flex items-center gap-1.5 text-xs {% if opt.configured %}text-success dark:text-success-dark{% else %}text-muted dark:text-muted-dark{% endif %}">
+                <span class="h-1.5 w-1.5 shrink-0 rounded-full {% if opt.configured %}bg-success dark:bg-success-dark{% else %}bg-line dark:bg-line-dark{% endif %}"></span>
+                {% if opt.configured %}API key configured{% else %}No API key set{% endif %}
+              </p>
+              <template x-if="testResults['{{ opt.key }}']">
+                <p class="mt-1 text-xs" :class="testResults['{{ opt.key }}'].ok ? 'text-success dark:text-success-dark' : 'text-danger dark:text-danger-dark'">
+                  <span x-text="testResults['{{ opt.key }}'].message"></span>
+                  <template x-if="testResults['{{ opt.key }}'].latency_ms"><span x-text="' (' + testResults['{{ opt.key }}'].latency_ms + 'ms)'"></span></template>
+                </p>
+              </template>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if "settings.manage_embedding" in user_permissions %}
+    <div class="rounded-2xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <h2 class="mb-3 flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="cpu" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Embedding Model
+      </h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex items-center justify-between"><dt class="text-muted dark:text-muted-dark">Model</dt><dd class="font-medium text-ink dark:text-ink-dark">{{ system_status.embedding_model|default:"—" }}</dd></div>
+        <div class="flex items-center justify-between"><dt class="text-muted dark:text-muted-dark">Dimensions</dt><dd class="font-medium text-ink dark:text-ink-dark">{{ system_status.embedding_dimension|default:"—" }}</dd></div>
+      </dl>
+      <p class="mt-2 flex items-start gap-2 text-xs text-muted dark:text-muted-dark">
+        <i data-lucide="lock" class="mt-0.5 h-3.5 w-3.5 shrink-0"></i>
+        Not editable here — changing it requires re-embedding every existing chunk and a dimension migration, not just a config flip.
+      </p>
+    </div>
+    {% endif %}
+
+    {% if "settings.manage_chunking" in user_permissions %}
+    <div class="rounded-2xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <h2 class="mb-3 flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="scissors" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Retrieval &amp; Chunking
+      </h2>
+
+      <div class="grid grid-cols-2 gap-2.5">
+        <div>
+          <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Chunk size</label>
+          <input type="number" min="100" name="chunk_size" value="{{ config.chunk_size }}" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Chunk overlap</label>
+          <input type="number" min="0" name="chunk_overlap" value="{{ config.chunk_overlap }}" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+        </div>
+      </div>
+      <p class="mb-2.5 mt-1 text-xs text-muted dark:text-muted-dark">Applies to newly-uploaded documents only — existing chunks aren't retroactively resized.</p>
+
+      <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Retrieval top-K</label>
+      <input type="number" min="1" max="20" name="top_k" value="{{ config.top_k }}" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+    </div>
+    {% endif %}
+
+    {% if "settings.manage_database" in user_permissions %}
+    <div class="rounded-2xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <h2 class="mb-3 flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="database" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Database
+      </h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex items-center justify-between"><dt class="text-muted dark:text-muted-dark">Database</dt><dd class="font-medium text-ink dark:text-ink-dark">{{ db_name }}</dd></div>
+        <div class="flex items-center justify-between"><dt class="text-muted dark:text-muted-dark">Host</dt><dd class="font-medium text-ink dark:text-ink-dark">{{ db_host }}</dd></div>
+        <div class="flex items-center justify-between"><dt class="text-muted dark:text-muted-dark">pgvector</dt>
+          <dd class="flex items-center gap-1.5 font-medium {% if system_status.pgvector_enabled %}text-success dark:text-success-dark{% else %}text-danger dark:text-danger-dark{% endif %}">
+            <span class="h-1.5 w-1.5 rounded-full {% if system_status.pgvector_enabled %}bg-success dark:bg-success-dark{% else %}bg-danger dark:bg-danger-dark{% endif %}"></span>
+            {% if system_status.pgvector_enabled %}Enabled{% else %}Not enabled{% endif %}
+          </dd>
+        </div>
+      </dl>
+      <p class="mt-2 flex items-start gap-2 text-xs text-muted dark:text-muted-dark">
+        <i data-lucide="lock" class="mt-0.5 h-3.5 w-3.5 shrink-0"></i>
+        Not editable here — changing it live would mean writing the new connection through the very connection being replaced.
+      </p>
+    </div>
+    {% endif %}
+
+  </div>
+
+  {% if "settings.manage_retrieval" in user_permissions %}
+  <div class="mt-4 rounded-2xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <h2 class="mb-1 flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+      <i data-lucide="sliders-horizontal" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Advanced Retrieval
+    </h2>
+    <p class="mb-3 text-xs text-muted dark:text-muted-dark">Sprint 6-8 retrieval enhancements — each reuses the existing hybrid search pipeline, no restart required to flip one on or off.</p>
+
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+
+      {% include "partials/_toggle_switch.html" with name="enable_query_expansion" checked=config.enable_query_expansion title="Query Expansion" description="Enriches BM25 with LLM-generated phrasings." warning="+1 LLM call, adds latency." %}
+
+      {% include "partials/_toggle_switch.html" with name="enable_hyde" checked=config.enable_hyde title="HyDE" description="Embeds a hypothetical answer instead of the question." warning="+1 LLM call, adds latency." %}
+
+      <div>
+        {% include "partials/_toggle_switch.html" with name="enable_multi_query" checked=config.enable_multi_query title="Multi-Query (RAG-Fusion)" description="Fuses results across rephrased variants." warning="+1 LLM call, adds latency." %}
+        <input type="number" min="1" max="10" name="multi_query_variants" value="{{ config.multi_query_variants }}" class="mt-2 w-24 rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark" title="Number of variants">
+      </div>
+
+      <div>
+        {% include "partials/_toggle_switch.html" with name="enable_dynamic_top_k" checked=config.enable_dynamic_top_k title="Dynamic Top-K" description="Widens retrieval depth for complex questions." %}
+        <input type="number" min="1" max="50" name="dynamic_top_k_max" value="{{ config.dynamic_top_k_max }}" class="mt-2 w-24 rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark" title="Max top-K">
+      </div>
+
+      <div>
+        {% include "partials/_toggle_switch.html" with name="enable_reranker" checked=config.enable_reranker title="Cross-Encoder Reranker" description="Re-scores candidates with BAAI/bge-reranker-base." %}
+        <input type="number" min="1" max="10" name="reranker_candidate_multiplier" value="{{ config.reranker_candidate_multiplier }}" class="mt-2 w-24 rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark" title="Candidate multiplier">
+      </div>
+
+      <div>
+        {% include "partials/_toggle_switch.html" with name="enable_context_compression" checked=config.enable_context_compression title="Context Compression" description="Drops redundant chunks before the LLM sees them." %}
+        <input type="number" step="0.01" min="0" max="1" name="context_compression_threshold" value="{{ config.context_compression_threshold }}" class="mt-2 w-24 rounded-lg border border-line bg-surface px-2 py-1 text-xs text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark" title="Similarity threshold">
+      </div>
+
+    </div>
+  </div>
+  {% endif %}
+
+  <p class="mt-3 text-xs text-muted dark:text-muted-dark">
+    {% if config.updated_by %}Last updated by {{ config.updated_by.username }}, {{ config.updated_at|timesince }} ago.{% else %}Not yet edited — showing settings.py defaults.{% endif %}
+    {% if not can_edit_any %}<span class="ml-1 inline-flex items-center gap-1"><i data-lucide="eye" class="h-3.5 w-3.5"></i> View-only access.</span>{% endif %}
+  </p>
+
+  {% if can_edit_any %}
+    <div x-show="dirty" x-cloak x-transition
+      class="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-card/95 px-4 py-3 shadow-2xl backdrop-blur dark:border-line-dark dark:bg-card-dark/95 lg:pl-64">
+      <div class="mx-auto flex max-w-5xl items-center justify-between gap-3">
+        <p class="flex items-center gap-2 text-sm font-medium text-ink dark:text-ink-dark">
+          <i data-lucide="circle-alert" class="h-4 w-4 text-warning"></i> You have unsaved changes.
+        </p>
+        <div class="flex items-center gap-2">
+          <button type="button" @click="window.location.reload()" class="rounded-lg border border-line px-3.5 py-2 text-xs font-medium text-ink transition-colors hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">
+            Discard
+          </button>
+          <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark">
+            <i data-lucide="save" class="h-3.5 w-3.5"></i> Save Settings
+          </button>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+</form>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  function settingsPage(initialProvider, initialTemperature) {
+    return {
+      provider: initialProvider,
+      temperature: initialTemperature,
+      dirty: false,
+      testing: {},
+      testResults: {},
+
+      testConnection(providerKey) {
+        this.testing[providerKey] = true;
+        this.testResults[providerKey] = null;
+
+        const token = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+        fetch('{% url "llm_provider_health_check" %}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': token },
+          body: new URLSearchParams({ provider: providerKey }).toString(),
+        })
+          .then((r) => r.json())
+          .then((data) => { this.testResults[providerKey] = data; })
+          .catch(() => { this.testResults[providerKey] = { ok: false, latency_ms: null, message: 'Request failed.' }; })
+          .finally(() => { this.testing[providerKey] = false; window.lucide && window.lucide.createIcons(); });
+      },
+    };
+  }
+</script>
+{% endblock %}

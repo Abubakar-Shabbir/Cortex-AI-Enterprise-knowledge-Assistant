@@ -1,0 +1,8 @@
+# requirements.txt adds --extra-index-url for PyTorch's CPU-only wheel
+# index (keeps the torch build small). uv's default index-strategy
+# ("first-index") commits to whichever index it sees a package name on
+# first and never checks the others - PyTorch's index also happens to
+# host numpy, so uv was resolving numpy from there instead of PyPI and
+# failing on versions that only exist on PyPI. unsafe-best-match makes
+# uv compare versions across all configured indexes instead.
+index-strategy = "unsafe-best-match"

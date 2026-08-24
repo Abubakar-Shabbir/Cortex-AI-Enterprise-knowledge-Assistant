@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+
+{% include "dashboard/_welcome.html" %}
+
+{% comment %}
+User Overview - deliberately simpler than Admin Overview: no charts,
+no trend sparklines. Every card below is a plain flowing grid item (no
+fixed main/rail column split) so the layout stays balanced and compact
+regardless of which combination of pages.* permissions the viewer's
+role holds - a fixed two-column split left a ragged gap under whichever
+side had less content. The single condition below decides whether
+there's anything to show at all - a role with none of these permissions
+(and no admin-area access) gets the "No modules assigned yet" empty
+state instead of a shell full of would-be-empty widgets.
+
+Card rows below use the grid's default items-stretch (not items-start)
++ each card is h-full flex flex-col, so when one card in a row is
+taller than its sibling, the shorter card's own background/border
+stretches to match instead of leaving a dead page-colored gap under it.
+{% endcomment %}
+{% if "pages.documents" in user_permissions or "pages.ask_ai" in user_permissions or "pages.knowledge_base" in user_permissions or "pages.ai_tasks" in user_permissions or "pages.analytics" in user_permissions or can_view_admin_area %}
+
+  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(auto-fit,minmax(180px,1fr))] fade-in-up">
+    {% if "pages.documents" in user_permissions %}
+      {% include "dashboard/_mini_stat_card.html" with icon="file-text" icon_bg="bg-primary/10" icon_color="text-primary" label="My Documents" value=stats.total_documents numeric=True %}
+    {% endif %}
+    {% if "pages.ask_ai" in user_permissions %}
+      {% include "dashboard/_mini_stat_card.html" with icon="message-square" icon_bg="bg-info/10" icon_color="text-info" label="Questions Asked" value=stats.questions_asked numeric=True %}
+      {% include "dashboard/_mini_stat_card.html" with icon="timer" icon_bg="bg-warning/10" icon_color="text-warning" label="Avg Response Time" value=stats.avg_response_time %}
+    {% endif %}
+    {% if "pages.documents" in user_permissions %}
+      {% include "dashboard/_mini_stat_card.html" with icon="hard-drive" icon_bg="bg-success/10" icon_color="text-success" label="Storage Used" value=stats.storage_used %}
+    {% endif %}
+    {% if "pages.ai_tasks" in user_permissions %}
+      {% include "dashboard/_mini_stat_card.html" with icon="sparkles" icon_bg="bg-accent/10" icon_color="text-accent" label="AI Task Runs" value=stats.ai_task_runs numeric=True %}
+    {% endif %}
+    {% if "pages.knowledge_base" in user_permissions %}
+      {% include "dashboard/_mini_stat_card.html" with icon="compass" icon_bg="bg-success/10" icon_color="text-success" label="Topics" value=knowledge_overview.total_entities numeric=True %}
+    {% endif %}
+  </div>
+
+  <div class="mt-2">
+    {% include "dashboard/_quick_actions.html" %}
+  </div>
+
+  {% comment %}
+  Deliberate order, not source order: Recent Documents + Recent
+  Questions pair first (both "recent items" lists, similar height in
+  the common case, so that row rarely mismatches). Knowledge Center +
+  Activity Feed pair next (both compact/summary-style widgets).
+  AI Task Runs goes last, so it's the card most likely to be the odd
+  one out when the permission count is odd (least predictable height,
+  0 to several runs, so it was never a great "pair" candidate anyway).
+
+  The sm:[&>*:last-child:nth-child(odd)]:col-span-2 rule handles that
+  odd-one-out case directly: if the last card ends up alone in the
+  final row (an odd position in a 2-column grid), it spans both
+  columns instead of leaving the other half of the row blank - the
+  exact large empty rectangle a lone trailing card otherwise leaves.
+  {% endcomment %}
+  <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 sm:[&>*:last-child:nth-child(odd)]:col-span-2">
+
+    {% if "pages.documents" in user_permissions %}
+      <div class="flex h-full flex-col rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <div class="flex items-center justify-between border-b border-line px-3.5 py-1.5 dark:border-line-dark">
+          <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Documents</h2>
+          <a href="{% url 'documents' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+        </div>
+        <div class="divide-y divide-line dark:divide-line-dark">
+          {% for doc in recent_documents %}
+            <div class="flex items-center gap-2.5 px-3.5 py-1.5">
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <i data-lucide="file-text" class="h-4 w-4"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium leading-snug text-ink dark:text-ink-dark">{{ doc.title }}</p>
+                <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">{{ doc.file_type|upper }} · {{ doc.chunk_count }} chunks · {{ doc.uploaded_at|timesince }} ago</p>
+              </div>
+            </div>
+          {% empty %}
+            <div class="flex items-center gap-2.5 px-3.5 py-3">
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-line/50 text-muted dark:bg-white/5 dark:text-muted-dark">
+                <i data-lucide="file-text" class="h-4 w-4"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm text-muted dark:text-muted-dark">No documents uploaded yet.</p>
+                <a href="{% url 'documents' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">Upload your first document</a>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    {% if "pages.ask_ai" in user_permissions %}
+      <div class="flex h-full flex-col rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <div class="flex items-center justify-between border-b border-line px-3.5 py-1.5 dark:border-line-dark">
+          <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Questions</h2>
+          <a href="{% url 'search_history' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+        </div>
+        <div class="divide-y divide-line dark:divide-line-dark">
+          {% for log in recent_questions %}
+            <div class="flex items-center gap-2.5 px-3.5 py-1.5">
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <i data-lucide="message-square" class="h-4 w-4"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium leading-snug text-ink dark:text-ink-dark">{{ log.question }}</p>
+                <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">{{ log.confidence }}% confidence · {{ log.created_at|timesince }} ago</p>
+              </div>
+            </div>
+          {% empty %}
+            <div class="flex items-center gap-2.5 px-3.5 py-3">
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-line/50 text-muted dark:bg-white/5 dark:text-muted-dark">
+                <i data-lucide="message-square" class="h-4 w-4"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm text-muted dark:text-muted-dark">No questions asked yet.</p>
+                <a href="{% url 'ask_ai' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">Ask your first question</a>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    {% if "pages.knowledge_base" in user_permissions %}
+      {% include "dashboard/_knowledge_snapshot.html" %}
+    {% endif %}
+
+    {% include "dashboard/_activity_feed.html" %}
+
+    {% if "pages.ai_tasks" in user_permissions %}
+      <div class="flex h-full flex-col rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <div class="flex items-center justify-between border-b border-line px-3.5 py-1.5 dark:border-line-dark">
+          <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent AI Task Runs</h2>
+          <a href="{% url 'ai_task_history' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+        </div>
+        <div class="divide-y divide-line dark:divide-line-dark">
+          {% for run in recent_ai_task_runs %}
+            <a href="{% url 'ai_task_results' run.id %}" class="flex items-center gap-2.5 px-3.5 py-1.5 hover:bg-surface dark:hover:bg-white/5">
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <i data-lucide="sparkles" class="h-4 w-4"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-medium leading-snug text-ink dark:text-ink-dark">{{ run.get_task_type_display }}</p>
+                <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">{{ run.get_status_display }} · {{ run.created_at|timesince }} ago</p>
+              </div>
+            </a>
+          {% empty %}
+            <div class="flex items-center gap-2.5 px-3.5 py-3">
+              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-line/50 text-muted dark:bg-white/5 dark:text-muted-dark">
+                <i data-lucide="sparkles" class="h-4 w-4"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm text-muted dark:text-muted-dark">No AI Tasks run yet.</p>
+                <a href="{% url 'ai_tasks' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">Run your first AI Task</a>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+  </div>
+
+{% else %}
+  {% include "partials/_empty_state.html" with icon="lock" title="No modules assigned yet" message="Your role doesn't grant access to any workspace features yet. An Admin can grant access from Roles." %}
+{% endif %}
+
+{% endblock %}

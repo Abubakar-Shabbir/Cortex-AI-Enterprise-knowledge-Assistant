@@ -1,0 +1,669 @@
+{% extends "base.html" %}
+
+{% block title %}Documents{% endblock %}
+
+{% block content %}
+
+<div x-data="documentsPage()">
+  <form id="csrf-source">{% csrf_token %}</form>
+
+  {% include "partials/_page_header.html" with title="Documents" subtitle="Upload once, reuse everywhere — the single source of truth for what your assistant can answer from." %}
+
+  {% include "partials/_documents_tabs.html" with active="mine" %}
+
+  <div class="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+    {% include "partials/_stat_card.html" with icon="file-text" label="Total Documents" value=total_documents numeric=True %}
+    {% include "partials/_stat_card.html" with icon="check-circle-2" label="Fully Ready" value=embedded_count numeric=True %}
+    {% include "partials/_stat_card.html" with icon="hard-drive" label="Storage Used" value=total_storage %}
+    {% include "partials/_stat_card.html" with icon="archive" label="Archived" value=archived_count numeric=True %}
+    {% include "partials/_stat_card.html" with icon="star" label="Favorites" value=favorites_count numeric=True %}
+  </div>
+
+  <div x-data="{ uploadOpen: false }" class="mb-6 rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <button @click="uploadOpen = !uploadOpen" class="flex w-full items-center justify-between px-5 py-4">
+      <span class="flex items-center gap-2.5 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="upload-cloud" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Upload Document
+      </span>
+      <i data-lucide="chevron-down" class="h-4 w-4 text-muted transition-transform dark:text-muted-dark" :class="uploadOpen && 'rotate-180'"></i>
+    </button>
+
+    <div x-show="uploadOpen" x-cloak x-transition x-init="uploadOpen = {% if upload_error %}true{% else %}false{% endif %}" class="border-t border-line px-5 py-5 dark:border-line-dark">
+
+      {% if upload_error %}
+        <div class="mb-4 flex items-start gap-2.5 rounded-lg border border-danger/20 bg-danger/10 px-3.5 py-3 text-sm text-danger dark:text-danger-dark">
+          <i data-lucide="alert-circle" class="mt-0.5 h-4 w-4 shrink-0"></i>
+          {{ upload_error }}
+        </div>
+      {% endif %}
+
+      <form method="POST" enctype="multipart/form-data" class="flex flex-col gap-4">
+        {% csrf_token %}
+
+        <div>
+          <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">File (PDF, DOCX, TXT — max 20 MB)</label>
+          <input
+            type="file" name="document" accept=".pdf,.docx,.txt" required
+            class="w-full rounded-lg border border-line bg-surface px-3.5 py-2 text-sm text-ink file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white dark:border-line-dark dark:bg-white/5 dark:text-ink-dark"
+          >
+          <p class="mt-1.5 text-xs text-muted dark:text-muted-dark">The document's title is taken from the file name — upload just saves the file; click <strong>Embed</strong> on its row below when you're ready to process it.</p>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Add to Collection (optional)</label>
+            <select name="collection_id" class="w-full rounded-lg border border-line bg-surface px-3.5 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+              <option value="">No collection</option>
+              {% for collection in collections %}
+                <option value="{{ collection.id }}">{{ collection.name }}</option>
+              {% endfor %}
+            </select>
+            <p class="mt-1.5 text-xs text-muted dark:text-muted-dark">Files it into one of your folders in one click — you can still change this later from the row menu.</p>
+          </div>
+
+          {% if can_manage_org_library %}
+            <div class="flex items-start gap-2.5 rounded-lg border border-line bg-surface px-3.5 py-3 dark:border-line-dark dark:bg-white/5">
+              <input type="checkbox" name="add_to_org_library" id="upload-org-library" value="1"
+                class="mt-0.5 h-4 w-4 shrink-0 rounded border-line text-primary focus:ring-primary dark:border-line-dark">
+              <label for="upload-org-library" class="text-sm text-ink dark:text-ink-dark">
+                Add to Organization Library
+                <span class="mt-0.5 block text-xs font-normal text-muted dark:text-muted-dark">Makes this document visible to everyone in your organization, not just you.</span>
+              </label>
+            </div>
+          {% endif %}
+        </div>
+
+        <div>
+          <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+            <i data-lucide="upload" class="h-4 w-4"></i> Upload
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="mb-4 rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <form method="GET" class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+      <div class="lg:col-span-2">
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Search</label>
+        <input type="text" name="q" value="{{ filters.q }}" placeholder="Title…"
+          class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Status</label>
+        <select name="status" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          <option value="pending" {% if filters.status == "pending" %}selected{% endif %}>Pending</option>
+          <option value="processing" {% if filters.status == "processing" %}selected{% endif %}>Processing</option>
+          <option value="completed" {% if filters.status == "completed" %}selected{% endif %}>Ready</option>
+          <option value="failed" {% if filters.status == "failed" %}selected{% endif %}>Failed</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Type</label>
+        <select name="file_type" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          <option value="pdf" {% if filters.file_type == "pdf" %}selected{% endif %}>PDF</option>
+          <option value="docx" {% if filters.file_type == "docx" %}selected{% endif %}>DOCX</option>
+          <option value="txt" {% if filters.file_type == "txt" %}selected{% endif %}>TXT</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Category</label>
+        <select name="category" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          {% for cat in categories %}
+            <option value="{{ cat.id }}" {% if filters.category == cat.id|stringformat:"s" %}selected{% endif %}>{{ cat.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Tag</label>
+        <select name="tag" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="">Any</option>
+          {% for tag in tags %}
+            <option value="{{ tag.id }}" {% if filters.tag == tag.id|stringformat:"s" %}selected{% endif %}>{{ tag.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Sort</label>
+        <select name="sort" class="w-full rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          <option value="newest" {% if filters.sort == "newest" or not filters.sort %}selected{% endif %}>Newest first</option>
+          <option value="oldest" {% if filters.sort == "oldest" %}selected{% endif %}>Oldest first</option>
+          <option value="title" {% if filters.sort == "title" %}selected{% endif %}>Title A–Z</option>
+          <option value="size_desc" {% if filters.sort == "size_desc" %}selected{% endif %}>Largest first</option>
+          <option value="size_asc" {% if filters.sort == "size_asc" %}selected{% endif %}>Smallest first</option>
+        </select>
+      </div>
+
+      <label class="flex items-center gap-2 self-end pb-2 text-sm text-ink dark:text-ink-dark">
+        <input type="checkbox" name="archived" value="1" {% if filters.archived == "1" %}checked{% endif %}
+          class="h-4 w-4 rounded border-line text-primary focus:ring-primary dark:border-line-dark">
+        Archived only
+      </label>
+
+      <div class="flex items-end gap-2 lg:col-span-2">
+        <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+          <i data-lucide="filter" class="h-4 w-4"></i> Apply
+        </button>
+        <a href="{% url 'documents' %}" class="inline-flex items-center gap-2 rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink transition-colors hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">
+          Reset
+        </a>
+      </div>
+    </form>
+  </div>
+
+  <div x-show="Object.keys(selected).length > 0" x-cloak
+    class="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 dark:border-primary/40 dark:bg-primary/10">
+    <span class="text-sm font-semibold text-ink dark:text-ink-dark" x-text="Object.keys(selected).length + ' selected'"></span>
+    <button type="button" @click="bulkAction('favorite')" class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-card px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:bg-card-dark dark:text-ink-dark dark:hover:bg-white/5">
+      <i data-lucide="star" class="h-3.5 w-3.5"></i> Favorite
+    </button>
+    <button type="button" @click="bulkAction('archive')" class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-card px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:bg-card-dark dark:text-ink-dark dark:hover:bg-white/5">
+      <i data-lucide="archive" class="h-3.5 w-3.5"></i> Archive
+    </button>
+    <button type="button" @click="bulkAction('unarchive')" class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-card px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:bg-card-dark dark:text-ink-dark dark:hover:bg-white/5">
+      <i data-lucide="archive-restore" class="h-3.5 w-3.5"></i> Unarchive
+    </button>
+    {% if collections %}
+      <select @change="if ($event.target.value) { bulkAddToCollection($event.target.value); $event.target.value = ''; }"
+        class="rounded-lg border border-line bg-card px-3 py-1.5 text-xs font-medium text-ink dark:border-line-dark dark:bg-card-dark dark:text-ink-dark">
+        <option value="">Add to collection…</option>
+        {% for collection in collections %}
+          <option value="{{ collection.id }}">{{ collection.name }}</option>
+        {% endfor %}
+      </select>
+    {% endif %}
+    <button type="button" @click="bulkAction('delete')" class="inline-flex items-center gap-1.5 rounded-lg border border-danger/30 bg-card px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/10 dark:border-danger/40 dark:bg-card-dark dark:text-danger-dark">
+      <i data-lucide="trash-2" class="h-3.5 w-3.5"></i> Delete
+    </button>
+    <button type="button" @click="selected = {}" class="ml-auto text-xs font-medium text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark">Clear selection</button>
+  </div>
+
+  <div class="overflow-hidden rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-sm">
+        <thead class="sticky top-0 border-b border-line bg-surface dark:border-line-dark dark:bg-white/5">
+          <tr class="text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">
+            <th class="w-10 px-5 py-3.5">
+              <input type="checkbox" @change="toggleAll($event.target.checked)"
+                class="h-4 w-4 rounded border-line text-primary focus:ring-primary dark:border-line-dark">
+            </th>
+            <th class="px-5 py-3.5">Document</th>
+            <th class="px-5 py-3.5">Type</th>
+            <th class="px-5 py-3.5">Uploaded</th>
+            <th class="px-5 py-3.5">Chunks</th>
+            <th class="px-5 py-3.5">Status</th>
+            <th class="px-5 py-3.5">Size</th>
+            <th class="px-5 py-3.5 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-line dark:divide-line-dark">
+          {% for item in documents_data %}
+            <tr
+              class="transition-colors hover:bg-surface dark:hover:bg-white/5"
+              x-data="documentRow('{{ item.status }}', {{ item.percent }}, {{ item.doc.chunk_count }}, '{% url 'document_status' item.doc.id %}', '{% url 'document_embed' item.doc.id %}', {{ item.is_favorite|yesno:'true,false' }}, '{% url 'document_favorite_toggle' item.doc.id %}')"
+              x-init="if (status === 'Processing') startPolling()"
+            >
+              <td class="px-5 py-3.5">
+                <input type="checkbox" data-doc-id="{{ item.doc.id }}" :checked="!!selected[{{ item.doc.id }}]" @change="toggleOne({{ item.doc.id }}, $event.target.checked)"
+                  class="h-4 w-4 rounded border-line text-primary focus:ring-primary dark:border-line-dark">
+              </td>
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-2.5">
+                  <button type="button" @click="toggleFavorite()" title="Favorite" class="shrink-0">
+                    <i data-lucide="star" class="h-4 w-4 transition-colors" :class="favorite ? 'fill-warning text-warning' : 'text-muted dark:text-muted-dark'"></i>
+                  </button>
+                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
+                    <i data-lucide="file-text" class="h-4 w-4"></i>
+                  </div>
+                  <button type="button" @click="openPreview('{% url 'document_preview' item.doc.id %}', '{{ item.doc.title|escapejs }}')" class="max-w-[220px] truncate text-left font-medium text-ink hover:text-primary dark:text-ink-dark dark:hover:text-primary-soft">{{ item.doc.title }}</button>
+                </div>
+              </td>
+              <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.doc.file_type|upper }}</td>
+              <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.doc.uploaded_at|date:"M d, Y" }}</td>
+              <td class="px-5 py-3.5 text-muted dark:text-muted-dark" x-text="chunkCount"></td>
+              <td class="px-5 py-3.5">
+
+                <template x-if="status === 'Pending'">
+                  <button
+                    @click="embed()"
+                    class="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/15 dark:text-primary-soft"
+                  >
+                    <i data-lucide="zap" class="h-3.5 w-3.5"></i> Embed
+                  </button>
+                </template>
+
+                <template x-if="status === 'Processing'">
+                  <div class="w-32">
+                    <div class="mb-1 flex items-center justify-between text-[11px] font-medium text-muted dark:text-muted-dark">
+                      <span>Processing…</span>
+                      <span x-text="percent + '%'"></span>
+                    </div>
+                    <div class="h-1.5 w-full overflow-hidden rounded-full bg-line dark:bg-white/10">
+                      <div class="h-full rounded-full bg-primary transition-all duration-500" :style="'width: ' + percent + '%'"></div>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="status === 'Ready'">
+                  <span class="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 text-xs font-medium text-success dark:text-success-dark">
+                    <span class="h-1.5 w-1.5 rounded-full bg-success"></span> Ready
+                  </span>
+                </template>
+
+                <template x-if="status === 'Partial'">
+                  <span class="inline-flex items-center gap-1.5 rounded-full bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning dark:text-warning-dark">
+                    <span class="h-1.5 w-1.5 rounded-full bg-warning"></span> Partial
+                  </span>
+                </template>
+
+                <template x-if="status === 'Failed'">
+                  <div class="flex items-center gap-2">
+                    <span class="inline-flex items-center gap-1.5 rounded-full bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger dark:text-danger-dark">
+                      <span class="h-1.5 w-1.5 rounded-full bg-danger"></span> Failed
+                    </span>
+                    <button @click="embed()" class="text-xs font-semibold text-primary hover:underline dark:text-primary-soft">Retry</button>
+                  </div>
+                </template>
+
+                <template x-if="status === 'Archived'">
+                  <span class="inline-flex items-center gap-1.5 rounded-full bg-line px-2.5 py-1 text-xs font-medium text-muted dark:bg-white/10 dark:text-muted-dark">
+                    <i data-lucide="archive" class="h-3 w-3"></i> Archived
+                  </span>
+                </template>
+
+              </td>
+              <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.file_size }}</td>
+              <td class="px-5 py-3.5">
+                <div class="flex items-center justify-end gap-1" x-data="{ confirmOpen: false }">
+                  <a href="{% url 'document_download' item.doc.id %}" target="_blank" title="Open" class="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+                    <i data-lucide="external-link" class="h-4 w-4"></i>
+                  </a>
+                  <a href="{% url 'document_download' item.doc.id %}?download=1" title="Download" class="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+                    <i data-lucide="download" class="h-4 w-4"></i>
+                  </a>
+                  {% if "pages.knowledge_base" in user_permissions %}
+                    <a href="{% url 'document_knowledge' item.doc.id %}" title="Knowledge" class="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+                      <i data-lucide="network" class="h-4 w-4"></i>
+                    </a>
+                  {% endif %}
+                  <button type="button" @click="toggleArchive('{% url 'document_archive_toggle' item.doc.id %}')" title="Archive / Unarchive" class="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+                    <i data-lucide="archive" class="h-4 w-4"></i>
+                  </button>
+                  {% if can_share %}
+                    <button type="button" @click="openShare({{ item.doc.id }}, '{% url 'document_share' item.doc.id %}', '{{ item.doc.title|escapejs }}')" title="Share" class="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+                      <i data-lucide="share-2" class="h-4 w-4"></i>
+                    </button>
+                  {% endif %}
+                  <button type="button" @click="openVersions({{ item.doc.id }}, '{% url 'document_versions' item.doc.id %}', '{% url 'document_version_upload' item.doc.id %}', '{{ item.doc.title|escapejs }}')" title="Version History" class="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+                    <i data-lucide="history" class="h-4 w-4"></i>
+                  </button>
+                  {% if can_manage_org_library %}
+                    <form method="POST" action="{% url 'org_library_toggle' item.doc.id %}">
+                      {% csrf_token %}
+                      <button type="submit" title="{% if item.doc.is_org_library %}Remove from{% else %}Add to{% endif %} Organization Library" class="rounded-lg p-2 transition-colors hover:bg-line dark:hover:bg-white/10 {% if item.doc.is_org_library %}text-primary dark:text-primary-soft{% else %}text-muted hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark{% endif %}">
+                        <i data-lucide="library" class="h-4 w-4"></i>
+                      </button>
+                    </form>
+                  {% endif %}
+                  <button @click="confirmOpen = true" title="Delete" class="rounded-lg p-2 text-muted transition-colors hover:bg-danger/10 hover:text-danger dark:text-muted-dark dark:hover:text-danger-dark">
+                    <i data-lucide="trash-2" class="h-4 w-4"></i>
+                  </button>
+
+                  <div x-show="confirmOpen" x-cloak x-transition.opacity class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                    <div @click.outside="confirmOpen = false" class="w-full max-w-sm rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+                      <div class="mb-1 flex items-center gap-2.5 text-danger dark:text-danger-dark">
+                        <i data-lucide="alert-triangle" class="h-5 w-5"></i>
+                        <h3 class="text-sm font-semibold">Delete document</h3>
+                      </div>
+                      <p class="mb-4 text-sm text-muted dark:text-muted-dark">
+                        Delete "<span class="font-medium text-ink dark:text-ink-dark">{{ item.doc.title }}</span>" and all {{ item.doc.chunk_count }} of its chunks? This can't be undone.
+                      </p>
+                      <div class="flex justify-end gap-2">
+                        <button @click="confirmOpen = false" class="rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Cancel</button>
+                        <form method="POST" action="{% url 'document_delete' item.doc.id %}">
+                          {% csrf_token %}
+                          <button type="submit" class="rounded-lg bg-danger px-3.5 py-2 text-sm font-semibold text-white hover:bg-danger/90">Delete</button>
+                        </form>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="8" class="px-5 py-14 text-center text-sm text-muted dark:text-muted-dark">
+                {% if filters.q %}No documents match "{{ filters.q }}".{% else %}No documents uploaded yet.{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+      <div class="flex items-center justify-between border-t border-line px-5 py-3 dark:border-line-dark">
+        <p class="text-xs text-muted dark:text-muted-dark">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} total</p>
+        <div class="flex gap-2">
+          {% if page_obj.has_previous %}
+            <a href="?{{ request.GET.urlencode }}&page={{ page_obj.previous_page_number }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Previous</a>
+          {% endif %}
+          {% if page_obj.has_next %}
+            <a href="?{{ request.GET.urlencode }}&page={{ page_obj.next_page_number }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Next</a>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- Share modal -->
+  <div x-show="share.open" x-cloak x-transition.opacity
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+    @click.self="share.open = false">
+    <div class="w-full max-w-md rounded-2xl border border-line bg-card p-6 shadow-2xl dark:border-line-dark dark:bg-card-dark">
+      <div class="mb-4 flex items-start justify-between gap-3">
+        <h3 class="text-sm font-semibold text-ink dark:text-ink-dark">Share "<span x-text="share.title"></span>"</h3>
+        <button type="button" @click="share.open = false" class="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5">
+          <i data-lucide="x" class="h-4 w-4"></i>
+        </button>
+      </div>
+
+      <form @submit.prevent="addShare()" class="mb-4 flex flex-col gap-2">
+        <div class="flex gap-2">
+          <select x-model="share.targetType" class="rounded-lg border border-line bg-transparent px-2.5 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+            <option value="user">User</option>
+            <option value="role">Role</option>
+          </select>
+          <template x-if="share.targetType === 'user'">
+            <input type="text" x-model="share.targetValue" placeholder="Username or email" class="flex-1 rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+          </template>
+          <template x-if="share.targetType === 'role'">
+            <select x-model="share.targetValue" class="flex-1 rounded-lg border border-line bg-transparent px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark">
+              <option value="">Select a role…</option>
+              {% for role in assignable_roles %}
+                <option value="{{ role.id }}">{{ role.name }}</option>
+              {% endfor %}
+            </select>
+          </template>
+        </div>
+        <p x-show="share.error" x-text="share.error" class="text-xs text-danger dark:text-danger-dark"></p>
+        <button type="submit" class="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-white hover:bg-primary-dark">
+          <i data-lucide="user-plus" class="h-4 w-4"></i> Share
+        </button>
+      </form>
+
+      <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Shared with</p>
+      <div class="space-y-1.5">
+        <template x-for="s in share.shares" :key="s.id">
+          <div class="flex items-center justify-between rounded-lg border border-line px-3 py-2 text-sm dark:border-line-dark">
+            <span class="text-ink dark:text-ink-dark" x-text="s.target"></span>
+            <button type="button" @click="revokeShare(s.id)" class="text-xs font-medium text-danger hover:underline dark:text-danger-dark">Revoke</button>
+          </div>
+        </template>
+        <p x-show="!share.shares.length" class="text-xs text-muted dark:text-muted-dark">Not shared with anyone yet.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Version history modal -->
+  <div x-show="versions.open" x-cloak x-transition.opacity
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+    @click.self="versions.open = false">
+    <div class="w-full max-w-md rounded-2xl border border-line bg-card p-6 shadow-2xl dark:border-line-dark dark:bg-card-dark">
+      <div class="mb-4 flex items-start justify-between gap-3">
+        <h3 class="text-sm font-semibold text-ink dark:text-ink-dark">Version history — "<span x-text="versions.title"></span>"</h3>
+        <button type="button" @click="versions.open = false" class="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5">
+          <i data-lucide="x" class="h-4 w-4"></i>
+        </button>
+      </div>
+
+      <form method="POST" :action="versions.uploadUrl" enctype="multipart/form-data" class="mb-4 flex flex-col gap-2">
+        {% csrf_token %}
+        <label class="text-xs font-medium text-muted dark:text-muted-dark">Upload a new version</label>
+        <input type="file" name="file" accept=".pdf,.docx,.txt" required
+          class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-2.5 file:py-1 file:text-xs file:font-semibold file:text-white dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+        <button type="submit" class="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-white hover:bg-primary-dark">
+          <i data-lucide="upload" class="h-4 w-4"></i> Upload New Version
+        </button>
+        <p class="text-xs text-muted dark:text-muted-dark">Replaces the current version and re-processes it; the old version stays listed below.</p>
+      </form>
+
+      <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">History</p>
+      <template x-if="versions.loading">
+        <p class="text-sm text-muted dark:text-muted-dark">Loading…</p>
+      </template>
+      <div class="space-y-1.5">
+        <div class="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm dark:border-primary/40 dark:bg-primary/10">
+          <span class="font-medium text-ink dark:text-ink-dark">Version <span x-text="versions.current"></span> (current)</span>
+        </div>
+        <template x-for="v in versions.list" :key="v.id">
+          <div class="flex items-center justify-between rounded-lg border border-line px-3 py-2 text-sm dark:border-line-dark">
+            <span class="text-ink dark:text-ink-dark">Version <span x-text="v.version_number"></span> · <span x-text="v.file_size"></span> · <span x-text="v.replaced_at"></span></span>
+            <a :href="'/documents/versions/' + v.id + '/download/'" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">Download</a>
+          </div>
+        </template>
+        <p x-show="!versions.loading && !versions.list.length" class="text-xs text-muted dark:text-muted-dark">No earlier versions yet.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Preview modal -->
+  <div x-show="preview.open" x-cloak x-transition.opacity
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+    @click.self="preview.open = false">
+    <div class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-line bg-card p-6 shadow-2xl dark:border-line-dark dark:bg-card-dark">
+      <div class="mb-3 flex items-start justify-between gap-3">
+        <h3 class="text-sm font-semibold text-ink dark:text-ink-dark" x-text="preview.title"></h3>
+        <button type="button" @click="preview.open = false" class="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5">
+          <i data-lucide="x" class="h-4 w-4"></i>
+        </button>
+      </div>
+      <template x-if="preview.loading">
+        <p class="text-sm text-muted dark:text-muted-dark">Loading preview…</p>
+      </template>
+      <template x-if="!preview.loading && preview.error">
+        <p class="text-sm text-muted dark:text-muted-dark" x-text="preview.error"></p>
+      </template>
+      <template x-if="!preview.loading && preview.text">
+        <div>
+          <p class="whitespace-pre-wrap rounded-lg bg-surface p-3 text-sm text-ink dark:bg-white/5 dark:text-ink-dark" x-text="preview.text"></p>
+          <p x-show="preview.truncated" class="mt-2 text-xs text-muted dark:text-muted-dark">Preview truncated — download the document to see the rest.</p>
+        </div>
+      </template>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  function getCsrfToken() {
+    const input = document.querySelector('#csrf-source [name=csrfmiddlewaretoken]');
+    return input ? input.value : '';
+  }
+
+  function documentsPage() {
+    return {
+      selected: {},
+      preview: { open: false, loading: false, text: '', truncated: false, error: '', title: '' },
+      share: { open: false, url: '', title: '', shares: [], targetType: 'user', targetValue: '', error: '' },
+      versions: { open: false, loading: false, title: '', uploadUrl: '', current: 1, list: [] },
+
+      openVersions(docId, url, uploadUrl, title) {
+        this.versions = { open: true, loading: true, title, uploadUrl, current: 1, list: [] };
+        fetch(url)
+          .then((r) => r.json())
+          .then((data) => {
+            this.versions = {
+              open: true, loading: false, title, uploadUrl,
+              current: data.current_version, list: data.versions || [],
+            };
+          });
+      },
+
+      openShare(docId, url, title) {
+        this.share = { open: true, url, title, shares: [], targetType: 'user', targetValue: '', error: '' };
+        fetch(url)
+          .then((r) => r.json())
+          .then((data) => { this.share.shares = data.shares || []; });
+      },
+
+      addShare() {
+        if (!this.share.targetValue) return;
+        const body = new URLSearchParams();
+        body.set('target_type', this.share.targetType);
+        if (this.share.targetType === 'role') {
+          body.set('target_id', this.share.targetValue);
+        } else {
+          body.set('target_username', this.share.targetValue);
+        }
+
+        fetch(this.share.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': getCsrfToken() },
+          body,
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.error) {
+              this.share.error = data.error;
+              return;
+            }
+            this.share.error = '';
+            this.share.targetValue = '';
+            this.share.shares = data.shares || this.share.shares;
+            this.openShare(null, this.share.url, this.share.title);
+          });
+      },
+
+      revokeShare(shareId) {
+        fetch(`/documents/shares/${shareId}/revoke/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': getCsrfToken() },
+        }).then(() => {
+          this.share.shares = this.share.shares.filter((s) => s.id !== shareId);
+        });
+      },
+
+      toggleOne(id, checked) {
+        if (checked) this.selected[id] = true;
+        else delete this.selected[id];
+      },
+
+      toggleAll(checked) {
+        this.selected = {};
+        document.querySelectorAll('tbody input[type=checkbox][data-doc-id]').forEach((cb) => {
+          cb.checked = checked;
+          if (checked) this.selected[Number(cb.dataset.docId)] = true;
+        });
+      },
+
+      bulkAction(action, extra) {
+        const ids = Object.keys(this.selected).map(Number);
+        if (!ids.length) return;
+        if (action === 'delete' && !confirm(`Delete ${ids.length} document(s)? This can't be undone.`)) return;
+
+        fetch('{% url "documents_bulk_action" %}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+          body: JSON.stringify(Object.assign({ action, document_ids: ids }, extra || {})),
+        }).then(() => window.location.reload());
+      },
+
+      bulkAddToCollection(collectionId) {
+        this.bulkAction('add_to_collection', { collection_id: Number(collectionId) });
+      },
+
+      openPreview(url, title) {
+        this.preview = { open: true, loading: true, text: '', truncated: false, error: '', title };
+        fetch(url)
+          .then((r) => r.json())
+          .then((data) => {
+            this.preview = {
+              open: true, loading: false, title,
+              text: data.text || '', truncated: !!data.truncated, error: data.error || '',
+            };
+          });
+      },
+    };
+  }
+
+  // One Alpine component per document row (documents.html) - Embed a
+  // still-PENDING/FAILED document without a page reload, then poll
+  // document_status while it's PROCESSING so the progress bar/percent
+  // update live in that row only. Stops polling as soon as the status
+  // stops being "processing", whichever way it resolves. Also owns
+  // this row's favorite/archive toggles.
+  function documentRow(initialStatus, initialPercent, initialChunkCount, statusUrl, embedUrl, initialFavorite, favoriteUrl) {
+    return {
+      status: initialStatus,
+      percent: initialPercent,
+      chunkCount: initialChunkCount,
+      favorite: initialFavorite,
+      polling: null,
+
+      startPolling() {
+        if (this.polling) return;
+
+        this.polling = setInterval(() => {
+          fetch(statusUrl)
+            .then((response) => response.json())
+            .then((data) => {
+              this.percent = data.percent;
+              this.chunkCount = data.chunk_count;
+
+              if (data.status === 'processing') {
+                return;
+              }
+
+              clearInterval(this.polling);
+              this.polling = null;
+
+              if (data.status === 'failed') {
+                this.status = 'Failed';
+              } else if (data.status === 'completed') {
+                this.status = data.percent >= 100 ? 'Ready' : 'Partial';
+              } else {
+                this.status = 'Pending';
+              }
+            })
+            .catch(() => {
+              clearInterval(this.polling);
+              this.polling = null;
+            });
+        }, 2000);
+      },
+
+      embed() {
+        this.status = 'Processing';
+        this.percent = 0;
+
+        fetch(embedUrl, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': getCsrfToken() },
+        }).then(() => this.startPolling());
+      },
+
+      toggleFavorite() {
+        fetch(favoriteUrl, { method: 'POST', headers: { 'X-CSRFToken': getCsrfToken() } })
+          .then((r) => r.json())
+          .then((data) => { this.favorite = data.is_favorite; });
+      },
+
+      toggleArchive(url) {
+        fetch(url, { method: 'POST', headers: { 'X-CSRFToken': getCsrfToken() } })
+          .then(() => window.location.reload());
+      },
+    };
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,351 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Cortex — upload documents and get AI-powered answers grounded in their content.">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#FAF8F7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14100F" media="(prefers-color-scheme: dark)">
+<title>{% block title %}Dashboard{% endblock %} · Cortex</title>
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%238B1E2D'/%3E%3Cg stroke='white' stroke-width='1.6' stroke-linecap='round'%3E%3Cline x1='16' y1='7' x2='8' y2='22'/%3E%3Cline x1='16' y1='7' x2='24' y2='22'/%3E%3Cline x1='8' y1='22' x2='24' y2='22'/%3E%3C/g%3E%3Ccircle cx='16' cy='7' r='3' fill='white'/%3E%3Ccircle cx='8' cy='22' r='3' fill='white'/%3E%3Ccircle cx='24' cy='22' r='3' fill='white'/%3E%3C/svg%3E">
+
+{% comment %}
+Opts every full-page navigation on this origin into the browser's
+native View Transitions API (Chrome/Edge 126+; a silent, harmless
+no-op elsewhere) - a subtle cross-fade between pages with zero JS and
+no SPA rewrite, since this app is a classic server-rendered MPA. See
+the ::view-transition-* rule in the <style> block below for the actual
+animation.
+{% endcomment %}
+<meta name="view-transition" content="same-origin">
+
+<script>
+  if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    document.documentElement.classList.add('dark');
+  }
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        },
+        borderRadius: {
+          xl: '12px',
+          '2xl': '14px',
+        },
+        colors: {
+          primary: { DEFAULT: '#8B1E2D', dark: '#6D1B27', soft: '#E7C8CC', light: '#A6333F' },
+          ink:     { DEFAULT: '#1F1B1B', dark: '#F1E9E8' },
+          muted:   { DEFAULT: '#6D6665', dark: '#A9989A' },
+          surface: { DEFAULT: '#FAF8F7', dark: '#14100F' },
+          card:    { DEFAULT: '#FFFFFF', dark: '#1D1615' },
+          line:    { DEFAULT: '#ECE3E2', dark: '#2C2221' },
+          success: { DEFAULT: '#1F7A4D', dark: '#3EAE78' },
+          warning: { DEFAULT: '#C77700', dark: '#E0972B' },
+          danger:  { DEFAULT: '#C62828', dark: '#E35B5B' },
+          info:    { DEFAULT: '#2A78D6', dark: '#5B9BE8' },
+          accent:  { DEFAULT: '#4A3AA7', dark: '#7C6BD9' },
+          // Sidebar - a deep "wine noir" tone tinted toward primary's own
+          // hue (not a neutral gray/black) so the always-dark sidebar
+          // reads as an intentional extension of the brand rather than a
+          // generic admin-panel dark mode.
+          sidebar: { DEFAULT: '#1B0F14', soft: '#26141B', deep: '#120A0D' },
+        },
+        boxShadow: {
+          soft: '0 1px 2px rgba(31,27,27,0.04), 0 6px 20px rgba(31,27,27,0.05)',
+          softer: '0 1px 2px rgba(31,27,27,0.03)',
+        },
+      },
+    },
+  };
+</script>
+
+<script defer src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+<style>
+  [x-cloak] { display: none !important; }
+  * { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #ECE3E2; border-radius: 8px; }
+  .dark ::-webkit-scrollbar-thumb { background: #2C2221; }
+  html { scrollbar-width: thin; scrollbar-color: #ECE3E2 transparent; }
+  html.dark { scrollbar-color: #2C2221 transparent; }
+  .skip-link:focus { clip: auto; width: auto; height: auto; overflow: visible; }
+
+  /* Sidebar nav scroll (dashboard/_sidebar.html) - the sidebar is
+     always dark (bg-sidebar), in both light and dark app theme, so it
+     needs its own scrollbar color rather than the light/dark pair
+     above, which is tuned for the app's light card/surface
+     backgrounds and would render as a pale, mismatched thumb on top of
+     this dark background. Only visible at all for a role with enough
+     permitted nav items to overflow the sidebar's height (e.g. Admin). */
+  .sidebar-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent; }
+  .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); }
+
+  /* Subtle cross-document page transition (see the view-transition meta tag above). */
+  @media (prefers-reduced-motion: no-preference) {
+    ::view-transition-old(root) { animation: fade-out-page 0.15s ease-in both; }
+    ::view-transition-new(root) { animation: fade-in-page 0.18s ease-out both; }
+  }
+  @keyframes fade-in-page { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fade-out-page { from { opacity: 1; } to { opacity: 0; } }
+
+  /* Shared entrance animation for cards/widgets loading on a page - see .fade-in-up usage in content templates. */
+  @keyframes fade-in-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .fade-in-up { animation: fade-in-up .35s ease-out both; }
+
+  /* Skeleton loading shimmer - see partials/_skeleton.html. */
+  @keyframes skeleton-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+  .skeleton {
+    background: linear-gradient(90deg, rgba(109,102,101,0.08) 25%, rgba(109,102,101,0.16) 37%, rgba(109,102,101,0.08) 63%);
+    background-size: 400% 100%;
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  }
+  .dark .skeleton {
+    background: linear-gradient(90deg, rgba(255,255,255,0.06) 25%, rgba(255,255,255,0.12) 37%, rgba(255,255,255,0.06) 63%);
+    background-size: 400% 100%;
+  }
+
+  /* ============================================================
+     App-boot splash (#app-boot below) - a one-time enterprise loading
+     moment shown while fonts/CDN scripts settle on first load, then
+     fades/scales into the real page. Written as plain CSS with literal
+     color values, NOT Tailwind utility classes - cdn.tailwindcss.com is
+     a JIT compiler that only generates styles once its own <script>
+     has run, so anything meant to paint correctly before that (this
+     splash's entire point) can't depend on it. Colors match
+     tailwind.config's primary/surface/ink tokens above by value, kept
+     in sync manually since this is the one place in the app that has
+     to render before Tailwind exists.
+     ============================================================ */
+  #app-boot {
+    position: fixed; inset: 0; z-index: 9999;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px;
+    background: #FAF8F7;
+    transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.4s;
+  }
+  html.dark #app-boot { background: #14100F; }
+  #app-boot.app-boot-hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+  #app-boot .app-boot-mark { width: 52px; height: 52px; color: #8B1E2D; }
+  html.dark #app-boot .app-boot-mark { color: #E7C8CC; }
+  #app-boot .app-boot-mark circle { animation: app-boot-node 1.6s ease-in-out infinite; transform-origin: center; }
+  #app-boot .app-boot-mark line { stroke-dasharray: 24; stroke-dashoffset: 24; animation: app-boot-line 0.9s ease-out 0.1s both; }
+  #app-boot .app-boot-mark circle:nth-of-type(1) { animation-delay: 0.9s; }
+  #app-boot .app-boot-mark circle:nth-of-type(2) { animation-delay: 1.1s; }
+  #app-boot .app-boot-mark circle:nth-of-type(3) { animation-delay: 1.3s; }
+  @keyframes app-boot-line { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }
+  @keyframes app-boot-node { 0%, 100% { opacity: 0.55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.25); } }
+
+  #app-boot .app-boot-label { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: #6D6665; display: flex; align-items: center; gap: 7px; }
+  html.dark #app-boot .app-boot-label { color: #A9989A; }
+  #app-boot .app-boot-dot { width: 5px; height: 5px; border-radius: 999px; background: #8B1E2D; animation: app-boot-blink 1.4s ease-in-out infinite; }
+  html.dark #app-boot .app-boot-dot { background: #E7C8CC; }
+
+  #app-boot .app-boot-track { width: 148px; height: 3px; border-radius: 999px; background: rgba(109,102,101,0.15); overflow: hidden; }
+  html.dark #app-boot .app-boot-track { background: rgba(255,255,255,0.08); }
+  #app-boot .app-boot-fill { height: 100%; width: 40%; border-radius: inherit; background: #8B1E2D; animation: app-boot-progress 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+  html.dark #app-boot .app-boot-fill { background: #E7C8CC; }
+  @keyframes app-boot-blink { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+  @keyframes app-boot-progress { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+
+  {% comment %}
+  Opacity only - deliberately NO transform/scale here. #app-shell wraps
+  the sidebar (dashboard/_sidebar.html's <aside class="fixed ...">),
+  and a `transform` on ANY ancestor of a `position: fixed` element -
+  even a numerically-identity one like `scale(1)` once the reveal
+  finishes - creates a new containing block for it per the CSS spec,
+  silently turning "pinned to the viewport" into "pinned to this
+  element's own box" instead. That's what was actually causing the
+  sidebar to scroll with the page and look a different height per page
+  (its real height became #app-shell's content height, which varies by
+  page, not the viewport) - not a viewport-unit/mobile-toolbar issue as
+  first suspected. Confirmed by the reduced-motion override below
+  already stripping the transform entirely - that path was never
+  affected by this bug, which is what made it worth checking.
+  {% endcomment %}
+  #app-shell { opacity: 0; transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1); }
+  #app-shell.app-shell-ready { opacity: 1; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #app-boot .app-boot-mark circle, #app-boot .app-boot-mark line, #app-boot .app-boot-dot, #app-boot .app-boot-fill { animation: none !important; }
+    #app-boot .app-boot-mark line { stroke-dashoffset: 0; }
+    #app-boot { transition: opacity 0.15s linear, visibility 0.15s; }
+    #app-shell { transition: opacity 0.15s linear; }
+  }
+</style>
+
+{% block extra_head %}{% endblock %}
+</head>
+
+<body
+  class="bg-surface dark:bg-surface-dark text-ink dark:text-ink-dark antialiased"
+  x-data="{ sidebarOpen: false }"
+>
+
+{% comment %}
+Enterprise boot splash - shown once per browser tab (see the bootstrap
+script's sessionStorage gate) while fonts/CDN scripts settle, then
+fades out into #app-shell below. Deliberately first in <body>, styled
+with the plain-CSS rules above rather than Tailwind classes, so it
+paints correctly even before cdn.tailwindcss.com's JIT compiler has
+run - see that rule block's comment.
+{% endcomment %}
+<div id="app-boot" aria-hidden="true">
+  <svg class="app-boot-mark" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <g stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <line x1="16" y1="7" x2="8" y2="22"></line>
+      <line x1="16" y1="7" x2="24" y2="22" style="animation-delay: 0.35s"></line>
+      <line x1="8" y1="22" x2="24" y2="22" style="animation-delay: 0.6s"></line>
+    </g>
+    <circle cx="16" cy="7" r="3.2" fill="currentColor"></circle>
+    <circle cx="8" cy="22" r="3.2" fill="currentColor"></circle>
+    <circle cx="24" cy="22" r="3.2" fill="currentColor"></circle>
+  </svg>
+  <div class="app-boot-track"><div class="app-boot-fill"></div></div>
+  <p class="app-boot-label"><span class="app-boot-dot"></span> Initializing workspace…</p>
+</div>
+
+<div id="app-shell">
+<div class="min-h-screen flex">
+
+  {% comment %}
+  ONE sidebar, ONE topbar, unconditionally, for every authenticated
+  page - see templates/dashboard/_sidebar.html's own comment for why
+  there's no second variant to branch to. Which *items* render inside
+  them is permission-driven (user_permissions); the shell component
+  and its layout never change, so navigating never causes the visible
+  "the whole page redesigned itself" jump a shell switch would cause.
+  {% endcomment %}
+  {% include "dashboard/_sidebar.html" %}
+  {% if request.user.is_authenticated %}{% include "partials/_command_palette.html" %}{% endif %}
+
+  <div class="flex-1 min-w-0 flex flex-col lg:pl-64">
+
+    {% include "dashboard/_topbar.html" %}
+
+    <main class="flex-1 px-4 sm:px-6 lg:px-8 py-6 lg:py-8 w-full max-w-[1600px] mx-auto">
+
+      {% if messages %}
+        <div class="mb-6 space-y-2">
+          {% for message in messages %}
+            <div class="rounded-xl border px-4 py-3 text-sm font-medium
+              {% if message.tags == 'success' %} bg-success/10 border-success/20 text-success dark:text-success-dark
+              {% elif message.tags == 'error' %} bg-danger/10 border-danger/20 text-danger dark:text-danger-dark
+              {% else %} bg-primary-soft/40 border-primary-soft text-primary dark:text-primary-soft {% endif %}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% include "partials/_breadcrumbs.html" %}
+
+      {% block content %}{% endblock %}
+
+    </main>
+
+  </div>
+
+</div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => lucide.createIcons());
+  document.addEventListener('alpine:initialized', () => lucide.createIcons());
+
+  // Topbar notification bell (dashboard/_topbar.html) - global, not
+  // per-page, since the topbar renders on every authenticated page.
+  // Polls the unread count near-real-time (no WebSockets/Channels in
+  // this project - see CLAUDE.md's Background Task Execution section)
+  // and lazy-fetches the actual list only when the dropdown is first
+  // opened, not on every page load.
+  function notificationBell(initialUnreadCount) {
+    return {
+      open: false,
+      loaded: false,
+      loading: false,
+      unreadCount: initialUnreadCount,
+      items: [],
+      startPolling() {
+        setInterval(() => {
+          fetch('{% url "notification_unread_count" %}')
+            .then((r) => r.json())
+            .then((data) => { this.unreadCount = data.count; })
+            .catch(() => {});
+        }, 25000);
+      },
+      fetchList() {
+        this.loading = true;
+        fetch('{% url "notification_list_json" %}')
+          .then((r) => r.json())
+          .then((data) => {
+            this.items = data.notifications;
+            this.loaded = true;
+            this.loading = false;
+            this.$nextTick(() => lucide.createIcons());
+          })
+          .catch(() => { this.loading = false; });
+      },
+      markRead(notification) {
+        if (notification.is_read) return;
+        notification.is_read = true;
+        this.unreadCount = Math.max(0, this.unreadCount - 1);
+        fetch(`/notifications/${notification.id}/read/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': '{{ csrf_token }}' },
+        }).catch(() => {});
+      },
+    };
+  }
+
+  // ============================================================
+  // Boot splash reveal - shown once per browser TAB (sessionStorage,
+  // not localStorage - a brand-new tab/window is a fresh "opening" of
+  // the system even in the same browser profile). Registered via
+  // DOMContentLoaded so element lookups below are safe.
+  // ============================================================
+  document.addEventListener('DOMContentLoaded', () => {
+
+    const boot = document.getElementById('app-boot');
+    const shell = document.getElementById('app-shell');
+    if (!boot || !shell) return;
+
+    if (sessionStorage.getItem('cortex-booted') === '1') {
+      boot.classList.add('app-boot-hidden');
+      shell.classList.add('app-shell-ready');
+      return;
+    }
+
+    const MIN_VISIBLE_MS = 550; // long enough to read as an intentional moment, short enough to never feel slow
+    const start = performance.now();
+    const reveal = () => {
+      const remaining = MIN_VISIBLE_MS - (performance.now() - start);
+      setTimeout(() => {
+        boot.classList.add('app-boot-hidden');
+        shell.classList.add('app-shell-ready');
+        sessionStorage.setItem('cortex-booted', '1');
+      }, Math.max(0, remaining));
+    };
+    if (document.readyState === 'complete') reveal();
+    else window.addEventListener('load', reveal, { once: true });
+  });
+</script>
+
+{% block extra_scripts %}{% endblock %}
+
+</body>
+</html>

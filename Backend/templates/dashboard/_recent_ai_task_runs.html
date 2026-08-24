@@ -1,0 +1,40 @@
+{% comment %}
+Recent AI Task Runs — reuses recent_ai_task_runs from
+stats_service.get_recent_activity (already passed into the dashboard
+view's context), same structural pattern as _recent_uploads.html.
+{% endcomment %}
+
+<div class="flex h-full flex-col rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+  <div class="flex items-center justify-between border-b border-line px-3.5 py-2 dark:border-line-dark">
+    <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent AI Task Runs</h2>
+    <a href="{% url 'ai_task_history' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+  </div>
+
+  <div class="divide-y divide-line dark:divide-line-dark">
+    {% for run in recent_ai_task_runs %}
+      <a href="{% url 'ai_task_results' run.id %}" class="flex items-center gap-2.5 px-3.5 py-1.5 hover:bg-surface dark:hover:bg-white/5">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <i data-lucide="sparkles" class="h-4 w-4"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm font-medium leading-snug text-ink dark:text-ink-dark">{{ run.get_task_type_display }}</p>
+          <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">{{ run.document_count }} document{{ run.document_count|pluralize }} · {{ run.created_at|timesince }} ago</p>
+        </div>
+        <span class="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium
+          {% if run.status == 'completed' %} bg-success/10 text-success dark:text-success-dark
+          {% elif run.status == 'failed' %} bg-danger/10 text-danger dark:text-danger-dark
+          {% elif run.status == 'running' %} bg-warning/10 text-warning dark:text-warning-dark
+          {% else %} bg-line text-muted dark:bg-white/10 dark:text-muted-dark {% endif %}">
+          {{ run.get_status_display }}
+        </span>
+      </a>
+    {% empty %}
+      <div class="px-3.5 py-4 text-center">
+        <p class="text-sm text-muted dark:text-muted-dark">No AI Tasks run yet.</p>
+        <a href="{% url 'ai_tasks' %}" class="mt-2 inline-block text-sm font-medium text-primary hover:underline dark:text-primary-soft">Run your first AI Task</a>
+      </div>
+    {% endfor %}
+  </div>
+
+</div>

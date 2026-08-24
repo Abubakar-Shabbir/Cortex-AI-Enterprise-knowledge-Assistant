@@ -1,0 +1,88 @@
+{% comment %}
+Recent Documents table — real rows from stats_service.get_recent_documents_table.
+Sorting is client-side (vanilla JS, see #recentDocsTable below) since
+the table only ever holds a handful of rows; Actions reuses the real,
+existing document_delete view.
+{% endcomment %}
+
+<div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+  <div class="flex items-center justify-between border-b border-line px-3.5 py-2 dark:border-line-dark">
+    <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Recent Documents</h2>
+    <a href="{% url 'documents' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+  </div>
+
+  {% if recent_documents_table %}
+    <div class="max-h-[260px] overflow-auto">
+      <table id="recentDocsTable" class="w-full min-w-[720px] text-left text-sm">
+        <thead class="sticky top-0 z-10 bg-card dark:bg-card-dark">
+          <tr class="border-b border-line text-xs font-semibold uppercase tracking-wide text-muted dark:border-line-dark dark:text-muted-dark">
+            <th class="cursor-pointer select-none px-3.5 py-2 hover:text-ink dark:hover:text-ink-dark" data-sort="title">Name</th>
+            <th class="cursor-pointer select-none px-2.5 py-2 hover:text-ink dark:hover:text-ink-dark" data-sort="owner">Owner</th>
+            <th class="cursor-pointer select-none px-2.5 py-2 hover:text-ink dark:hover:text-ink-dark" data-sort="file_type">Type</th>
+            <th class="cursor-pointer select-none px-2.5 py-2 text-right hover:text-ink dark:hover:text-ink-dark" data-sort="chunk_count" data-sort-numeric>Chunks</th>
+            <th class="cursor-pointer select-none px-2.5 py-2 text-right hover:text-ink dark:hover:text-ink-dark" data-sort="size_bytes" data-sort-numeric>Size</th>
+            <th class="cursor-pointer select-none px-2.5 py-2 hover:text-ink dark:hover:text-ink-dark" data-sort="uploaded_at" data-sort-numeric>Uploaded</th>
+            <th class="cursor-pointer select-none px-2.5 py-2 hover:text-ink dark:hover:text-ink-dark" data-sort="status">Status</th>
+            <th class="px-3.5 py-2 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-line dark:divide-line-dark">
+          {% for doc in recent_documents_table %}
+            <tr
+              class="transition-colors hover:bg-surface dark:hover:bg-white/5"
+              data-title="{{ doc.title }}"
+              data-owner="{{ doc.owner }}"
+              data-file_type="{{ doc.file_type }}"
+              data-chunk_count="{{ doc.chunk_count }}"
+              data-size_bytes="{{ doc.size_bytes }}"
+              data-uploaded_at="{{ doc.uploaded_at|date:'U' }}"
+              data-status="{{ doc.status }}"
+            >
+              <td class="max-w-[220px] truncate px-3.5 py-2 font-medium text-ink dark:text-ink-dark">
+                <span class="flex items-center gap-2.5">
+                  <i data-lucide="file-text" class="h-4 w-4 shrink-0 text-primary dark:text-primary-soft"></i>
+                  <span class="truncate">{{ doc.title }}</span>
+                </span>
+              </td>
+              <td class="px-2.5 py-2 text-muted dark:text-muted-dark">{{ doc.owner }}</td>
+              <td class="px-2.5 py-2 text-muted dark:text-muted-dark">{{ doc.file_type }}</td>
+              <td class="px-2.5 py-2 text-right text-muted dark:text-muted-dark">{{ doc.chunk_count }}</td>
+              <td class="px-2.5 py-2 text-right text-muted dark:text-muted-dark">{{ doc.size }}</td>
+              <td class="px-2.5 py-2 text-muted dark:text-muted-dark">{{ doc.uploaded_at|timesince }} ago</td>
+              <td class="px-2.5 py-2">
+                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium
+                  {% if doc.status == 'Processed' %} bg-success/10 text-success dark:text-success-dark
+                  {% elif doc.status == 'Partial' %} bg-warning/10 text-warning dark:text-warning-dark
+                  {% else %} bg-muted/10 text-muted dark:text-muted-dark {% endif %}">
+                  {{ doc.status }}
+                </span>
+              </td>
+              <td class="px-3.5 py-2 text-right">
+                <div class="relative inline-block text-left" x-data="{ open: false }" @click.outside="open = false">
+                  <button @click="open = !open" class="rounded-lg p-1.5 text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5" aria-label="Row actions">
+                    <i data-lucide="more-horizontal" class="h-4 w-4"></i>
+                  </button>
+                  <div x-show="open" x-cloak x-transition class="absolute right-0 z-20 mt-1 w-40 rounded-xl border border-line bg-card p-1.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+                    <a href="{% url 'documents' %}" class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-ink hover:bg-surface dark:text-ink-dark dark:hover:bg-white/5">
+                      <i data-lucide="eye" class="h-3.5 w-3.5 text-muted dark:text-muted-dark"></i> View
+                    </a>
+                    <form method="POST" action="{% url 'document_delete' doc.id %}" onsubmit="return confirm('Delete this document?');">
+                      {% csrf_token %}
+                      <button type="submit" class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-danger hover:bg-danger/10 dark:text-danger-dark">
+                        <i data-lucide="trash-2" class="h-3.5 w-3.5"></i> Delete
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    {% include "partials/_empty_state.html" with icon="file-text" title="No documents yet" message="Upload your first document to see it here." %}
+  {% endif %}
+
+</div>

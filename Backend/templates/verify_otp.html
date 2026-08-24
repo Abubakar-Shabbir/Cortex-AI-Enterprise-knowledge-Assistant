@@ -1,0 +1,134 @@
+{% extends "auth_base.html" %}
+
+{% block title %}Verify your email{% endblock %}
+
+{% block auth_content %}
+
+<div
+  x-data="{
+    submitting: false,
+    cooldown: 0,
+    cooldownTotal: 60,
+    resending: false,
+    digits: ['', '', '', '', '', ''],
+    get code() { return this.digits.join(''); },
+    get isComplete() { return this.digits.every((d) => d !== ''); },
+    startCooldown(seconds) {
+      this.cooldown = seconds;
+      this.cooldownTotal = seconds;
+      const t = setInterval(() => { this.cooldown--; if (this.cooldown <= 0) clearInterval(t); }, 1000);
+    },
+    focusDigit(i) {
+      const inputs = this.$refs.digitsRow.querySelectorAll('input');
+      if (inputs[i]) inputs[i].focus();
+    },
+    handleInput(i, event) {
+      const val = event.target.value.replace(/[^0-9]/g, '').slice(-1);
+      this.digits[i] = val;
+      if (val && i < 5) this.focusDigit(i + 1);
+    },
+    handleKeydown(i, event) {
+      if (event.key === 'Backspace' && !this.digits[i] && i > 0) {
+        this.focusDigit(i - 1);
+      }
+    },
+    handlePaste(event) {
+      event.preventDefault();
+      const pasted = (event.clipboardData || window.clipboardData).getData('text').replace(/[^0-9]/g, '').slice(0, 6);
+      if (!pasted) return;
+      for (let i = 0; i < 6; i++) this.digits[i] = pasted[i] || '';
+      this.focusDigit(Math.min(pasted.length, 6) - 1);
+    },
+    resend() {
+      if (this.cooldown > 0 || this.resending) return;
+      this.resending = true;
+      fetch('{% url 'resend_otp' %}', { method: 'POST', headers: { 'X-CSRFToken': '{{ csrf_token }}' } })
+        .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+          this.resending = false;
+          this.digits = ['', '', '', '', '', ''];
+          this.focusDigit(0);
+          if (ok) this.startCooldown(data.cooldown_seconds || 60);
+          else if (data.cooldown_seconds) this.startCooldown(data.cooldown_seconds);
+        })
+        .catch(() => { this.resending = false; });
+    },
+  }"
+  x-init="startCooldown(60); focusDigit(0)"
+>
+
+  <div class="auth-pop-in mb-2 flex h-11 w-11 items-center justify-center rounded-xl bg-primary-soft/40 text-primary dark:bg-primary/10 dark:text-primary-soft">
+    <i data-lucide="mail-check" class="h-5 w-5"></i>
+  </div>
+
+  <h1 class="text-xl font-bold tracking-tight text-ink dark:text-ink-dark">Verify your email</h1>
+  <p class="mb-6 mt-1 text-sm text-muted dark:text-muted-dark">
+    We sent a 6-digit code to <span class="font-medium text-ink dark:text-ink-dark">{{ masked_email }}</span>. Enter it below to finish setting up your account.
+  </p>
+
+  <form method="POST" class="space-y-5" @submit="submitting = true">
+    {% csrf_token %}
+
+    {% if error %}
+      <div role="alert" aria-live="polite" class="auth-error-banner flex items-start gap-2 rounded-lg border border-danger/20 bg-danger/10 px-3.5 py-3 text-sm text-danger dark:text-danger-dark">
+        <i data-lucide="alert-circle" class="mt-0.5 h-4 w-4 shrink-0"></i>
+        {{ error }}
+      </div>
+    {% endif %}
+
+    {# Six boxed digits drive the UX; the actual submitted field is this single hidden input, so the server-side contract (request.POST.get("code")) is byte-for-byte unchanged. #}
+    <input type="hidden" name="code" :value="code">
+
+    <div>
+      <label class="mb-2 block text-xs font-medium text-muted dark:text-muted-dark">Verification code</label>
+      <div class="flex justify-between gap-2" x-ref="digitsRow" @paste="handlePaste($event)">
+        <template x-for="i in 6" :key="i">
+          <input
+            type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="one-time-code"
+            :aria-label="'Digit ' + i + ' of 6'"
+            x-model="digits[i - 1]"
+            @input="handleInput(i - 1, $event)"
+            @keydown="handleKeydown(i - 1, $event)"
+            :class="digits[i - 1] ? 'border-primary text-primary dark:text-primary-soft' : 'border-line dark:border-line-dark'"
+            class="h-14 w-full min-w-0 rounded-xl border bg-surface text-center text-2xl font-bold text-ink transition-all duration-150 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:bg-white/5 dark:text-ink-dark"
+          >
+        </template>
+      </div>
+      <p class="mt-2 flex items-center gap-1.5 text-xs transition-opacity duration-300" :class="isComplete ? 'text-success dark:text-success-dark opacity-100' : 'opacity-0'">
+        <i data-lucide="check-circle-2" class="h-3.5 w-3.5"></i> Code entered — ready to verify
+      </p>
+    </div>
+
+    <button
+      type="submit"
+      :disabled="submitting || !isComplete"
+      class="btn-sheen flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white shadow-softer transition-all duration-150 hover:bg-primary-dark hover:shadow-glow active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100"
+    >
+      <i data-lucide="loader-2" class="h-4 w-4 animate-spin" x-show="submitting"></i>
+      <i data-lucide="shield-check" class="h-4 w-4" x-show="!submitting"></i>
+      <span x-text="submitting ? 'Verifying…' : 'Verify email'"></span>
+    </button>
+
+    <div class="text-center text-sm text-muted dark:text-muted-dark">
+      <p>Didn't get a code?</p>
+      <button
+        type="button"
+        @click="resend()"
+        :disabled="cooldown > 0 || resending"
+        class="mt-1.5 inline-flex items-center gap-1.5 font-semibold text-primary transition-colors hover:underline disabled:text-muted disabled:no-underline dark:text-primary-soft dark:disabled:text-muted-dark"
+      >
+        <i data-lucide="refresh-cw" class="h-3.5 w-3.5" :class="resending && 'animate-spin'"></i>
+        <span x-show="cooldown > 0" x-text="'Resend in ' + cooldown + 's'"></span>
+        <span x-show="cooldown <= 0 && !resending">Resend code</span>
+        <span x-show="resending">Sending…</span>
+      </button>
+      {# Slim cooldown progress bar - a quiet "system is tracking this for you" cue, not a countdown you have to watch. #}
+      <div class="mx-auto mt-2 h-0.5 w-24 overflow-hidden rounded-full bg-line dark:bg-line-dark" x-show="cooldown > 0" x-cloak>
+        <div class="h-full rounded-full bg-primary/50 transition-all duration-1000 ease-linear dark:bg-primary-soft/50" :style="`width: ${(cooldown / cooldownTotal) * 100}%`"></div>
+      </div>
+    </div>
+  </form>
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,404 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics{% endblock %}
+
+{% block content %}
+
+{% include "partials/_page_header.html" with title="Analytics" subtitle="Usage trends across your document library and question activity, last 14 days." %}
+
+{# flex-wrap, not a fixed grid-cols-4 - card count varies 4-7 by permission, so a rigid grid leaves a lopsided trailing row. Equal min-width flex items always fill evenly regardless of count. #}
+<div class="mb-4 flex flex-wrap gap-3">
+  <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="message-square" label="Questions (14d)" value=data.total_questions numeric=True %}</div>
+  <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="file-up" label="Uploads (14d)" value=data.total_uploads numeric=True %}</div>
+  <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="timer" label="Average Response Time" value=data.avg_response_time %}</div>
+  <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="hard-drive" label="Storage Used" value=data.total_storage %}</div>
+  {% if "pages.ai_tasks" in user_permissions %}
+    <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="sparkles" label="AI Task Runs (14d)" value=data.total_ai_task_runs numeric=True %}</div>
+  {% endif %}
+  {% if "pages.knowledge_base" in user_permissions %}
+    <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="compass" label="Topics" value=data.total_topics numeric=True %}</div>
+    <div class="min-w-[190px] flex-1">{% include "partials/_stat_card.html" with icon="git-branch" label="Relationships" value=data.total_relationships numeric=True %}</div>
+  {% endif %}
+</div>
+
+<div class="grid grid-cols-1 gap-3 xl:grid-cols-2">
+
+  <div class="rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark xl:col-span-2">
+    <div class="mb-2 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Activity Overview</h2>
+      <span class="text-[11px] text-muted dark:text-muted-dark">Documents uploaded (bars) vs. questions asked (line)</span>
+    </div>
+    <div class="h-64"><canvas id="activityChart"></canvas></div>
+  </div>
+
+  <div class="rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark xl:col-span-2">
+    <div class="mb-2 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Confidence &amp; Response Time Correlation</h2>
+      <span class="text-[11px] text-muted dark:text-muted-dark">Daily average, dual-axis</span>
+    </div>
+    <div class="h-64"><canvas id="correlationChart"></canvas></div>
+  </div>
+
+  <div class="rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <h2 class="mb-2 text-sm font-semibold text-ink dark:text-ink-dark">Search Type Usage</h2>
+    <div class="h-56"><canvas id="searchTypeChart"></canvas></div>
+  </div>
+
+  <div class="rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <h2 class="mb-2 text-sm font-semibold text-ink dark:text-ink-dark">Confidence Distribution</h2>
+    <div class="h-56"><canvas id="confidenceDistChart"></canvas></div>
+  </div>
+
+  <div class="rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <h2 class="mb-2 text-sm font-semibold text-ink dark:text-ink-dark">Chunk Distribution by Document</h2>
+    <div class="h-56"><canvas id="chunkChart"></canvas></div>
+  </div>
+
+  <div class="rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <h2 class="mb-2 text-sm font-semibold text-ink dark:text-ink-dark">Storage Usage by File Type</h2>
+    <div class="h-56"><canvas id="storageChart"></canvas></div>
+  </div>
+
+  <div class="rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <div class="mb-2 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Weekday Activity</h2>
+      <span class="text-[11px] text-muted dark:text-muted-dark">Questions asked per weekday, last 90 days</span>
+    </div>
+    <div class="mx-auto h-56 max-w-xs"><canvas id="weekdayChart"></canvas></div>
+  </div>
+
+  {% include "dashboard/_donut_chart.html" %}
+
+  {% if "pages.ai_tasks" in user_permissions %}
+    <div class="rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="mb-2 flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">AI Tasks Activity</h2>
+        <span class="text-[11px] text-muted dark:text-muted-dark">Runs/day (14d)</span>
+      </div>
+      <div class="h-56"><canvas id="aiTasksActivityChart"></canvas></div>
+    </div>
+
+    <div class="rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <h2 class="mb-2 text-sm font-semibold text-ink dark:text-ink-dark">AI Task Status</h2>
+      <div class="h-56"><canvas id="aiTaskStatusChart"></canvas></div>
+    </div>
+  {% endif %}
+
+</div>
+
+<div class="mt-3 rounded-xl border border-line bg-card p-4 shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <div class="mb-3 flex items-center justify-between">
+    <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">AI Performance</h2>
+    <span class="text-[11px] text-muted dark:text-muted-dark">Ask AI + AI Tasks, from every request/run's execution trace</span>
+  </div>
+
+  {% if ai_performance.has_data %}
+    <div class="mb-4 flex flex-wrap gap-3">
+      <div class="min-w-[150px] flex-1">{% include "partials/_stat_card.html" with icon="activity" label="Total Requests" value=ai_performance.total_requests numeric=True %}</div>
+      <div class="min-w-[150px] flex-1">{% include "partials/_stat_card.html" with icon="check-circle-2" label="Success Rate" value=ai_performance.success_rate sublabel="percent" %}</div>
+      <div class="min-w-[150px] flex-1">{% include "partials/_stat_card.html" with icon="timer" label="Avg Latency" value=ai_performance.avg_latency_ms sublabel="ms" %}</div>
+      <div class="min-w-[150px] flex-1">{% include "partials/_stat_card.html" with icon="gauge" label="P95 Latency" value=ai_performance.p95_latency_ms sublabel="ms" %}</div>
+      <div class="min-w-[150px] flex-1">{% include "partials/_stat_card.html" with icon="git-branch" label="Fallback Rate" value=ai_performance.fallback_rate sublabel="percent" %}</div>
+      {% if ai_performance.cache_hit_rate is not None %}
+        <div class="min-w-[150px] flex-1">{% include "partials/_stat_card.html" with icon="database" label="Cache Hit Rate" value=ai_performance.cache_hit_rate sublabel="percent" %}</div>
+      {% endif %}
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div>
+        <p class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Latency Percentiles</p>
+        <div class="overflow-hidden rounded-lg border border-line dark:border-line-dark">
+          <table class="w-full text-left text-xs">
+            <tbody class="divide-y divide-line dark:divide-line-dark">
+              <tr><td class="px-3 py-2 text-muted dark:text-muted-dark">P50 (median)</td><td class="px-3 py-2 text-right font-medium text-ink dark:text-ink-dark">{{ ai_performance.p50_latency_ms }} ms</td></tr>
+              <tr><td class="px-3 py-2 text-muted dark:text-muted-dark">P95</td><td class="px-3 py-2 text-right font-medium text-ink dark:text-ink-dark">{{ ai_performance.p95_latency_ms }} ms</td></tr>
+              <tr><td class="px-3 py-2 text-muted dark:text-muted-dark">P99</td><td class="px-3 py-2 text-right font-medium text-ink dark:text-ink-dark">{{ ai_performance.p99_latency_ms }} ms</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <p class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Provider Success Rate</p>
+        <div class="overflow-hidden rounded-lg border border-line dark:border-line-dark">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-surface dark:bg-white/5">
+              <tr><th class="px-3 py-2 font-semibold text-muted dark:text-muted-dark">Provider</th><th class="px-3 py-2 text-right font-semibold text-muted dark:text-muted-dark">Requests</th><th class="px-3 py-2 text-right font-semibold text-muted dark:text-muted-dark">Success</th></tr>
+            </thead>
+            <tbody class="divide-y divide-line dark:divide-line-dark">
+              {% for row in ai_performance.provider_stats %}
+                <tr>
+                  <td class="px-3 py-2 text-ink dark:text-ink-dark">{{ row.provider }}</td>
+                  <td class="px-3 py-2 text-right text-muted dark:text-muted-dark">{{ row.total }}</td>
+                  <td class="px-3 py-2 text-right font-medium {% if row.success_rate >= 90 %}text-success dark:text-success-dark{% elif row.success_rate >= 50 %}text-warning{% else %}text-danger dark:text-danger-dark{% endif %}">{{ row.success_rate }}%</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="3" class="px-3 py-2 text-muted dark:text-muted-dark">No provider data yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <p class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Slowest Pipeline Stage</p>
+        <div class="overflow-hidden rounded-lg border border-line dark:border-line-dark">
+          <table class="w-full text-left text-xs">
+            <tbody class="divide-y divide-line dark:divide-line-dark">
+              {% for row in ai_performance.bottleneck_breakdown %}
+                <tr><td class="px-3 py-2 text-ink dark:text-ink-dark">{{ row.bottleneck_label }}</td><td class="px-3 py-2 text-right text-muted dark:text-muted-dark">{{ row.count }} request(s)</td></tr>
+              {% empty %}
+                <tr><td class="px-3 py-2 text-muted dark:text-muted-dark">No data yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    {% if ai_performance.error_breakdown %}
+      <div class="mt-4">
+        <p class="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Most Common Errors</p>
+        <div class="flex flex-wrap gap-2">
+          {% for row in ai_performance.error_breakdown %}
+            <span class="rounded-full border border-danger/30 bg-danger/5 px-2.5 py-1 text-xs text-danger dark:border-danger-dark/30 dark:bg-danger/10 dark:text-danger-dark">{{ row.error_type }} · {{ row.count }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+  {% else %}
+    {% include "partials/_empty_state.html" with icon="activity" title="Not enough data yet" message="AI Performance fills in once Ask AI questions or AI Task runs have gone through the pipeline." %}
+  {% endif %}
+</div>
+
+{{ data.labels|json_script:"labels-data" }}
+{{ data.questions_series|json_script:"questions-data" }}
+{{ data.uploads_series|json_script:"uploads-data" }}
+{{ data.confidence_series|json_script:"confidence-data" }}
+{{ data.response_time_series|json_script:"response-time-data" }}
+{{ data.chunk_labels|json_script:"chunk-labels-data" }}
+{{ data.chunk_values|json_script:"chunk-values-data" }}
+{{ data.search_type_labels|json_script:"search-type-labels-data" }}
+{{ data.search_type_values|json_script:"search-type-values-data" }}
+{{ data.storage_type_labels|json_script:"storage-type-labels-data" }}
+{{ data.storage_type_values|json_script:"storage-type-values-data" }}
+{{ data.confidence_distribution_labels|json_script:"confidence-dist-labels-data" }}
+{{ data.confidence_distribution_values|json_script:"confidence-dist-values-data" }}
+{{ data.confidence_distribution_colors|json_script:"confidence-dist-colors-data" }}
+{{ data.weekday_labels|json_script:"weekday-labels-data" }}
+{{ data.weekday_values|json_script:"weekday-values-data" }}
+{{ data.ai_task_runs_series|json_script:"ai-task-runs-data" }}
+{{ data.ai_task_status_labels|json_script:"ai-task-status-labels-data" }}
+{{ data.ai_task_status_values|json_script:"ai-task-status-values-data" }}
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+(function () {
+  const read = (id) => JSON.parse(document.getElementById(id).textContent);
+
+  const labels = read('labels-data');
+  const questions = read('questions-data');
+  const uploads = read('uploads-data');
+  const chunkLabels = read('chunk-labels-data');
+  const chunkValues = read('chunk-values-data');
+  const searchLabels = read('search-type-labels-data');
+  const searchValues = read('search-type-values-data');
+  const storageLabels = read('storage-type-labels-data');
+  const storageValues = read('storage-type-values-data');
+  const confDistLabels = read('confidence-dist-labels-data');
+  const confDistValues = read('confidence-dist-values-data');
+  const confDistColors = read('confidence-dist-colors-data');
+  const weekdayLabels = read('weekday-labels-data');
+  const weekdayValues = read('weekday-values-data');
+
+  const gridColor = 'rgba(109, 102, 101, 0.10)';
+  const tickColor = '#8a7d7d';
+
+  // A genuinely colorful, varied palette (not just brand-maroon shades)
+  // for the multi-series/multi-category charts below.
+  const primary = '#8B1E2D';
+  const wine = '#6D1B27';
+  const rose = '#A6333F';
+  const info = '#2A78D6';
+  const success = '#1F7A4D';
+  const warning = '#C77700';
+  const accent = '#4A3AA7';
+  const palette = [primary, info, success, warning, accent, rose, '#0F9B8E', '#D6336C'];
+  const storageColorMap = { PDF: primary, DOCX: warning, TXT: success };
+
+  Chart.defaults.font.family = 'Inter, ui-sans-serif, system-ui, sans-serif';
+  Chart.defaults.font.size = 11;
+  Chart.defaults.color = tickColor;
+  Chart.defaults.layout.padding = 0;
+  Chart.defaults.plugins.legend.labels.boxWidth = 9;
+  Chart.defaults.plugins.legend.labels.boxHeight = 9;
+  Chart.defaults.plugins.legend.labels.usePointStyle = true;
+  Chart.defaults.plugins.legend.labels.padding = 10;
+
+  // ---- Activity Overview: bars (uploads) + line (questions), dual axis ----
+  new Chart(document.getElementById('activityChart'), {
+    data: {
+      labels,
+      datasets: [
+        { type: 'bar', label: 'Documents Uploaded', data: uploads, backgroundColor: info + 'CC', borderRadius: 4, maxBarThickness: 22, yAxisID: 'y1', order: 2 },
+        { type: 'line', label: 'Questions Asked', data: questions, borderColor: primary, backgroundColor: primary, tension: 0.35, pointRadius: 2, pointBackgroundColor: primary, borderWidth: 2.5, yAxisID: 'y', order: 1 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'top', align: 'end' } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 7 } },
+        y: { position: 'left', grid: { color: gridColor }, beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: 'Questions', font: { size: 10 } } },
+        y1: { position: 'right', grid: { display: false }, beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: 'Uploads', font: { size: 10 } } },
+      },
+    },
+  });
+
+  // ---- Confidence % (left) vs Response Time ms (right), dual axis ----
+  const confidence = read('confidence-data');
+  const responseTimes = read('response-time-data');
+
+  new Chart(document.getElementById('correlationChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Confidence %', data: confidence, borderColor: success, backgroundColor: success, tension: 0.35, pointRadius: 2, borderWidth: 2.5, spanGaps: true, yAxisID: 'y' },
+        { label: 'Response Time (ms)', data: responseTimes, borderColor: accent, backgroundColor: accent, tension: 0.35, pointRadius: 2, borderWidth: 2.5, spanGaps: true, yAxisID: 'y1', borderDash: [4, 3] },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'top', align: 'end' } },
+      scales: {
+        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 7 } },
+        y: { position: 'left', grid: { color: gridColor }, beginAtZero: true, max: 100, ticks: { callback: (v) => v + '%' } },
+        y1: { position: 'right', grid: { display: false }, beginAtZero: true, ticks: { callback: (v) => v + 'ms' } },
+      },
+    },
+  });
+
+  // ---- Search Type Usage: polar area, full palette ----
+  new Chart(document.getElementById('searchTypeChart'), {
+    type: 'polarArea',
+    data: { labels: searchLabels, datasets: [{ data: searchValues, backgroundColor: palette.map((c) => c + 'B3'), borderColor: palette, borderWidth: 1.5 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { r: { grid: { color: gridColor }, ticks: { display: false } } },
+    },
+  });
+
+  // ---- Confidence Distribution: colorful bucketed bar ----
+  new Chart(document.getElementById('confidenceDistChart'), {
+    type: 'bar',
+    data: { labels: confDistLabels, datasets: [{ data: confDistValues, backgroundColor: confDistColors, borderRadius: 6, maxBarThickness: 40 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 9 } } },
+        y: { grid: { color: gridColor }, beginAtZero: true, ticks: { precision: 0 } },
+      },
+    },
+  });
+
+  // ---- Chunk Distribution: varied color per bar ----
+  new Chart(document.getElementById('chunkChart'), {
+    type: 'bar',
+    data: {
+      labels: chunkLabels.length ? chunkLabels : ['No documents yet'],
+      datasets: [{ data: chunkValues.length ? chunkValues : [0], backgroundColor: (chunkValues.length ? chunkValues : [0]).map((_, i) => palette[i % palette.length]), borderRadius: 6, maxBarThickness: 22 }],
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { grid: { color: gridColor }, beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false }, ticks: { font: { size: 10 } } } },
+    },
+  });
+
+  // ---- Storage by File Type: color matched to file type ----
+  new Chart(document.getElementById('storageChart'), {
+    type: 'bar',
+    data: { labels: storageLabels, datasets: [{ label: 'Bytes', data: storageValues, backgroundColor: storageLabels.map((l) => storageColorMap[l] || wine), borderRadius: 6, maxBarThickness: 36 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { x: { grid: { display: false } }, y: { grid: { color: gridColor }, beginAtZero: true } },
+    },
+  });
+
+  // ---- Weekday Activity: radar ----
+  new Chart(document.getElementById('weekdayChart'), {
+    type: 'radar',
+    data: {
+      labels: weekdayLabels,
+      datasets: [{ label: 'Questions', data: weekdayValues, borderColor: primary, backgroundColor: primary + '33', pointBackgroundColor: primary, borderWidth: 2 }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { r: { grid: { color: gridColor }, angleLines: { color: gridColor }, beginAtZero: true, ticks: { precision: 0, backdropColor: 'transparent' } } },
+    },
+  });
+
+  // ---- Document Types: donut (reuses dashboard/_donut_chart.html's own json_script tag) ----
+  const typeCanvas = document.getElementById('documentTypesChart');
+  if (typeCanvas) {
+    const typeData = read('document-types-data');
+    if (typeData && typeData.length) {
+      new Chart(typeCanvas, {
+        type: 'doughnut',
+        data: {
+          labels: typeData.map((item) => item.type),
+          datasets: [{ data: typeData.map((item) => item.count), backgroundColor: typeData.map((item) => item.color), borderWidth: 0 }],
+        },
+        options: { responsive: true, maintainAspectRatio: false, cutout: '72%', plugins: { legend: { display: false } } },
+      });
+    }
+  }
+
+  // ---- AI Tasks Activity: bar (only rendered when the section exists) ----
+  const aiTasksCanvas = document.getElementById('aiTasksActivityChart');
+  if (aiTasksCanvas) {
+    new Chart(aiTasksCanvas, {
+      type: 'bar',
+      data: { labels, datasets: [{ data: read('ai-task-runs-data'), backgroundColor: accent + 'CC', borderRadius: 4, maxBarThickness: 22 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 7 } },
+          y: { grid: { color: gridColor }, beginAtZero: true, ticks: { precision: 0 } },
+        },
+      },
+    });
+  }
+
+  // ---- AI Task Status: doughnut ----
+  const aiTaskStatusCanvas = document.getElementById('aiTaskStatusChart');
+  if (aiTaskStatusCanvas) {
+    const statusLabels = read('ai-task-status-labels-data');
+    const statusValues = read('ai-task-status-values-data');
+    const statusColorMap = { Completed: success, Failed: primary, Running: warning, Pending: tickColor, Cancelled: '#A9989A' };
+    new Chart(aiTaskStatusCanvas, {
+      type: 'doughnut',
+      data: {
+        labels: statusLabels,
+        datasets: [{ data: statusValues, backgroundColor: statusLabels.map((l) => statusColorMap[l] || accent), borderWidth: 0 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '65%',
+        plugins: { legend: { position: 'bottom' } },
+      },
+    });
+  }
+})();
+</script>
+{% endblock %}

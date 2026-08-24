@@ -1,0 +1,574 @@
+{% extends "base.html" %}
+
+{% block title %}AI Tasks{% endblock %}
+
+{% block content %}
+
+{% comment %}Standalone CSRF source for stopRun()'s fetch POST - the create-run <form> below only renders in the no-run branch, so this hidden form is what makes a token available on the results-review branch too (same #csrf-source pattern documents.html/admin/queries.html already use for their own AJAX POSTs). {% endcomment %}
+<form id="csrf-source" class="hidden">{% csrf_token %}</form>
+
+<div x-data="aiTasksWizard({% if run.status == 'pending' or run.status == 'running' %}true{% else %}false{% endif %})"
+  @select-documents-changed.window="selectedCounts[$event.detail.fieldName] = $event.detail.count">
+
+  {% if run %}
+
+    {# ============================================================ #}
+    {# Review Results (steps 5-6) - server-rendered, polls while the  #}
+    {# run is still pending/running.                                 #}
+    {# ============================================================ #}
+
+    <div class="mb-6 flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">{{ run.get_task_type_display }}</h1>
+        <p class="mt-1 text-sm text-muted dark:text-muted-dark">Started {{ run.created_at|timesince }} ago</p>
+      </div>
+    </div>
+
+    {% comment %}
+    Live pipeline card - a 3-stage stepper (Queued -> Processing ->
+    Done/Failed/Cancelled) plus a real progress bar, replacing the
+    previous plain status pill. Every number here is real (resultCount/
+    document_count from the same polling loop that already existed,
+    just visualized) - no stage finer than "processing" is fabricated,
+    since the backend only tracks PENDING/RUNNING/terminal, not a
+    per-document-in-flight signal.
+    {% endcomment %}
+    <div class="mb-6 overflow-hidden rounded-xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-3">
+          <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold" :class="statusBadgeClass">
+            <span x-show="isActive" class="h-2 w-2 animate-pulse rounded-full bg-current"></span>
+            <i data-lucide="check-circle-2" class="h-3.5 w-3.5" x-show="status === 'completed'"></i>
+            <i data-lucide="x-circle" class="h-3.5 w-3.5" x-show="status === 'failed'"></i>
+            <i data-lucide="octagon-x" class="h-3.5 w-3.5" x-show="status === 'cancelled'"></i>
+            <span x-text="statusLabel"></span>
+          </span>
+          <span class="text-sm text-muted dark:text-muted-dark"><span x-text="resultCount"></span> of {{ run.document_count }} document{{ run.document_count|pluralize }} processed</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button type="button" x-show="canStop" x-cloak @click="stopRun()" :disabled="stopping"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-danger/30 bg-danger/5 px-3 py-1.5 text-sm font-medium text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-danger-dark/30 dark:text-danger-dark dark:hover:bg-danger-dark/10">
+            <i data-lucide="square" class="h-3.5 w-3.5" x-show="!stopping"></i>
+            <i data-lucide="loader-2" class="h-3.5 w-3.5 animate-spin" x-show="stopping"></i>
+            <span x-text="stopping ? 'Stopping…' : 'Stop'"></span>
+          </button>
+          <a href="{% url 'ai_task_export' run.id %}" class="inline-flex items-center gap-2 rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-ink transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary dark:border-line-dark dark:text-ink-dark dark:hover:bg-primary/10">
+            <i data-lucide="download" class="h-4 w-4"></i> Export CSV
+          </a>
+          <button type="button" x-show="!isActive" x-cloak @click="deleteRun()" :disabled="deleting"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-danger/30 bg-danger/5 px-3.5 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-danger-dark/30 dark:text-danger-dark dark:hover:bg-danger-dark/10">
+            <i data-lucide="trash-2" class="h-4 w-4" x-show="!deleting"></i>
+            <i data-lucide="loader-2" class="h-4 w-4 animate-spin" x-show="deleting"></i>
+            <span x-text="deleting ? 'Deleting…' : 'Delete'"></span>
+          </button>
+          <a href="{% url 'ai_tasks' %}" class="inline-flex items-center gap-2 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+            <i data-lucide="plus" class="h-4 w-4"></i> New AI Task
+          </a>
+        </div>
+      </div>
+
+      <p x-show="stopError" x-cloak x-text="stopError" class="mt-3 text-xs font-medium text-danger dark:text-danger-dark"></p>
+      <p x-show="deleteError" x-cloak x-text="deleteError" class="mt-3 text-xs font-medium text-danger dark:text-danger-dark"></p>
+
+      {# ---- 3-stage pipeline stepper ---- #}
+      <div class="mt-5 flex items-center">
+        <div class="flex flex-col items-center gap-1.5">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-300" :class="stage1Class">
+            <i data-lucide="check" class="h-4 w-4" x-show="status !== 'pending'"></i>
+            <i data-lucide="loader-2" class="h-4 w-4 animate-spin" x-show="status === 'pending'"></i>
+          </div>
+          <span class="text-[11px] font-medium text-ink dark:text-ink-dark">Queued</span>
+        </div>
+
+        <div class="mx-2 h-0.5 flex-1 rounded-full bg-line dark:bg-line-dark">
+          <div class="h-full rounded-full bg-primary transition-all duration-500" :style="'width: ' + (status === 'pending' ? '0' : '100') + '%'"></div>
+        </div>
+
+        <div class="flex flex-col items-center gap-1.5">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-300" :class="stage2Class">
+            <i data-lucide="check" class="h-4 w-4" x-show="isTerminal"></i>
+            <i data-lucide="loader-2" class="h-4 w-4 animate-spin" x-show="status === 'running'"></i>
+            <span x-show="status === 'pending'" class="text-xs font-semibold">2</span>
+          </div>
+          <span class="text-[11px] font-medium" :class="status === 'pending' ? 'text-muted dark:text-muted-dark' : 'text-ink dark:text-ink-dark'">Processing</span>
+        </div>
+
+        <div class="mx-2 h-0.5 flex-1 rounded-full bg-line dark:bg-line-dark">
+          <div class="h-full rounded-full transition-all duration-500" :class="isTerminal ? stage3BarClass : 'bg-line dark:bg-line-dark'" :style="'width: ' + (isTerminal ? '100' : '0') + '%'"></div>
+        </div>
+
+        <div class="flex flex-col items-center gap-1.5">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-300" :class="stage3Class">
+            <i data-lucide="check" class="h-4 w-4" x-show="status === 'completed'"></i>
+            <i data-lucide="x" class="h-4 w-4" x-show="status === 'failed' || status === 'cancelled'"></i>
+            <span x-show="!isTerminal" class="text-xs font-semibold">3</span>
+          </div>
+          <span class="text-[11px] font-medium" :class="isTerminal ? 'text-ink dark:text-ink-dark' : 'text-muted dark:text-muted-dark'" x-text="stage3Label"></span>
+        </div>
+      </div>
+
+      {# ---- Live progress bar - only meaningful while actually processing ---- #}
+      <template x-if="status === 'running'">
+        <div class="mt-5">
+          <div class="mb-1 flex items-center justify-between text-xs text-muted dark:text-muted-dark">
+            <span>Generating results</span>
+            <span x-text="progressPercent + '%'"></span>
+          </div>
+          <div class="h-2 w-full overflow-hidden rounded-full bg-line dark:bg-line-dark">
+            <div class="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-all duration-700 ease-out" :style="'width: ' + progressPercent + '%'"></div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    {% if run.error_message %}
+      <div class="mb-6 flex items-start gap-2.5 rounded-lg border border-warning/20 bg-warning/10 px-3.5 py-3 text-sm text-warning dark:text-warning-dark">
+        <i data-lucide="alert-triangle" class="mt-0.5 h-4 w-4 shrink-0"></i>
+        {{ run.error_message }}
+      </div>
+    {% endif %}
+
+    {% if corpus_results %}
+      <div class="mb-6 space-y-4">
+        {% for result in corpus_results %}
+          {% include "ai_tasks/_result_row.html" with result=result is_corpus=True %}
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if per_document_results %}
+      <div class="space-y-4">
+        {% for result in per_document_results %}
+          {% include "ai_tasks/_result_row.html" with result=result is_corpus=False %}
+        {% endfor %}
+      </div>
+    {% elif not corpus_results and run.status == 'completed' %}
+      {% include "partials/_empty_state.html" with icon="sparkles" title="No results" message="This run completed without producing any results." %}
+    {% endif %}
+
+    {% if not per_document_results and not corpus_results and run.status == 'pending' %}
+      <div class="mt-6 flex items-center justify-center gap-2 rounded-xl border border-line bg-card p-8 text-sm text-muted shadow-soft dark:border-line-dark dark:bg-card-dark dark:text-muted-dark">
+        <i data-lucide="loader-2" class="h-4 w-4 animate-spin"></i>
+        Waiting for a worker to pick this up - results appear here as they're ready.
+      </div>
+    {% endif %}
+
+  {% else %}
+
+    {# ============================================================ #}
+    {# Steps 1-4 - client-side wizard, no server round-trip until Run #}
+    {# ============================================================ #}
+
+    {% url 'ai_task_history' as ai_task_history_url %}
+    {% include "partials/_page_header.html" with title="AI Tasks" subtitle="Select a task, choose your documents, and let the AI do the reviewing." action_url=ai_task_history_url action_label="History" action_icon="history" %}
+
+    <div class="mb-6 flex items-center gap-2 text-xs font-medium text-muted dark:text-muted-dark">
+      <template x-for="(label, index) in stepLabels" :key="index">
+        <span class="flex items-center gap-2">
+          <span class="flex h-6 w-6 items-center justify-center rounded-full border text-[11px]"
+            :class="currentStep === index + 1 ? 'border-primary bg-primary text-white' : (currentStep > index + 1 ? 'border-success bg-success/10 text-success' : 'border-line text-muted dark:border-line-dark')"
+            x-text="index + 1"></span>
+          <span :class="currentStep === index + 1 ? 'text-ink dark:text-ink-dark' : ''" x-text="label"></span>
+          <i x-show="index < stepLabels.length - 1" data-lucide="chevron-right" class="h-3 w-3"></i>
+        </span>
+      </template>
+    </div>
+
+    <form method="POST" action="{% url 'ai_task_create' %}" @submit="submitting = true">
+      {% csrf_token %}
+      <input type="hidden" name="task_type" :value="taskType">
+      <input type="hidden" name="config" :value="JSON.stringify(config)">
+
+      {# ---------- Step 1: Select Task ---------- #}
+      <div x-show="currentStep === 1" x-cloak class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <template x-for="task in tasks" :key="task.value">
+          <button type="button" @click="selectTask(task.value)"
+            class="flex flex-col items-start gap-2 rounded-xl border p-5 text-left shadow-soft transition-all duration-150 hover:-translate-y-0.5 hover:shadow-softer"
+            :class="taskType === task.value ? 'border-primary bg-primary/5 dark:bg-primary/10' : 'border-line bg-card dark:border-line-dark dark:bg-card-dark'">
+            <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
+              <i :data-lucide="task.icon" class="h-5 w-5"></i>
+            </div>
+            <h3 class="text-sm font-semibold text-ink dark:text-ink-dark" x-text="task.label"></h3>
+            <p class="text-xs text-muted dark:text-muted-dark" x-text="task.description"></p>
+          </button>
+        </template>
+      </div>
+
+      {# ---------- "About this task" - persists across steps 2-4 so the user always knows what they signed up for and what they'll get back ---------- #}
+      <template x-if="currentTask && currentStep > 1">
+        <div class="mb-6 flex flex-col gap-3 rounded-xl border border-primary/20 bg-primary-soft/30 p-4 dark:border-primary/25 dark:bg-primary/10 sm:flex-row sm:gap-6">
+          <div class="flex-1">
+            <p class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-primary dark:text-primary-soft">
+              <i data-lucide="info" class="h-3.5 w-3.5"></i> What this task does
+            </p>
+            <p class="mt-1 text-sm text-ink dark:text-ink-dark" x-text="currentTask.description"></p>
+          </div>
+          <div class="flex-1 sm:border-l sm:border-primary/20 sm:pl-6 sm:dark:border-primary/25">
+            <p class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-primary dark:text-primary-soft">
+              <i data-lucide="package-check" class="h-3.5 w-3.5"></i> What you'll get back
+            </p>
+            <p class="mt-1 text-sm text-ink dark:text-ink-dark" x-text="currentTask.resultsPreview"></p>
+          </div>
+        </div>
+      </template>
+
+      {# ---------- Step 2: Select Documents ---------- #}
+      <div x-show="currentStep === 2" x-cloak class="rounded-xl border border-line bg-card p-6 shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <h3 class="mb-1 text-sm font-semibold text-ink dark:text-ink-dark">Select Documents</h3>
+        <p class="mb-4 text-xs text-muted dark:text-muted-dark" x-text="'Choose the documents to run &quot;' + currentTaskLabel + '&quot; on.'"></p>
+
+        {% include "partials/_select_documents_dialog.html" with field_name="document_ids" trigger_label="Select Documents" %}
+
+        <template x-if="needsReference">
+          <div class="mt-4">
+            <h4 class="mb-1 text-sm font-semibold text-ink dark:text-ink-dark">Reference Documents</h4>
+            <p class="mb-3 text-xs text-muted dark:text-muted-dark">Documents to check the selected documents against (e.g. a job description, a policy, a standard).</p>
+            {% include "partials/_select_documents_dialog.html" with field_name="reference_document_ids" trigger_label="Select Reference Documents" %}
+          </div>
+        </template>
+
+        <p class="mt-4 text-xs" :class="selectedCount > {{ ai_tasks_max_documents|default:100 }} ? 'text-danger dark:text-danger-dark' : 'text-muted dark:text-muted-dark'">
+          <span x-text="selectedCount"></span> of {{ ai_tasks_max_documents|default:100 }} documents allowed selected.
+        </p>
+      </div>
+
+      {# ---------- Step 3: Configure (optional) ---------- #}
+      <div x-show="currentStep === 3" x-cloak class="rounded-xl border border-line bg-card p-6 shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <h3 class="mb-1 text-sm font-semibold text-ink dark:text-ink-dark">Configure <span class="font-normal text-muted dark:text-muted-dark">(optional)</span></h3>
+        <p class="mb-4 text-xs text-muted dark:text-muted-dark">Every field below has a sensible default - skip this step if you're not sure.</p>
+
+        <template x-if="taskType === 'analyze' || taskType === 'validate'">
+          <div class="mb-4">
+            <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Criteria</label>
+            <textarea x-model="config.criteria" rows="4" placeholder="e.g. Requires 5+ years of Python experience, a relevant degree, and at least one cloud certification."
+              class="w-full rounded-lg border border-line bg-surface p-3 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark"></textarea>
+          </div>
+        </template>
+
+        <template x-if="taskType === 'extract'">
+          <div class="mb-4">
+            <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Fields to extract (comma-separated)</label>
+            <input type="text" @input="config.fields = $event.target.value.split(',').map(f => f.trim()).filter(Boolean)" placeholder="e.g. name, date, amount, parties"
+              class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+            <p class="mt-1 text-[11px] text-muted dark:text-muted-dark">Leave blank to let the AI infer the most salient fields.</p>
+          </div>
+        </template>
+
+        <template x-if="taskType === 'summarize'">
+          <div class="mb-4">
+            <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Summary length</label>
+            <select x-model="config.length" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+              <option value="1-2 sentences">Brief (1-2 sentences)</option>
+              <option value="3-5 sentences" selected>Standard (3-5 sentences)</option>
+              <option value="a full paragraph">Detailed (a full paragraph)</option>
+            </select>
+          </div>
+        </template>
+
+        <template x-if="taskType === 'find_similar' || taskType === 'organize'">
+          <div class="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Similarity threshold</label>
+              <input type="range" min="0.5" max="0.99" step="0.01" x-model.number="config.similarity_threshold"
+                class="w-full">
+              <p class="mt-1 text-[11px] text-muted dark:text-muted-dark">Higher = only very close matches grouped together. Current: <span x-text="config.similarity_threshold"></span></p>
+            </div>
+            <template x-if="taskType === 'organize'">
+              <div>
+                <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Target number of groups (optional)</label>
+                <input type="number" min="1" x-model.number="config.target_groups" placeholder="Auto"
+                  class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <template x-if="taskType === 'report'">
+          <div class="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Report title</label>
+              <input type="text" x-model="config.title" placeholder="Generated Report"
+                class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+            </div>
+            <div>
+              <label class="mb-1.5 block text-xs font-medium text-muted dark:text-muted-dark">Focus</label>
+              <input type="text" x-model="config.focus" placeholder="e.g. sales trends"
+                class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+            </div>
+          </div>
+        </template>
+
+        <template x-if="taskType === 'compare'">
+          <p class="text-sm text-muted dark:text-muted-dark">Compare Documents has no additional options - it compares whatever you selected.</p>
+        </template>
+      </div>
+
+      {# ---------- Step navigation ---------- #}
+      <div class="mt-6 flex items-center justify-between">
+        <button type="button" @click="previousStep()" x-show="currentStep > 1"
+          class="inline-flex items-center gap-2 rounded-lg border border-line px-4 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">
+          <i data-lucide="chevron-left" class="h-4 w-4"></i> Back
+        </button>
+        <div class="ml-auto flex gap-2">
+          <button type="button" @click="nextStep()" x-show="currentStep < 4" :disabled="!canAdvance"
+            class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-50">
+            Next <i data-lucide="chevron-right" class="h-4 w-4"></i>
+          </button>
+          <button type="submit" x-show="currentStep === 4" :disabled="submitting || !canAdvance"
+            class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-70">
+            <i data-lucide="loader-2" class="h-4 w-4 animate-spin" x-show="submitting"></i>
+            <i data-lucide="sparkles" class="h-4 w-4" x-show="!submitting"></i>
+            <span x-text="submitting ? 'Starting…' : 'Run AI'"></span>
+          </button>
+        </div>
+      </div>
+
+      {# ---------- Step 4: Run summary ---------- #}
+      <div x-show="currentStep === 4" x-cloak class="mt-6 rounded-xl border border-line bg-surface p-5 text-sm dark:border-line-dark dark:bg-white/5">
+        <p class="font-semibold text-ink dark:text-ink-dark">Ready to run</p>
+        <p class="mt-1 text-muted dark:text-muted-dark">
+          <span x-text="currentTaskLabel"></span> over <span x-text="selectedCount"></span> document<span x-show="selectedCount !== 1">s</span>.
+        </p>
+      </div>
+    </form>
+
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  function aiTasksWizard(startPollingImmediately) {
+    return {
+      currentStep: 1,
+      taskType: null,
+      submitting: false,
+      config: { similarity_threshold: 0.85 },
+      selectedCounts: {},
+      stepLabels: ['Task', 'Documents', 'Configure', 'Run'],
+      tasks: [
+        {
+          value: 'analyze', label: 'Analyze Documents', icon: 'search-check',
+          description: 'Score and rank documents against criteria, with findings and citations. Good for shortlisting resumes against a job description, or scoring proposals against requirements.',
+          resultsPreview: "A ranked list of documents with a 0-100 score, key findings that justify each score, anything your criteria call for that a document is missing, and a summary explaining the overall ranking - every claim links back to its source.",
+        },
+        {
+          value: 'compare', label: 'Compare Documents', icon: 'columns-3',
+          description: 'Identify similarities and differences across documents. Good for comparing contract versions, policy revisions, or competing proposals.',
+          resultsPreview: "An overall comparison broken down by dimension (e.g. terms, pricing, scope), plus a short write-up of what's distinctive about each individual document - all with source citations.",
+        },
+        {
+          value: 'summarize', label: 'Summarize Documents', icon: 'file-text',
+          description: 'Get a concise summary of each document, and an executive summary across all of them. Good for digesting a large batch of reports or papers quickly.',
+          resultsPreview: "A short summary per document, plus one executive summary tying the common themes together when you select more than one document.",
+        },
+        {
+          value: 'extract', label: 'Extract Information', icon: 'list-checks',
+          description: 'Pull specific fields out of every document into a combined table. Good for turning invoices, forms, or resumes into structured data.',
+          resultsPreview: "The fields you asked for (or the most salient ones, if you leave the field list blank) pulled out of every document into one combined table, each value linked back to its source.",
+        },
+        {
+          value: 'validate', label: 'Validate Against Reference Documents', icon: 'shield-check',
+          description: 'Check documents for compliance against a policy or standard you provide as a reference. Good for auditing SOPs, contracts, or submissions against a checklist.',
+          resultsPreview: "A compliance score per document, the specific violations and compliant points found against your reference documents, and an overview of how the whole set stacks up.",
+        },
+        {
+          value: 'find_similar', label: 'Find Similar Documents', icon: 'copy',
+          description: 'Group documents that are semantically similar to each other. Good for spotting duplicate or near-duplicate content in a large library.',
+          resultsPreview: "Documents grouped into clusters of near-duplicate or closely related content, each with a short AI-written label explaining what ties that cluster together.",
+        },
+        {
+          value: 'organize', label: 'Organize Documents', icon: 'folder-tree',
+          description: 'Automatically sort documents into labeled groups by topic or theme. Good for making sense of an unsorted upload of mixed content.',
+          resultsPreview: "Documents automatically sorted into labeled groups, so you can see how your library naturally breaks down without organizing it by hand.",
+        },
+        {
+          value: 'report', label: 'Generate Reports', icon: 'file-output',
+          description: 'Synthesize a structured, multi-section report from a set of documents. Good for turning raw source material into a shareable writeup.',
+          resultsPreview: "One structured report with multiple sections, synthesized across every selected document and built around the focus you give it, with citations back to the source documents.",
+        },
+      ],
+
+      // Results-review polling state (only relevant when this page is rendered with a run in context)
+      polling: null,
+      status: '{{ run.status|default:"" }}',
+      cancelRequested: {{ run.cancel_requested|yesno:"true,false" }},
+      stopping: false,
+      stopError: '',
+      deleting: false,
+      deleteError: '',
+      resultCount: {{ result_count|default:0 }},
+      documentCount: {{ run.document_count|default:0 }},
+
+      init() {
+        if (startPollingImmediately) this.startPolling();
+      },
+
+      startPolling() {
+        if (this.polling) return;
+        this.polling = setInterval(() => {
+          fetch('{% if run %}{% url "ai_task_status" run.id %}{% endif %}')
+            .then((r) => r.json())
+            .then((data) => {
+              this.resultCount = data.result_count;
+              this.cancelRequested = data.cancel_requested;
+              this.status = data.status;
+              if (data.status === 'pending' || data.status === 'running') return;
+              clearInterval(this.polling);
+              this.polling = null;
+              window.location.reload();
+            })
+            .catch(() => { clearInterval(this.polling); this.polling = null; });
+        }, 2000);
+      },
+
+      stopRun() {
+        if (this.stopping || this.cancelRequested) return;
+        this.stopping = true;
+        this.stopError = '';
+        const csrftoken = document.querySelector('#csrf-source [name=csrfmiddlewaretoken]').value;
+        fetch('{% if run %}{% url "ai_task_cancel" run.id %}{% endif %}', {
+          method: 'POST',
+          headers: { 'X-CSRFToken': csrftoken },
+        })
+          .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+          .then(({ ok, data }) => {
+            if (!ok) {
+              this.stopError = data.error || 'Could not stop this run.';
+              return;
+            }
+            this.cancelRequested = true;
+            // startPolling() is already a no-op once running (init() started
+            // it for any pending/running run) - this just covers the edge
+            // case where the run had already gone terminal by the time the
+            // click landed and polling had stopped itself.
+            this.startPolling();
+          })
+          .catch(() => { this.stopError = 'Could not stop this run - check your connection.'; })
+          .finally(() => { this.stopping = false; });
+      },
+
+      deleteRun() {
+        if (this.deleting || this.isActive) return;
+        if (!confirm('Delete this AI Task run and its results? This cannot be undone.')) return;
+        this.deleting = true;
+        this.deleteError = '';
+        const csrftoken = document.querySelector('#csrf-source [name=csrfmiddlewaretoken]').value;
+        fetch('{% if run %}{% url "ai_task_delete" run.id %}{% endif %}', {
+          method: 'POST',
+          headers: { 'X-CSRFToken': csrftoken },
+        })
+          .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+          .then(({ ok, data }) => {
+            if (!ok) {
+              this.deleteError = data.error || 'Could not delete this run.';
+              this.deleting = false;
+              return;
+            }
+            window.location.href = '{% url "ai_task_history" %}';
+          })
+          .catch(() => {
+            this.deleteError = 'Could not delete this run - check your connection.';
+            this.deleting = false;
+          });
+      },
+
+      get isActive() {
+        return this.status === 'pending' || this.status === 'running';
+      },
+
+      get isTerminal() {
+        return this.status === 'completed' || this.status === 'failed' || this.status === 'cancelled';
+      },
+
+      get canStop() {
+        return this.isActive && !this.cancelRequested;
+      },
+
+      get statusLabel() {
+        if (this.cancelRequested && this.isActive) return 'Stopping…';
+        return { pending: 'Pending', running: 'Running', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled' }[this.status] || this.status;
+      },
+
+      get statusBadgeClass() {
+        if (this.cancelRequested && this.isActive) return 'bg-danger/10 text-danger dark:text-danger-dark';
+        return {
+          completed: 'bg-success/10 text-success dark:text-success-dark',
+          failed: 'bg-danger/10 text-danger dark:text-danger-dark',
+          cancelled: 'bg-line text-muted dark:bg-white/10 dark:text-muted-dark',
+          running: 'bg-warning/10 text-warning dark:text-warning-dark',
+          pending: 'bg-line text-muted dark:bg-white/10 dark:text-muted-dark',
+        }[this.status] || 'bg-line text-muted dark:bg-white/10 dark:text-muted-dark';
+      },
+
+      get progressPercent() {
+        if (!this.documentCount) return 0;
+        return Math.min(100, Math.round((this.resultCount / this.documentCount) * 100));
+      },
+
+      get stage1Class() {
+        return this.status === 'pending'
+          ? 'border-warning bg-warning/10 text-warning dark:border-warning-dark dark:text-warning-dark'
+          : 'border-success bg-success/10 text-success dark:border-success-dark dark:text-success-dark';
+      },
+
+      get stage2Class() {
+        if (this.status === 'pending') return 'border-line text-muted dark:border-line-dark dark:text-muted-dark';
+        if (this.status === 'running') return 'border-warning bg-warning/10 text-warning dark:border-warning-dark dark:text-warning-dark';
+        return 'border-success bg-success/10 text-success dark:border-success-dark dark:text-success-dark';
+      },
+
+      get stage3Class() {
+        if (!this.isTerminal) return 'border-line text-muted dark:border-line-dark dark:text-muted-dark';
+        if (this.status === 'completed') return 'border-success bg-success/10 text-success dark:border-success-dark dark:text-success-dark';
+        return 'border-danger bg-danger/10 text-danger dark:border-danger-dark dark:text-danger-dark';
+      },
+
+      get stage3BarClass() {
+        return this.status === 'completed' ? 'bg-success dark:bg-success-dark' : 'bg-danger dark:bg-danger-dark';
+      },
+
+      get stage3Label() {
+        return { completed: 'Done', failed: 'Failed', cancelled: 'Cancelled' }[this.status] || 'Done';
+      },
+
+      get currentTask() {
+        return this.tasks.find((t) => t.value === this.taskType) || null;
+      },
+
+      get currentTaskLabel() {
+        return this.currentTask ? this.currentTask.label : '';
+      },
+
+      get needsReference() {
+        return this.taskType === 'analyze' || this.taskType === 'validate';
+      },
+
+      get selectedCount() {
+        return this.selectedCounts.document_ids || 0;
+      },
+
+      get canAdvance() {
+        if (this.currentStep === 1) return !!this.taskType;
+        if (this.currentStep === 2) return this.selectedCount > 0 && this.selectedCount <= {{ ai_tasks_max_documents|default:100 }};
+        return true;
+      },
+
+      selectTask(value) {
+        this.taskType = value;
+        this.nextStep();
+      },
+
+      nextStep() {
+        if (this.canAdvance && this.currentStep < 4) this.currentStep += 1;
+      },
+
+      previousStep() {
+        if (this.currentStep > 1) this.currentStep -= 1;
+      },
+    };
+  }
+</script>
+{% endblock %}

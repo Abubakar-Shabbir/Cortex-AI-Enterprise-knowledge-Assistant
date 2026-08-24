@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block title %}Monitoring{% endblock %}
+
+{% block content %}
+
+<div
+  x-data="{
+    status: '{{ health.status }}',
+    checkedAt: new Date(),
+    checkingNow: false,
+    ago: 0,
+    refresh() {
+      // Auto-refresh - health_check() (RAG.views.health_check) defaults
+      // to live_llm_check=False, so this is free (no real provider API
+      // calls, derived from recent Ask AI/AI Task traffic instead).
+      // Skipped while a live Check Now is in flight/just landed, so it
+      // can't stomp the ?live=1 status this page just loaded with.
+      if (this.checkingNow) return;
+      fetch('{% url 'health_check' %}').then(r => r.json()).then(data => { this.status = data.status; this.checkedAt = new Date(); });
+    },
+    checkNow() {
+      // The one place a real, live, synchronous check runs - on demand
+      // only. A real navigation (not fetch()) to ?live=1, so every card
+      // - including the recent-errors panels, which are server-rendered
+      // HTML, not part of health_check()'s JSON - reflects the fresh
+      // data through the exact same template path as every other load.
+      this.checkingNow = true;
+      window.location.href = '{% url 'monitoring' %}?live=1';
+    },
+    agoLabel() {
+      if (this.ago < 5) return 'just now';
+      if (this.ago < 60) return this.ago + 's ago';
+      return Math.floor(this.ago / 60) + 'm ago';
+    },
+  }"
+  x-init="setInterval(() => refresh(), 15000); setInterval(() => { ago = Math.floor((Date.now() - checkedAt.getTime()) / 1000); }, 1000)"
+>
+
+  <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Monitoring</h1>
+      <p class="mt-1 text-sm text-muted dark:text-muted-dark">Live infrastructure health and RAG pipeline configuration. Visible to administrators only.</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 rounded-lg border border-line bg-card px-3.5 py-2 text-xs font-medium shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <span class="h-1.5 w-1.5 rounded-full" :class="status === 'ok' ? 'bg-success' : (status === 'critical' ? 'bg-danger' : 'bg-warning')"></span>
+        <span class="text-ink dark:text-ink-dark" x-text="status === 'ok' ? 'All systems operational' : (status.charAt(0).toUpperCase() + status.slice(1))"></span>
+        <span class="text-muted dark:text-muted-dark">· checked <span x-text="agoLabel()"></span></span>
+      </div>
+      <button type="button" @click="checkNow()" :disabled="checkingNow"
+        class="inline-flex items-center gap-1.5 rounded-lg border border-line bg-card px-3.5 py-2 text-xs font-medium text-ink shadow-soft transition-colors hover:border-primary/30 hover:text-primary disabled:opacity-60 dark:border-line-dark dark:bg-card-dark dark:text-ink-dark dark:hover:bg-primary/10">
+        <i data-lucide="loader-2" class="h-3.5 w-3.5 animate-spin" x-show="checkingNow"></i>
+        <i data-lucide="refresh-cw" class="h-3.5 w-3.5" x-show="!checkingNow"></i>
+        <span x-text="checkingNow ? 'Checking…' : 'Check Now'"></span>
+      </button>
+    </div>
+  </div>
+
+  <div class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+
+    <div class="rounded-xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted dark:text-muted-dark">PostgreSQL</span>
+        <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft"><i data-lucide="database" class="h-3.5 w-3.5"></i></div>
+      </div>
+      <div class="mt-2.5 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+        <span class="h-1.5 w-1.5 rounded-full {% if health.checks.database %}bg-success{% else %}bg-danger{% endif %}"></span>
+        {% if health.checks.database %}Connected{% else %}Unreachable{% endif %}
+      </div>
+      <p class="mt-1 text-xs text-muted dark:text-muted-dark">pgvector {% if health.checks.pgvector %}enabled{% else %}not enabled{% endif %}</p>
+      {% include "partials/_recent_errors_panel.html" with errors=health.recent_errors.database %}
+    </div>
+
+    <div class="rounded-xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted dark:text-muted-dark">Cache</span>
+        <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft"><i data-lucide="zap" class="h-3.5 w-3.5"></i></div>
+      </div>
+      <div class="mt-2.5 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+        <span class="h-1.5 w-1.5 rounded-full bg-success"></span>
+        Active
+      </div>
+      <p class="mt-1 text-xs text-muted dark:text-muted-dark">In-memory (process-local)</p>
+    </div>
+
+    <div class="rounded-xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted dark:text-muted-dark">Background Jobs</span>
+        <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft"><i data-lucide="cog" class="h-3.5 w-3.5"></i></div>
+      </div>
+      <div class="mt-2.5 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+        <span class="h-1.5 w-1.5 rounded-full {% if health.checks.background_jobs %}bg-success{% else %}bg-danger{% endif %}"></span>
+        {% if health.checks.background_jobs %}Available{% else %}Unavailable{% endif %}
+      </div>
+      <p class="mt-1 text-xs text-muted dark:text-muted-dark">{{ health.background_jobs.active }} active · {{ health.background_jobs.max_workers }} worker threads</p>
+      {% include "partials/_recent_errors_panel.html" with errors=health.recent_errors.background_jobs %}
+    </div>
+
+    <div class="rounded-xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted dark:text-muted-dark">LLM Providers</span>
+        <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft"><i data-lucide="bot" class="h-3.5 w-3.5"></i></div>
+      </div>
+      {% if health.checks.llm_providers %}
+        <div class="mt-2.5 space-y-1.5">
+          {% for provider, result in health.checks.llm_providers.items %}
+            <div class="flex items-center justify-between gap-2 text-xs" title="{{ result.message }}">
+              <span class="flex items-center gap-1.5 font-medium text-ink dark:text-ink-dark">
+                <span class="h-1.5 w-1.5 rounded-full {% if result.ok == True %}bg-success{% elif result.ok == False %}bg-danger{% else %}bg-muted{% endif %}"></span>
+                {{ provider|capfirst }}
+                {% if provider == status.llm_provider %}<span class="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary dark:text-primary-soft">Active</span>{% endif %}
+              </span>
+              <span class="text-muted dark:text-muted-dark">
+                {% if result.ok is None %}no data{% elif result.latency_ms %}{{ result.latency_ms }}ms{% elif result.ok %}ok{% else %}down{% endif %}
+              </span>
+            </div>
+          {% endfor %}
+        </div>
+        <p class="mt-1.5 text-[10px] text-muted/70 dark:text-muted-dark/70">{% if health.live_llm_check %}Live check{% else %}From recent usage{% endif %} · <a href="#" @click.prevent="checkNow()" class="underline hover:text-primary">check now</a></p>
+      {% else %}
+        <div class="mt-2.5 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+          <span class="h-1.5 w-1.5 rounded-full bg-warning"></span> None configured
+        </div>
+        <p class="mt-1 text-xs text-muted dark:text-muted-dark">Add an API key to .env</p>
+      {% endif %}
+      {% include "partials/_recent_errors_panel.html" with errors=health.recent_errors.llm_providers %}
+    </div>
+
+    <div class="rounded-xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted dark:text-muted-dark">CPU</span>
+        <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft"><i data-lucide="cpu" class="h-3.5 w-3.5"></i></div>
+      </div>
+      {% if health.resources.available %}
+        <div class="mt-2.5 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+          <span class="h-1.5 w-1.5 rounded-full {% if health.resources.cpu_percent >= 90 %}bg-danger{% elif health.resources.cpu_percent >= 75 %}bg-warning{% else %}bg-success{% endif %}"></span>
+          {{ health.resources.cpu_percent }}%
+        </div>
+        <div class="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-line dark:bg-line-dark">
+          <div class="h-full rounded-full {% if health.resources.cpu_percent >= 90 %}bg-danger{% elif health.resources.cpu_percent >= 75 %}bg-warning{% else %}bg-success{% endif %}" style="width: {{ health.resources.cpu_percent }}%"></div>
+        </div>
+        <p class="mt-1.5 text-xs text-muted dark:text-muted-dark">Host CPU utilization</p>
+      {% else %}
+        <div class="mt-2.5 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+          <span class="h-1.5 w-1.5 rounded-full bg-muted"></span> Unavailable
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="rounded-xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted dark:text-muted-dark">Memory</span>
+        <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft"><i data-lucide="memory-stick" class="h-3.5 w-3.5"></i></div>
+      </div>
+      {% if health.resources.available %}
+        <div class="mt-2.5 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+          <span class="h-1.5 w-1.5 rounded-full {% if health.resources.memory_percent >= 90 %}bg-danger{% elif health.resources.memory_percent >= 75 %}bg-warning{% else %}bg-success{% endif %}"></span>
+          {{ health.resources.memory_percent }}%
+        </div>
+        <div class="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-line dark:bg-line-dark">
+          <div class="h-full rounded-full {% if health.resources.memory_percent >= 90 %}bg-danger{% elif health.resources.memory_percent >= 75 %}bg-warning{% else %}bg-success{% endif %}" style="width: {{ health.resources.memory_percent }}%"></div>
+        </div>
+        <p class="mt-1.5 text-xs text-muted dark:text-muted-dark">Host memory utilization</p>
+      {% else %}
+        <div class="mt-2.5 flex items-center gap-1.5 text-sm font-semibold text-ink dark:text-ink-dark">
+          <span class="h-1.5 w-1.5 rounded-full bg-muted"></span> Unavailable
+        </div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
+
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center gap-2 border-b border-line px-4 py-3 dark:border-line-dark">
+        <i data-lucide="sliders-horizontal" class="h-4 w-4 text-primary dark:text-primary-soft"></i>
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">RAG Pipeline Configuration</h2>
+      </div>
+      <div class="divide-y divide-line dark:divide-line-dark">
+        {% include "partials/_setting_row.html" with label="LLM Model" description="Used to generate answers from retrieved context" value=status.llm_model %}
+        {% include "partials/_setting_row.html" with label="Embedding Model" description="Used to embed document chunks and questions" value=status.embedding_model %}
+        {% include "partials/_setting_row.html" with label="Embedding Dimension" description="Vector size stored in pgvector" value=status.embedding_dimension %}
+        {% include "partials/_setting_row.html" with label="Chunk Size" description="Max characters per recursive chunk" value=chunk_size %}
+        {% include "partials/_setting_row.html" with label="Chunk Overlap" description="Overlapping characters between chunks" value=chunk_overlap %}
+        {% include "partials/_setting_row.html" with label="Top K" description="Chunks retrieved per question" value=top_k %}
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center gap-2 border-b border-line px-4 py-3 dark:border-line-dark">
+        <i data-lucide="server-cog" class="h-4 w-4 text-primary dark:text-primary-soft"></i>
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">System Information</h2>
+      </div>
+      <div class="divide-y divide-line dark:divide-line-dark">
+        {% include "partials/_setting_row.html" with label="Django Version" value=django_version %}
+        {% include "partials/_setting_row.html" with label="Total Documents" value=status.total_documents %}
+        {% include "partials/_setting_row.html" with label="Total Chunks" value=status.total_chunks %}
+        {% include "partials/_setting_row.html" with label="Total Embeddings" value=status.total_embeddings %}
+        {% include "partials/_setting_row.html" with label="Total Storage" value=status.total_storage %}
+        {% if health.storage.percent_free is not None %}
+          {% include "partials/_setting_row.html" with label="Disk Free Space" description="On the volume backing document storage" value=health.storage.percent_free|stringformat:".1f"|add:"%" %}
+        {% elif health.storage.backend == "s3" %}
+          {% include "partials/_setting_row.html" with label="Document Storage" description="S3-compatible object storage - not disk-usage-tracked here" value="Remote (S3)" %}
+        {% else %}
+          {% include "partials/_setting_row.html" with label="Disk Free Space" description="On the volume backing document storage" value="Unavailable" %}
+        {% endif %}
+        {% include "partials/_setting_row.html" with label="Server Uptime" description="Since this process started" value=uptime_display %}
+      </div>
+    </div>
+
+  </div>
+
+  {% if "system.view_ai_logs" in user_permissions or "activity.view_all_logs" in user_permissions %}
+    <div class="mt-4 flex items-center justify-between rounded-xl border border-line bg-card p-3.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="flex items-center gap-3">
+        <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft"><i data-lucide="terminal" class="h-4 w-4"></i></div>
+        <div>
+          <p class="text-sm font-semibold text-ink dark:text-ink-dark">System Logs</p>
+          <p class="text-xs text-muted dark:text-muted-dark">Full request traces, deduped/grouped errors, and the workspace activity feed above — all in one place.</p>
+        </div>
+      </div>
+      <a href="{% url 'admin_system_logs' %}" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-3.5 py-2 text-xs font-medium text-ink transition-colors hover:border-primary/30 hover:text-primary dark:border-line-dark dark:text-ink-dark dark:hover:bg-primary/10">
+        Open Logs <i data-lucide="arrow-right" class="h-3.5 w-3.5"></i>
+      </a>
+    </div>
+  {% endif %}
+
+</div>
+
+{% endblock %}

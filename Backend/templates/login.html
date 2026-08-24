@@ -1,0 +1,82 @@
+{% extends "auth_base.html" %}
+
+{% block title %}Log in{% endblock %}
+
+{% block auth_content %}
+
+<h1 class="auth-pop-in text-xl font-bold tracking-tight text-ink dark:text-ink-dark">Log in to your account</h1>
+<p class="mb-6 mt-1 text-sm text-muted dark:text-muted-dark">Enter your details below to continue.</p>
+
+<form
+  method="POST"
+  class="space-y-4"
+  x-data="{ showPassword: false, submitting: false }"
+  @submit="submitting = true"
+>
+  {% csrf_token %}
+
+  {% if error %}
+    <div role="alert" aria-live="polite" class="auth-error-banner flex items-start gap-2 rounded-lg border border-danger/20 bg-danger/10 px-3.5 py-3 text-sm text-danger dark:text-danger-dark">
+      <i data-lucide="alert-circle" class="mt-0.5 h-4 w-4 shrink-0"></i>
+      {{ error }}
+    </div>
+  {% endif %}
+
+  <div class="group">
+    <label for="username" class="mb-1.5 block text-xs font-medium text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft">Username</label>
+    <div class="relative">
+      <i data-lucide="user-round" class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft"></i>
+      <input
+        id="username" type="text" name="username" placeholder="Enter your username" value="{{ username|default:'' }}"
+        required autofocus autocomplete="username"
+        aria-invalid="{% if error %}true{% else %}false{% endif %}"
+        class="w-full rounded-lg border border-line bg-surface py-2.5 pl-10 pr-3.5 text-sm text-ink placeholder:text-muted transition-all duration-150 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
+      >
+    </div>
+  </div>
+
+  <div class="group">
+    <label for="password" class="mb-1.5 block text-xs font-medium text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft">Password</label>
+    <div class="relative">
+      <i data-lucide="lock" class="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted transition-colors duration-150 group-focus-within:text-primary dark:text-muted-dark dark:group-focus-within:text-primary-soft"></i>
+      <input
+        :type="showPassword ? 'text' : 'password'" id="password" name="password" placeholder="Enter your password"
+        required autocomplete="current-password"
+        aria-invalid="{% if error %}true{% else %}false{% endif %}"
+        class="w-full rounded-lg border border-line bg-surface py-2.5 pl-10 pr-10 text-sm text-ink placeholder:text-muted transition-all duration-150 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
+      >
+      <button
+        type="button"
+        @click="showPassword = !showPassword"
+        class="absolute right-3 top-1/2 -translate-y-1/2 text-muted transition-colors hover:text-ink dark:text-muted-dark dark:hover:text-ink-dark"
+        :aria-label="showPassword ? 'Hide password' : 'Show password'"
+      >
+        <i data-lucide="eye" class="h-4 w-4" x-show="!showPassword"></i>
+        <i data-lucide="eye-off" class="h-4 w-4" x-show="showPassword" x-cloak></i>
+      </button>
+    </div>
+  </div>
+
+  <div class="flex items-center justify-between">
+    <label class="flex items-center gap-2 text-sm text-ink dark:text-ink-dark">
+      <input type="checkbox" name="remember_me" class="rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark">
+      Remember me
+    </label>
+    <a href="{% url 'password_reset' %}" class="text-sm font-medium text-primary transition-colors hover:underline dark:text-primary-soft">Forgot password?</a>
+  </div>
+
+  <button
+    type="submit"
+    :disabled="submitting"
+    class="btn-sheen flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white shadow-softer transition-all duration-150 hover:bg-primary-dark hover:shadow-glow active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
+  >
+    <i data-lucide="loader-2" class="h-4 w-4 animate-spin" x-show="submitting"></i>
+    <span x-text="submitting ? 'Logging in…' : 'Log in'"></span>
+  </button>
+
+  <p class="text-center text-sm text-muted dark:text-muted-dark">
+    Don't have an account? <a href="{% url 'signup' %}" class="font-semibold text-primary transition-colors hover:underline dark:text-primary-soft">Sign up</a>
+  </p>
+</form>
+
+{% endblock %}

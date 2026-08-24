@@ -1,0 +1,28 @@
+{% comment %}
+Usage: {% include "partials/_kb_tabs.html" with active="browse" %}
+active: browse | relationships | graph | insights | citations
+
+Segmented pill control, not underline tabs - the active destination
+gets a solid primary fill (icon + label in white) inside a shared
+surface "track", the same visual language _command_palette.html and
+the sidebar's active nav item already use for "this is where you are"
+elsewhere in the app. Same five destinations/URLs as before, just a
+denser, more deliberate "product" treatment than a plain tab strip.
+{% endcomment %}
+<div class="mb-6 flex flex-wrap gap-1 overflow-x-auto rounded-xl border border-line bg-surface p-1 shadow-softer dark:border-line-dark dark:bg-white/5">
+  <a href="{% url 'knowledge_base' %}" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-all duration-150 {% if active == 'browse' %}bg-primary text-white shadow-soft{% else %}text-muted hover:bg-card hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark{% endif %}">
+    <i data-lucide="compass" class="h-3.5 w-3.5"></i> Explore Topics
+  </a>
+  <a href="{% url 'relationships' %}" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-all duration-150 {% if active == 'relationships' %}bg-primary text-white shadow-soft{% else %}text-muted hover:bg-card hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark{% endif %}">
+    <i data-lucide="git-branch" class="h-3.5 w-3.5"></i> Relationships
+  </a>
+  <a href="{% url 'knowledge_graph' %}" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-all duration-150 {% if active == 'graph' %}bg-primary text-white shadow-soft{% else %}text-muted hover:bg-card hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark{% endif %}">
+    <i data-lucide="share-2" class="h-3.5 w-3.5"></i> Graph
+  </a>
+  <a href="{% url 'knowledge_insights' %}" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-all duration-150 {% if active == 'insights' %}bg-primary text-white shadow-soft{% else %}text-muted hover:bg-card hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark{% endif %}">
+    <i data-lucide="lightbulb" class="h-3.5 w-3.5"></i> Insights
+  </a>
+  <a href="{% url 'citation_explorer' %}" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-all duration-150 {% if active == 'citations' %}bg-primary text-white shadow-soft{% else %}text-muted hover:bg-card hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark{% endif %}">
+    <i data-lucide="quote" class="h-3.5 w-3.5"></i> Citations
+  </a>
+</div>

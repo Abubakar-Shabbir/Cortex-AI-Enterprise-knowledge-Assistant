@@ -1,0 +1,92 @@
+{% comment %}
+Admin Dashboard top navbar — search, notifications (RAG.notification_views
+/ RAG.services.notification_service - a real per-user inbox, not the
+activity_feed global context var this bell used to show), an Upload
+shortcut to the Documents page, and the theme toggle.
+{% endcomment %}
+
+<header class="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b border-line bg-card/90 px-4 backdrop-blur dark:border-line-dark dark:bg-card-dark/90 sm:px-6 lg:px-8">
+
+  <button @click="sidebarOpen = true" class="rounded-lg p-2 text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5 lg:hidden">
+    <i data-lucide="menu" class="h-5 w-5"></i>
+  </button>
+
+  <form action="{% url 'documents' %}" method="GET" class="relative hidden max-w-sm flex-1 sm:block">
+    <i data-lucide="search" class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted dark:text-muted-dark"></i>
+    <input
+      type="text"
+      name="q"
+      placeholder="Search documents, users, queries…"
+      class="w-full rounded-lg border border-line bg-surface py-2 pl-9 pr-16 text-sm text-ink placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark dark:placeholder:text-muted-dark"
+    >
+    <span class="absolute right-1.5 top-1/2 hidden -translate-y-1/2 items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[10px] font-medium text-muted dark:border-line-dark dark:text-muted-dark sm:flex">
+      ⌘K
+    </span>
+  </form>
+
+  <div class="flex-1 sm:hidden"></div>
+
+  <div class="ml-auto flex items-center gap-1.5 sm:gap-2.5">
+
+    <div
+      class="relative"
+      x-data="notificationBell({{ unread_notification_count|default:0 }})"
+      x-init="startPolling()"
+      @click.outside="open = false"
+    >
+      <button @click="open = !open; if (open && !loaded) fetchList()" class="relative rounded-lg p-2 text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5" aria-label="Notifications">
+        <i data-lucide="bell" class="h-4 w-4"></i>
+        <span x-show="unreadCount > 0" x-cloak x-text="unreadCount > 9 ? '9+' : unreadCount" class="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-semibold text-white"></span>
+      </button>
+
+      <div x-show="open" x-cloak x-transition class="absolute right-0 z-30 mt-2 w-80 rounded-xl border border-line bg-card p-2 shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <div class="flex items-center justify-between px-2 py-1.5">
+          <span class="text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Notifications</span>
+          <a href="{% url 'notifications' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+        </div>
+        <template x-if="loading">
+          <p class="px-2 py-3 text-sm text-muted dark:text-muted-dark">Loading…</p>
+        </template>
+        <template x-for="n in items" :key="n.id">
+          <a
+            :href="n.action_url || '#'"
+            @click="markRead(n)"
+            class="flex items-start gap-2.5 rounded-lg px-2 py-2 hover:bg-surface dark:hover:bg-white/5"
+            :class="!n.is_read && 'bg-primary/5 dark:bg-primary/10'"
+          >
+            <div class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
+              <i :data-lucide="n.icon" class="h-3.5 w-3.5"></i>
+            </div>
+            <div class="min-w-0">
+              <p class="truncate text-sm text-ink dark:text-ink-dark" x-text="n.title"></p>
+              <p class="truncate text-xs text-muted dark:text-muted-dark" x-text="n.message"></p>
+            </div>
+          </a>
+        </template>
+        <template x-if="!loading && items.length === 0">
+          <p class="px-2 py-3 text-sm text-muted dark:text-muted-dark">You're all caught up.</p>
+        </template>
+      </div>
+    </div>
+
+    {% if "pages.documents" in user_permissions %}
+      <a
+        href="{% url 'documents' %}"
+        class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-white shadow-soft transition-colors hover:bg-primary-dark sm:px-4"
+      >
+        <i data-lucide="plus" class="h-4 w-4"></i> <span class="hidden sm:inline">Upload</span>
+      </a>
+    {% endif %}
+
+    <button
+      @click="document.documentElement.classList.toggle('dark'); localStorage.theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light'"
+      class="rounded-lg border border-line p-2 text-muted hover:bg-surface dark:border-line-dark dark:text-muted-dark dark:hover:bg-white/5"
+      aria-label="Toggle dark mode"
+    >
+      <i data-lucide="sun" class="hidden h-4 w-4 dark:block"></i>
+      <i data-lucide="moon" class="block h-4 w-4 dark:hidden"></i>
+    </button>
+
+  </div>
+
+</header>

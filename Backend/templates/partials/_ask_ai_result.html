@@ -1,0 +1,183 @@
+{% if result %}
+  <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+    {% if result.from_history %}
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface px-5 py-2.5 dark:border-line-dark dark:bg-white/5">
+        <span class="flex items-center gap-1.5 text-xs font-medium text-muted dark:text-muted-dark">
+          <i data-lucide="history" class="h-3.5 w-3.5"></i> Viewing a past answer — no new search was run.
+        </span>
+        <button type="button" @click="useQuestion('{{ result.question|escapejs }}')" class="text-xs font-semibold text-primary hover:underline dark:text-primary-soft">Ask again</button>
+      </div>
+    {% endif %}
+
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-line px-5 py-4 dark:border-line-dark">
+      <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
+        <i data-lucide="gauge" class="h-3.5 w-3.5"></i> Confidence
+        <span
+          class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold
+            {% if result.confidence >= 70 %} bg-success/10 text-success dark:text-success-dark
+            {% elif result.confidence >= 40 %} bg-warning/10 text-warning dark:text-warning-dark
+            {% else %} bg-danger/10 text-danger dark:text-danger-dark {% endif %}"
+        >{{ result.confidence }}%</span>
+      </div>
+      <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
+        <i data-lucide="timer" class="h-3.5 w-3.5"></i> Response Time
+        <span class="font-semibold text-ink dark:text-ink-dark">{{ result.response_time_ms }} ms</span>
+      </div>
+      <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
+        <i data-lucide="layers" class="h-3.5 w-3.5"></i> Retrieved Chunks
+        <span class="font-semibold text-ink dark:text-ink-dark">{{ result.sources|length }}</span>
+      </div>
+      <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
+        <i data-lucide="quote" class="h-3.5 w-3.5"></i> Citations
+        <span class="font-semibold text-ink dark:text-ink-dark">{{ result.citations|length }}</span>
+      </div>
+      <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
+        <i data-lucide="git-merge" class="h-3.5 w-3.5"></i> Search Method
+        <span class="font-semibold text-ink dark:text-ink-dark">{{ result.search_method }}</span>
+      </div>
+      {% if result.llm_provider %}
+        <div class="flex items-center gap-2 text-xs text-muted dark:text-muted-dark" title="{{ result.llm_model }}">
+          <i data-lucide="cpu" class="h-3.5 w-3.5"></i> Answered by
+          <span class="font-semibold capitalize text-ink dark:text-ink-dark">{{ result.llm_provider }}</span>
+          <span class="font-mono text-[11px] text-muted dark:text-muted-dark">{{ result.llm_model }}</span>
+          {% if result.llm_fallback_used %}
+            <span class="rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning dark:text-warning-dark">Fallback</span>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+
+    {% if applied_filter_labels %}
+      <div class="flex flex-wrap items-center gap-2 border-b border-line bg-primary/5 px-5 py-2.5 dark:border-line-dark dark:bg-primary/10">
+        <span class="flex items-center gap-1.5 text-xs font-semibold text-primary dark:text-primary-soft">
+          <i data-lucide="filter" class="h-3.5 w-3.5"></i> Filtered by:
+        </span>
+        {% for label in applied_filter_labels %}
+          <span class="rounded-full bg-card px-2.5 py-0.5 text-[11px] font-medium text-ink dark:bg-card-dark dark:text-ink-dark">{{ label }}</span>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <div class="px-5 py-5">
+      <div class="mb-2 flex items-center justify-between">
+        <h3 class="text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Answer</h3>
+        {% if not result.is_not_found and not result.is_service_unavailable %}
+          <button
+            type="button"
+            @click="copyAnswer('{{ result.answer|escapejs }}')"
+            class="flex items-center gap-1.5 text-xs font-medium text-muted transition-colors hover:text-primary dark:text-muted-dark dark:hover:text-primary-soft"
+          >
+            <i data-lucide="check" class="h-3.5 w-3.5 text-success dark:text-success-dark" x-show="copied"></i>
+            <i data-lucide="copy" class="h-3.5 w-3.5" x-show="!copied"></i>
+            <span x-text="copied ? 'Copied' : 'Copy'"></span>
+          </button>
+        {% endif %}
+      </div>
+
+      {% if result.is_service_unavailable %}
+        <div class="flex items-start gap-3 rounded-lg border border-dashed border-danger/30 bg-danger/5 p-4 dark:border-danger-dark/30 dark:bg-danger/10">
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-danger/10 text-danger dark:text-danger-dark">
+            <i data-lucide="server-crash" class="h-4 w-4"></i>
+          </div>
+          <div>
+            <p class="text-sm font-medium text-ink dark:text-ink-dark">AI service temporarily unavailable</p>
+            <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">Every configured AI provider failed to respond. This is usually temporary - please try again in a moment. If it persists, check provider status in Admin &gt; Settings.</p>
+            {% if result.trace_id %}
+              <p class="mt-1.5 text-xs text-muted dark:text-muted-dark">Request ID: <code class="rounded bg-danger/10 px-1 py-0.5 font-mono">{{ result.trace_id }}</code> <span class="opacity-75">(include this if you contact support)</span></p>
+            {% endif %}
+          </div>
+        </div>
+      {% elif result.is_not_found %}
+        <div class="flex items-start gap-3 rounded-lg border border-dashed border-line bg-surface p-4 dark:border-line-dark dark:bg-white/5">
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-warning/10 text-warning">
+            <i data-lucide="search-x" class="h-4 w-4"></i>
+          </div>
+          <div>
+            <p class="text-sm font-medium text-ink dark:text-ink-dark">No answer found in your documents</p>
+            <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">Try rephrasing the question, widening the "Search in" scope, or uploading a document that covers this topic.</p>
+          </div>
+        </div>
+      {% else %}
+        {% comment %}
+        result.answer_html is sanitized, rendered-from-Markdown HTML
+        (citation_service.render_answer_html()) - it can contain block
+        elements (p/ul/ol/pre/h1-h6/table), so this wraps in a <div>,
+        not a <p> (nesting block tags inside <p> is invalid HTML). No
+        typography plugin is loaded (see base.html's plain Tailwind CDN
+        config), so the child-tag styling below is explicit Tailwind
+        arbitrary-variant utilities instead of a `prose` class.
+        {% endcomment %}
+        <div class="text-sm leading-relaxed text-ink dark:text-ink-dark
+          [&>*+*]:mt-3
+          [&_strong]:font-semibold [&_em]:italic
+          [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-sm [&_h2]:font-bold [&_h3]:text-sm [&_h3]:font-semibold
+          [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5
+          [&_blockquote]:border-l-2 [&_blockquote]:border-line [&_blockquote]:pl-3 [&_blockquote]:text-muted dark:[&_blockquote]:border-line-dark dark:[&_blockquote]:text-muted-dark
+          [&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs dark:[&_code]:bg-white/10
+          [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-surface [&_pre]:p-3 [&_pre]:text-xs dark:[&_pre]:bg-white/5
+          [&_pre_code]:bg-transparent [&_pre_code]:p-0
+          [&_table]:w-full [&_table]:text-left [&_table]:text-xs [&_th]:border-b [&_th]:border-line [&_th]:px-2 [&_th]:py-1.5 [&_th]:font-semibold dark:[&_th]:border-line-dark [&_td]:border-b [&_td]:border-line [&_td]:px-2 [&_td]:py-1.5 dark:[&_td]:border-line-dark">{{ result.answer_html }}</div>
+        {% include "partials/_structured_findings.html" with key_points=result.key_points table=result.table %}
+      {% endif %}
+    </div>
+
+    {% if result.related_topics %}
+      <div class="border-t border-line px-5 py-4 dark:border-line-dark">
+        <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Related Topics</h3>
+        <div class="flex flex-wrap gap-1.5">
+          {% for topic in result.related_topics %}
+            <a href="{% url 'entity_detail' topic.id %}" class="rounded-full border border-line px-2.5 py-1 text-xs text-muted transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary dark:border-line-dark dark:text-muted-dark dark:hover:bg-primary/10">{{ topic.name }}</a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    {% if result.sources %}
+      <div class="border-t border-line px-5 py-5 dark:border-line-dark">
+        <h3 class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Sources</h3>
+        <div class="space-y-3">
+          {% for source in result.sources %}
+            <div data-source-number="{{ forloop.counter }}" class="rounded-lg border border-line bg-surface p-3.5 transition-shadow dark:border-line-dark dark:bg-white/5">
+              <div class="mb-1.5 flex items-center justify-between gap-2">
+                <span class="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium text-ink dark:text-ink-dark">
+                  <i data-lucide="file-text" class="h-3.5 w-3.5 shrink-0 text-primary dark:text-primary-soft"></i>
+                  <span class="truncate">{{ source.document }}</span> <span class="shrink-0 text-muted dark:text-muted-dark">· chunk {{ source.chunk_number }}</span>
+                </span>
+                <span class="flex shrink-0 items-center gap-1.5">
+                  {% if source.citation_number %}
+                    <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary dark:bg-primary-soft/10 dark:text-primary-soft">
+                      Cited [{{ source.citation_number }}]
+                    </span>
+                  {% endif %}
+                  <span class="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium capitalize text-muted dark:border-line-dark dark:text-muted-dark">
+                    {{ source.search_type }}
+                  </span>
+                </span>
+              </div>
+              <p
+                class="text-xs text-muted dark:text-muted-dark"
+                :class="!expandedSources[{{ forloop.counter }}] && 'line-clamp-2'"
+              >{{ source.content }}</p>
+              <button
+                type="button"
+                @click="toggleSource({{ forloop.counter }})"
+                class="mt-1.5 text-[11px] font-semibold text-primary hover:underline dark:text-primary-soft"
+                x-text="expandedSources[{{ forloop.counter }}] ? 'Show less' : 'Show more'"
+              ></button>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+  </div>
+{% else %}
+  <div class="rounded-xl border border-dashed border-line bg-card p-10 text-center dark:border-line-dark dark:bg-card-dark">
+    <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+      <i data-lucide="message-square-text" class="h-5 w-5"></i>
+    </div>
+    <p class="text-sm font-medium text-ink dark:text-ink-dark">Ask your first question</p>
+    <p class="mx-auto mt-1 max-w-sm text-xs text-muted dark:text-muted-dark">Every answer cites the exact document and chunk it came from — nothing is answered from outside your uploaded content.</p>
+  </div>
+{% endif %}

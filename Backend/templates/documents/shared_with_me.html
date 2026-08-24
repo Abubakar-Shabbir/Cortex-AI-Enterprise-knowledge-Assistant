@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Shared With Me{% endblock %}
+
+{% block content %}
+
+{% include "partials/_page_header.html" with title="Shared With Me" subtitle="Documents another user or your role has shared with you." %}
+
+{% include "partials/_documents_tabs.html" with active="shared" %}
+
+<div class="overflow-hidden rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+  {% if documents_data %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-sm">
+        <thead class="sticky top-0 border-b border-line bg-surface dark:border-line-dark dark:bg-white/5">
+          <tr class="text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">
+            <th class="px-5 py-3.5">Document</th>
+            <th class="px-5 py-3.5">Owner</th>
+            <th class="px-5 py-3.5">Type</th>
+            <th class="px-5 py-3.5">Status</th>
+            <th class="px-5 py-3.5">Size</th>
+            <th class="px-5 py-3.5 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-line dark:divide-line-dark">
+          {% for item in documents_data %}
+            <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-2.5">
+                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
+                    <i data-lucide="share-2" class="h-4 w-4"></i>
+                  </div>
+                  <span class="max-w-[220px] truncate font-medium text-ink dark:text-ink-dark">{{ item.doc.title }}</span>
+                </div>
+              </td>
+              <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.doc.user.username }}</td>
+              <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.doc.file_type|upper }}</td>
+              <td class="px-5 py-3.5">
+                <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium
+                  {% if item.status == 'Ready' %} bg-success/10 text-success dark:text-success-dark
+                  {% elif item.status == 'Failed' %} bg-danger/10 text-danger dark:text-danger-dark
+                  {% elif item.status == 'Archived' %} bg-line text-muted dark:bg-white/10 dark:text-muted-dark
+                  {% else %} bg-warning/10 text-warning dark:text-warning-dark {% endif %}">
+                  {{ item.status }}
+                </span>
+              </td>
+              <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ item.file_size }}</td>
+              <td class="px-5 py-3.5">
+                <div class="flex items-center justify-end gap-1">
+                  <a href="{% url 'document_download' item.doc.id %}" target="_blank" title="Open" class="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+                    <i data-lucide="external-link" class="h-4 w-4"></i>
+                  </a>
+                  <a href="{% url 'document_download' item.doc.id %}?download=1" title="Download" class="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+                    <i data-lucide="download" class="h-4 w-4"></i>
+                  </a>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+      <div class="flex items-center justify-between border-t border-line px-5 py-3 dark:border-line-dark">
+        <p class="text-xs text-muted dark:text-muted-dark">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} total</p>
+        <div class="flex gap-2">
+          {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Previous</a>
+          {% endif %}
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Next</a>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  {% else %}
+    {% include "partials/_empty_state.html" with icon="share-2" title="Nothing shared with you yet" message="Documents another user shares with you, or with a role you hold, will show up here." %}
+  {% endif %}
+</div>
+
+{% endblock %}

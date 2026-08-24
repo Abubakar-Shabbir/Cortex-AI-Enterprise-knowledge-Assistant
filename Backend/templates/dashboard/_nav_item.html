@@ -1,0 +1,23 @@
+{% comment %}
+Dark-sidebar equivalent of partials/_nav_item.html - same active_nav
+comparison, dark palette instead of light. Usage:
+  {% include "dashboard/_nav_item.html" with url_name="documents" label="Documents" icon="file-text" %}
+
+Active state is a soft tint + a thin inset left accent bar (inset
+box-shadow, not a real border, so it never shifts the row's padding)
+rather than a solid gradient fill - the more restrained, "enterprise
+dashboard" treatment (Linear/Vercel/Notion-style sidebars all use this
+pattern) instead of a bold color block competing with the icon/label
+for attention.
+{% endcomment %}
+<a
+  href="{% url url_name %}"
+  class="flex items-center gap-3 rounded-lg px-3 py-2.5 font-medium transition-all duration-150 ease-out
+    {% if active_nav == url_name %}
+      bg-white/[0.08] text-white shadow-[inset_2.5px_0_0_0_#E7C8CC]
+    {% else %}
+      text-muted-dark hover:bg-white/[0.05] hover:text-white
+    {% endif %}"
+>
+  <i data-lucide="{{ icon }}" class="h-4 w-4 shrink-0 {% if active_nav == url_name %}text-primary-soft{% endif %}"></i> {{ label }}
+</a>

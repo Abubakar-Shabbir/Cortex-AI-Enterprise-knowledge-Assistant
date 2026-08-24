@@ -1,0 +1,43 @@
+{% comment %}
+Activity Feed — reuses the global activity_feed context var
+(context_processors.sidebar_status), the same real data the topbar
+notification dropdown already shows (this user's own latest 5). Shared
+by both Admin Overview and User Overview. "View all" points to the
+Activity tab of System Logs (RAG.views.admin_system_logs_view), an
+Admin-only /admin/ page, so it's gated on can_view_admin_area rather
+than the bare "activity.view_all_logs" codename - a non-Admin role
+could still hold that permission (roles and permissions stay separate
+concepts) without gaining access to the admin page it would link to.
+{% endcomment %}
+
+<div class="flex h-full flex-col rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+  <div class="flex items-center justify-between border-b border-line px-3.5 py-1.5 dark:border-line-dark">
+    <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Activity Feed</h2>
+    {% if can_view_admin_area and "activity.view_all_logs" in user_permissions %}
+      <a href="{% url 'admin_system_logs' %}?tab=activity" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+    {% endif %}
+  </div>
+
+  <div class="divide-y divide-line dark:divide-line-dark">
+    {% for event in activity_feed %}
+      <div class="flex items-start gap-2.5 px-3.5 py-1.5">
+        <div class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <i data-lucide="{{ event.icon }}" class="h-3.5 w-3.5"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm text-ink dark:text-ink-dark">{{ event.text }}</p>
+        </div>
+        <span class="shrink-0 text-xs text-muted dark:text-muted-dark">{{ event.at|timesince }} ago</span>
+      </div>
+    {% empty %}
+      <div class="flex items-center gap-2.5 px-3.5 py-3">
+        <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-line/50 text-muted dark:bg-white/5 dark:text-muted-dark">
+          <i data-lucide="check" class="h-3.5 w-3.5"></i>
+        </div>
+        <p class="text-sm text-muted dark:text-muted-dark">You're all caught up.</p>
+      </div>
+    {% endfor %}
+  </div>
+
+</div>

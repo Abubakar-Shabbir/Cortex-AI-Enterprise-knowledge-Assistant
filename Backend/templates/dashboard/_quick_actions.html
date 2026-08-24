@@ -1,0 +1,123 @@
+{% comment %}
+Quick Actions — shown on the shared dashboard.html (both Admin and
+User Dashboard entry points, see RAG.views.user_dashboard /
+admin_dashboard_view). Upload/Ask AI/Knowledge Base/View Analytics are
+gated on their own pages.* permission. Manage Users and System
+Settings point into /admin/* (Admin-role-only, see
+_sidebar.html's comment), so they're gated on can_view_admin_area, not
+just the users.view_all / settings.manage_llm codenames a non-Admin
+role could still legitimately hold - a role without admin-area access
+must never see a link into a route the backend will 403 it on.
+{% endcomment %}
+
+<div class="min-w-0 rounded-xl border border-line bg-card p-3 shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <div class="mb-2">
+    <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Quick Actions</h2>
+    <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">Jump straight to what you use most</p>
+  </div>
+
+  {% comment %}
+  Same orphan-row fix as the card grids below this component: at the
+  sm (2-col) breakpoint a lone trailing tile spans both columns; at lg
+  (3-col) a trailing tile that isn't a full row (1 or 2 short) spans
+  the full row instead - col-span-full always claims a fresh full-width
+  row regardless of how many columns were left over, so either case is
+  covered by one rule. Equal-specificity selectors + Tailwind's
+  mobile-first output order means the lg: rule correctly wins over the
+  sm: rule once the viewport reaches lg.
+  {% endcomment %}
+  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 sm:[&>*:last-child:nth-child(odd)]:col-span-2 lg:[&>*:last-child:not(:nth-child(3n))]:col-span-full">
+
+    {% if "pages.documents" in user_permissions %}
+      <a href="{% url 'documents' %}" class="group relative flex items-start gap-3 overflow-hidden rounded-xl border border-line p-3 shadow-softer transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/5 hover:shadow-soft dark:border-line-dark dark:hover:bg-primary/10">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-transform duration-200 group-hover:scale-105">
+          <i data-lucide="upload" class="h-4 w-4"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold leading-snug text-ink dark:text-ink-dark">Upload Document</p>
+          <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">Add new documents</p>
+        </div>
+        <i data-lucide="arrow-up-right" class="h-4 w-4 shrink-0 text-primary opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 -translate-x-1"></i>
+      </a>
+    {% endif %}
+
+    {% if "pages.ask_ai" in user_permissions %}
+      <a href="{% url 'ask_ai' %}" class="group relative flex items-start gap-3 overflow-hidden rounded-xl border border-line p-3 shadow-softer transition-all duration-200 hover:-translate-y-0.5 hover:border-info/40 hover:bg-info/5 hover:shadow-soft dark:border-line-dark dark:hover:bg-info/10">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-info/10 text-info transition-transform duration-200 group-hover:scale-105">
+          <i data-lucide="message-square" class="h-4 w-4"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold leading-snug text-ink dark:text-ink-dark">Ask AI</p>
+          <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">Question your documents</p>
+        </div>
+        <i data-lucide="arrow-up-right" class="h-4 w-4 shrink-0 text-info opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 -translate-x-1"></i>
+      </a>
+    {% endif %}
+
+    {% if "pages.knowledge_base" in user_permissions %}
+      <a href="{% url 'knowledge_base' %}" class="group relative flex items-start gap-3 overflow-hidden rounded-xl border border-line p-3 shadow-softer transition-all duration-200 hover:-translate-y-0.5 hover:border-success/40 hover:bg-success/5 hover:shadow-soft dark:border-line-dark dark:hover:bg-success/10">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-success/10 text-success transition-transform duration-200 group-hover:scale-105">
+          <i data-lucide="compass" class="h-4 w-4"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold leading-snug text-ink dark:text-ink-dark">Knowledge Center</p>
+          <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">Explore topics</p>
+        </div>
+        <i data-lucide="arrow-up-right" class="h-4 w-4 shrink-0 text-success opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 -translate-x-1"></i>
+      </a>
+    {% endif %}
+
+    {% if "pages.ai_tasks" in user_permissions %}
+      <a href="{% url 'ai_tasks' %}" class="group relative flex items-start gap-3 overflow-hidden rounded-xl border border-line p-3 shadow-softer transition-all duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:bg-accent/5 hover:shadow-soft dark:border-line-dark dark:hover:bg-accent/10">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent transition-transform duration-200 group-hover:scale-105">
+          <i data-lucide="sparkles" class="h-4 w-4"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold leading-snug text-ink dark:text-ink-dark">AI Tasks</p>
+          <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">Run a guided operation</p>
+        </div>
+        <i data-lucide="arrow-up-right" class="h-4 w-4 shrink-0 text-accent opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 -translate-x-1"></i>
+      </a>
+    {% endif %}
+
+    {% if can_view_admin_area and "users.view_all" in user_permissions %}
+      <a href="{% url 'admin_users' %}" class="group relative flex items-start gap-3 overflow-hidden rounded-xl border border-line p-3 shadow-softer transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:bg-primary/5 hover:shadow-soft dark:border-line-dark dark:hover:bg-primary/10">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-transform duration-200 group-hover:scale-105">
+          <i data-lucide="users" class="h-4 w-4"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold leading-snug text-ink dark:text-ink-dark">Manage Users</p>
+          <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">Roles &amp; access</p>
+        </div>
+        <i data-lucide="arrow-up-right" class="h-4 w-4 shrink-0 text-primary opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 -translate-x-1"></i>
+      </a>
+    {% endif %}
+
+    {% if "pages.analytics" in user_permissions %}
+      <a href="{% url 'analytics' %}" class="group relative flex items-start gap-3 overflow-hidden rounded-xl border border-line p-3 shadow-softer transition-all duration-200 hover:-translate-y-0.5 hover:border-success/40 hover:bg-success/5 hover:shadow-soft dark:border-line-dark dark:hover:bg-success/10">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-success/10 text-success transition-transform duration-200 group-hover:scale-105">
+          <i data-lucide="bar-chart-3" class="h-4 w-4"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold leading-snug text-ink dark:text-ink-dark">View Analytics</p>
+          <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">Explore insights</p>
+        </div>
+        <i data-lucide="arrow-up-right" class="h-4 w-4 shrink-0 text-success opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 -translate-x-1"></i>
+      </a>
+    {% endif %}
+
+    {% if can_view_admin_area and "settings.manage_llm" in user_permissions %}
+      <a href="{% url 'admin_settings' %}" class="group relative flex items-start gap-3 overflow-hidden rounded-xl border border-line p-3 shadow-softer transition-all duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:bg-accent/5 hover:shadow-soft dark:border-line-dark dark:hover:bg-accent/10">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent transition-transform duration-200 group-hover:scale-105">
+          <i data-lucide="settings" class="h-4 w-4"></i>
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold leading-snug text-ink dark:text-ink-dark">System Settings</p>
+          <p class="mt-0.5 text-xs leading-snug text-muted dark:text-muted-dark">Configure system</p>
+        </div>
+        <i data-lucide="arrow-up-right" class="h-4 w-4 shrink-0 text-accent opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:opacity-100 -translate-x-1"></i>
+      </a>
+    {% endif %}
+
+  </div>
+</div>

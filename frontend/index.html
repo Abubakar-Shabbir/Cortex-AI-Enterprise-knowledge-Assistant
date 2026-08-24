@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Dashboard · Cortex</title>
+
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%238B1E2D'/%3E%3Cg stroke='white' stroke-width='1.6' stroke-linecap='round'%3E%3Cline x1='16' y1='7' x2='8' y2='22'/%3E%3Cline x1='16' y1='7' x2='24' y2='22'/%3E%3Cline x1='8' y1='22' x2='24' y2='22'/%3E%3C/g%3E%3Ccircle cx='16' cy='7' r='3' fill='white'/%3E%3Ccircle cx='8' cy='22' r='3' fill='white'/%3E%3Ccircle cx='24' cy='22' r='3' fill='white'/%3E%3C/svg%3E" />
+
+    <script>
+      // Same theme-detection contract as templates/base.html, so
+      // switching between the classic Django pages and this SPA (both
+      // reachable in the transition period) never flips the user's
+      // theme underneath them - both read/write the same 'theme' key.
+      if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+      }
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!--
+      Tailwind via the same CDN JIT script templates/base.html uses,
+      with the identical tailwind.config (colors/fonts/radii/shadows)
+      copied verbatim - this is what makes the React pages pixel-
+      identical to their Django-template predecessors: they're
+      literally the same utility classes compiled by the same
+      Tailwind config, not a re-approximation of the design in a
+      separate build pipeline.
+    -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+            },
+            borderRadius: {
+              xl: '12px',
+              '2xl': '14px',
+            },
+            colors: {
+              primary: { DEFAULT: '#8B1E2D', dark: '#6D1B27', soft: '#E7C8CC', light: '#A6333F' },
+              ink:     { DEFAULT: '#1F1B1B', dark: '#F1E9E8' },
+              muted:   { DEFAULT: '#6D6665', dark: '#A9989A' },
+              surface: { DEFAULT: '#FAF8F7', dark: '#14100F' },
+              card:    { DEFAULT: '#FFFFFF', dark: '#1D1615' },
+              line:    { DEFAULT: '#ECE3E2', dark: '#2C2221' },
+              success: { DEFAULT: '#1F7A4D', dark: '#3EAE78' },
+              warning: { DEFAULT: '#C77700', dark: '#E0972B' },
+              danger:  { DEFAULT: '#C62828', dark: '#E35B5B' },
+              info:    { DEFAULT: '#2A78D6', dark: '#5B9BE8' },
+              accent:  { DEFAULT: '#4A3AA7', dark: '#7C6BD9' },
+              sidebar: { DEFAULT: '#1B0F14', soft: '#26141B', deep: '#120A0D' },
+            },
+            boxShadow: {
+              soft: '0 1px 2px rgba(31,27,27,0.04), 0 6px 20px rgba(31,27,27,0.05)',
+              softer: '0 1px 2px rgba(31,27,27,0.03)',
+            },
+          },
+        },
+      };
+    </script>
+
+    <style>
+      * { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-thumb { background: #ECE3E2; border-radius: 8px; }
+      .dark ::-webkit-scrollbar-thumb { background: #2C2221; }
+      html { scrollbar-width: thin; scrollbar-color: #ECE3E2 transparent; }
+      html.dark { scrollbar-color: #2C2221 transparent; }
+      .sidebar-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent; }
+      .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); }
+
+      @keyframes fade-in-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+      .fade-in-up { animation: fade-in-up .35s ease-out both; }
+
+      @keyframes ask-ai-cursor-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+      .streaming-cursor::after {
+        content: '';
+        display: inline-block;
+        width: 2px;
+        height: 1em;
+        margin-left: 2px;
+        vertical-align: text-bottom;
+        background-color: currentColor;
+        animation: ask-ai-cursor-blink 0.85s steps(1) infinite;
+      }
+    </style>
+  </head>
+  <body class="bg-surface dark:bg-surface-dark text-ink dark:text-ink-dark antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

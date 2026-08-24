@@ -1,0 +1,42 @@
+{% comment %}
+Logo / monogram mark for Cortex — a minimal three-node
+network glyph. It evokes the knowledge graph at the core of the
+product (Entities/Relationships, see the Knowledge Base section)
+rather than just a first-letter initial, and doubles as a monochrome
+mark since every stroke/fill in the "mono" variant uses currentColor.
+
+Usage:
+  {% include "partials/_logo.html" with size="h-9 w-9" %}
+    Default: colored badge (rounded square background + white glyph).
+    Wrap in a text-{color} class to set the badge color, e.g.
+    <div class="text-primary">{% include ... %}</div>.
+
+  {% include "partials/_logo.html" with size="h-9 w-9" mono=True %}
+    Monochrome: glyph only, no background — inherits the wrapping
+    element's text color. Use where a solid badge doesn't fit
+    (single-color print/export contexts, watermarks).
+{% endcomment %}
+{% if mono %}
+<svg viewBox="0 0 32 32" class="{{ size|default:'h-8 w-8' }}" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Cortex">
+  <g stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+    <line x1="16" y1="7" x2="8" y2="22"></line>
+    <line x1="16" y1="7" x2="24" y2="22"></line>
+    <line x1="8" y1="22" x2="24" y2="22"></line>
+  </g>
+  <circle cx="16" cy="7" r="3.2" fill="currentColor"></circle>
+  <circle cx="8" cy="22" r="3.2" fill="currentColor"></circle>
+  <circle cx="24" cy="22" r="3.2" fill="currentColor"></circle>
+</svg>
+{% else %}
+<svg viewBox="0 0 32 32" class="{{ size|default:'h-8 w-8' }}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Cortex">
+  <rect width="32" height="32" rx="8" fill="currentColor"></rect>
+  <g stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.95">
+    <line x1="16" y1="7" x2="8" y2="22"></line>
+    <line x1="16" y1="7" x2="24" y2="22"></line>
+    <line x1="8" y1="22" x2="24" y2="22"></line>
+  </g>
+  <circle cx="16" cy="7" r="3" fill="white"></circle>
+  <circle cx="8" cy="22" r="3" fill="white"></circle>
+  <circle cx="24" cy="22" r="3" fill="white"></circle>
+</svg>
+{% endif %}

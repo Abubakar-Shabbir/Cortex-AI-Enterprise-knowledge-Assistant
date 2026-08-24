@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+
+{% block title %}Overview{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+{% endblock %}
+
+{% block content %}
+
+{% include "dashboard/_welcome.html" %}
+
+{% comment %}
+Overview shows only the widgets the viewer's own permissions cover -
+document-related tiles/charts/tables need "pages.documents", the
+queries tile needs "pages.ask_ai". This page is reached by the Admin
+role, which always holds every permission so every widget renders in
+practice, and also by any custom role holding at least one admin-area
+permission (see permission_service.has_admin_area_access) - a role
+granted only e.g. "system.view_health" lands here too but sees just
+the widgets its own permissions cover, same degrade-gracefully pattern
+"pages.*" checks already give the rest of the app.
+{% endcomment %}
+<div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(auto-fit,minmax(200px,1fr))] fade-in-up">
+  {% if "pages.documents" in user_permissions %}
+    {% include "dashboard/_kpi_card.html" with icon="file-text" icon_bg="bg-primary/10" icon_color="text-primary" label="Total Documents" value=stats.total_documents numeric=True trend=kpi_trends.documents trend_label="vs last 7 days" chart_id="kpi-documents" chart_color="#8B1E2D" chart_data=kpi_trends.documents.sparkline %}
+    {% include "dashboard/_kpi_card.html" with icon="box" icon_bg="bg-warning/10" icon_color="text-warning" label="Total Chunks" value=stats.total_chunks numeric=True trend=kpi_trends.chunks trend_label="vs last 7 days" chart_id="kpi-chunks" chart_color="#C77700" chart_data=kpi_trends.chunks.sparkline %}
+    {% include "dashboard/_kpi_card.html" with icon="database" icon_bg="bg-success/10" icon_color="text-success" label="Storage Used" value=stats.storage_used trend=kpi_trends.storage trend_label="vs last 7 days" chart_id="kpi-storage" chart_color="#1F7A4D" chart_data=kpi_trends.storage.sparkline %}
+  {% endif %}
+  {% if "pages.ask_ai" in user_permissions %}
+    {% include "dashboard/_kpi_card.html" with icon="message-square-text" icon_bg="bg-info/10" icon_color="text-info" label="Queries Today" value=stats.today_queries numeric=True trend=kpi_trends.queries trend_label="vs yesterday" chart_id="kpi-queries" chart_color="#2A78D6" chart_data=kpi_trends.queries.sparkline %}
+  {% endif %}
+  {% if "pages.ai_tasks" in user_permissions %}
+    {% include "dashboard/_kpi_card.html" with icon="sparkles" icon_bg="bg-accent/10" icon_color="text-accent" label="AI Task Runs" value=stats.ai_task_runs numeric=True trend=kpi_trends.ai_tasks trend_label="vs last 7 days" chart_id="kpi-ai-tasks" chart_color="#4A3AA7" chart_data=kpi_trends.ai_tasks.sparkline %}
+  {% endif %}
+</div>
+
+{% comment %}
+No fixed main/rail column split below this point - a side-by-side
+split whose two sides have genuinely different content length always
+leaves blank space beside whichever side is shorter (that's just how
+CSS columns work; there's no amount of stretch/alignment tuning that
+fixes it). Instead, everything from here down is full-width sections
+in reading order, and the small cards at the bottom flow together in
+one grid (items-start, capped at 2 columns) so a leftover card lands
+at the bottom of the page - normal - instead of leaving a tall empty
+stripe mid-page. User Overview (user_dashboard.html) follows the same
+pattern for consistency between the two dashboards.
+{% endcomment %}
+
+{% if "pages.documents" in user_permissions %}
+  <div class="mt-2 grid grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1fr)_minmax(240px,340px)]">
+    {% include "dashboard/_main_chart.html" %}
+    {% include "dashboard/_donut_chart.html" %}
+  </div>
+
+  <div class="mt-2">
+    {% include "dashboard/_recent_documents_table.html" %}
+  </div>
+{% endif %}
+
+<div class="mt-2">
+  {% include "dashboard/_quick_actions.html" %}
+</div>
+
+{% comment %}
+items-stretch (the grid default, no items-* override) rather than
+items-start deliberately here - a shorter card next to a taller row
+sibling (System Status vs. Knowledge Center is the common case) would
+otherwise stop at its own content height while the grid row itself
+stays as tall as the tallest card, leaving a dead page-colored gap
+below the short card instead of its own background/border. Stretching
++ each card being h-full flex flex-col (with its footer CTA on
+mt-auto) turns that gap into the card's own extended background - see
+_system_status.html / _knowledge_snapshot.html.
+{% endcomment %}
+<div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 sm:[&>*:last-child:nth-child(odd)]:col-span-2">
+  {% include "dashboard/_system_status.html" %}
+  {% if "pages.knowledge_base" in user_permissions %}
+    {% include "dashboard/_knowledge_snapshot.html" with show_chart=True %}
+  {% endif %}
+  {% if "pages.documents" in user_permissions %}
+    {% include "dashboard/_recent_uploads.html" %}
+  {% endif %}
+  {% if "pages.ai_tasks" in user_permissions %}
+    {% include "dashboard/_recent_ai_task_runs.html" %}
+  {% endif %}
+  {% include "dashboard/_activity_feed.html" %}
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+  const read = (id) => {
+    const el = document.getElementById(id);
+    return el ? JSON.parse(el.textContent) : null;
+  };
+
+  Chart.defaults.font.family = 'Inter, ui-sans-serif, system-ui, sans-serif';
+  Chart.defaults.color = '#8a7d7d';
+
+  const gridColor = 'rgba(109, 102, 101, 0.12)';
+  const primary = '#8B1E2D';
+
+  // ---- Documents Over Time (main chart): a combo chart, not a plain
+  // line - daily new-upload bars (their own right-hand axis, headroom
+  // padded so they stay a compact backdrop) plus the cumulative total
+  // as the gradient-filled line on top, so day-to-day activity and
+  // overall growth read together in one chart. interaction: 'index'
+  // shows both series in one tooltip wherever the cursor lands on the
+  // x-axis, not just when it's exactly over a point/bar.
+  const dotLabels = read('documents-over-time-labels');
+  const dotSeries = read('documents-over-time-series');
+  const dotDaily = read('documents-over-time-daily');
+  const dotCanvas = document.getElementById('documentsOverTimeChart');
+
+  if (dotCanvas && dotLabels) {
+    const ctx = dotCanvas.getContext('2d');
+    const fill = ctx.createLinearGradient(0, 0, 0, 260);
+    fill.addColorStop(0, 'rgba(139, 30, 45, 0.22)');
+    fill.addColorStop(1, 'rgba(139, 30, 45, 0)');
+
+    const dailyMax = Math.max(1, ...(dotDaily || [0]));
+
+    new Chart(dotCanvas, {
+      type: 'bar',
+      data: {
+        labels: dotLabels,
+        datasets: [
+          {
+            type: 'bar',
+            label: 'New that day',
+            data: dotDaily,
+            yAxisID: 'yDaily',
+            backgroundColor: 'rgba(139, 30, 45, 0.25)',
+            hoverBackgroundColor: 'rgba(139, 30, 45, 0.4)',
+            borderRadius: 3,
+            maxBarThickness: 22,
+          },
+          {
+            type: 'line',
+            label: 'Total documents',
+            data: dotSeries,
+            yAxisID: 'yTotal',
+            borderColor: primary,
+            backgroundColor: fill,
+            fill: true,
+            tension: 0.35,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            pointHoverBackgroundColor: primary,
+            pointHoverBorderColor: '#fff',
+            pointHoverBorderWidth: 2,
+            borderWidth: 2.5,
+          },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label(item) {
+                const suffix = item.dataset.yAxisID === 'yDaily' ? ' new' : ' total';
+                return ` ${item.dataset.label}: ${item.formattedValue}${suffix}`;
+              },
+            },
+          },
+        },
+        scales: {
+          x: { grid: { display: false } },
+          yTotal: {
+            position: 'left',
+            grid: { color: gridColor },
+            beginAtZero: true,
+            ticks: { precision: 0 },
+          },
+          yDaily: {
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            beginAtZero: true,
+            suggestedMax: dailyMax * 3,
+            ticks: { precision: 0, maxTicksLimit: 3 },
+          },
+        },
+      },
+    });
+  }
+
+  // ---- Document Types (donut) ----
+  const typeData = read('document-types-data');
+  const typeCanvas = document.getElementById('documentTypesChart');
+
+  if (typeCanvas && typeData && typeData.length) {
+    new Chart(typeCanvas, {
+      type: 'doughnut',
+      data: {
+        labels: typeData.map((item) => item.type),
+        datasets: [{
+          data: typeData.map((item) => item.count),
+          backgroundColor: typeData.map((item) => item.color),
+          hoverOffset: 6,
+          borderWidth: 2,
+          borderColor: document.documentElement.classList.contains('dark') ? '#1c1414' : '#fff',
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '72%',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label(item) {
+                const entry = typeData[item.dataIndex];
+                return ` ${entry.type}: ${entry.count} (${entry.percent}%)`;
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  // ---- Topics by Category (Knowledge Center card): a polar-area
+  // chart, not a plain donut - deliberately a different chart "shape"
+  // from the Document Types donut above so the Knowledge Center card
+  // reads as its own thing, while still drawn from the same brand
+  // palette (get_entity_type_color()) everything else in the graph
+  // uses. Own legend is rendered server-side (the colored rows next to
+  // the canvas), so Chart.js's built-in legend stays off.
+  const categoryData = read('knowledge-category-data');
+  const categoryCanvas = document.getElementById('knowledgeCategoryChart');
+
+  if (categoryCanvas && categoryData && categoryData.length) {
+    new Chart(categoryCanvas, {
+      type: 'polarArea',
+      data: {
+        labels: categoryData.map((item) => item.entity_type),
+        datasets: [{
+          data: categoryData.map((item) => item.count),
+          backgroundColor: categoryData.map((item) => item.color + '55'),
+          borderColor: categoryData.map((item) => item.color),
+          borderWidth: 1.5,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { animateRotate: true, animateScale: true },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label(item) {
+                const entry = categoryData[item.dataIndex];
+                return ` ${entry.entity_type}: ${entry.count} (${entry.percent}%)`;
+              },
+            },
+          },
+        },
+        scales: {
+          r: {
+            grid: { color: gridColor },
+            ticks: { display: false, backdropColor: 'transparent' },
+          },
+        },
+      },
+    });
+  }
+
+  // ---- KPI sparklines: a thin gradient-filled area, not a bare line -
+  // matches the main chart's fill treatment at a much smaller scale,
+  // and a lightweight tooltip so a specific day's value is one hover
+  // away instead of having to open the full chart to check it.
+  const sparklines = [
+    { id: 'kpi-documents', color: '#8B1E2D' },
+    { id: 'kpi-chunks', color: '#C77700' },
+    { id: 'kpi-storage', color: '#1F7A4D' },
+    { id: 'kpi-queries', color: '#2A78D6' },
+    { id: 'kpi-ai-tasks', color: '#4A3AA7' },
+  ];
+
+  sparklines.forEach(({ id, color }) => {
+    const canvas = document.getElementById(id);
+    const data = read(id + '-data');
+    if (!canvas || !data) return;
+
+    const ctx = canvas.getContext('2d');
+    const fill = ctx.createLinearGradient(0, 0, 0, 24);
+    fill.addColorStop(0, color + '33');
+    fill.addColorStop(1, color + '00');
+
+    new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: data.map((_, i) => i),
+        datasets: [{
+          data,
+          borderColor: color,
+          backgroundColor: fill,
+          tension: 0.4,
+          pointRadius: 0,
+          pointHoverRadius: 3,
+          pointHoverBackgroundColor: color,
+          borderWidth: 2,
+          fill: true,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { intersect: false, mode: 'index' },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            displayColors: false,
+            bodyFont: { size: 10 },
+            padding: 6,
+            callbacks: { title: () => '' },
+          },
+        },
+        scales: { x: { display: false }, y: { display: false } },
+        elements: { line: { capBezierPoints: true } },
+      },
+    });
+  });
+
+  // ---- Recent Documents table: client-side column sort ----
+  const table = document.getElementById('recentDocsTable');
+  if (table) {
+    const tbody = table.querySelector('tbody');
+    let sortState = { key: null, asc: true };
+
+    table.querySelectorAll('thead th[data-sort]').forEach((th) => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.sort;
+        const numeric = th.hasAttribute('data-sort-numeric');
+        sortState.asc = sortState.key === key ? !sortState.asc : true;
+        sortState.key = key;
+
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((a, b) => {
+          let va = a.dataset[key] ?? '';
+          let vb = b.dataset[key] ?? '';
+          if (numeric) { va = Number(va) || 0; vb = Number(vb) || 0; }
+          if (va < vb) return sortState.asc ? -1 : 1;
+          if (va > vb) return sortState.asc ? 1 : -1;
+          return 0;
+        });
+
+        rows.forEach((row) => tbody.appendChild(row));
+      });
+    });
+  }
+})();
+</script>
+{% endblock %}

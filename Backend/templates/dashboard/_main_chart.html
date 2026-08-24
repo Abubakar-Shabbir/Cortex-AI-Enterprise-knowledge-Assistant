@@ -1,0 +1,69 @@
+{% comment %}
+"Documents Over Time" — a combo chart (Chart.js "mixed" type, two
+datasets sharing one canvas): daily new uploads as bars against their
+own right-hand axis, plus the cumulative running total as the
+gradient-filled line against the left axis - so growth (the line) and
+day-to-day activity (the bars) read together instead of the line alone
+flattening out day-to-day detail. stats_service.get_documents_over_time
+returns both series from a single query. The "N Days" control is real,
+not decorative - it's a GET link into RAG.views.admin_dashboard_view's
+`?range=` param (DASHBOARD_CHART_RANGES), so picking a range actually
+re-renders the page with that window, no client-side faking.
+
+get_documents_over_time always returns `days` labels/points even with
+zero documents (a flat all-zero series), so stats.total_documents -
+not the series itself - is the right "is there anything to plot"
+check: a flat all-zero chart still renders as *a* chart, but reads as
+broken/awkward rather than as the intentional "nothing uploaded yet"
+it actually is.
+{% endcomment %}
+
+{% url 'documents' as documents_url %}
+
+<div class="min-w-0 rounded-xl border border-line bg-card p-3 shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <div class="mb-2 flex items-center justify-between">
+    <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Documents Over Time</h2>
+    {% if stats.total_documents %}
+      <div class="relative" x-data="{ open: false }" @click.outside="open = false">
+        <button
+          type="button"
+          @click="open = !open"
+          class="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink transition-colors hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5"
+        >
+          {{ documents_over_time_range }} Days <i data-lucide="chevron-down" class="h-3 w-3" :class="open && 'rotate-180'"></i>
+        </button>
+        <div x-show="open" x-cloak x-transition class="absolute right-0 z-20 mt-1 w-28 rounded-xl border border-line bg-card p-1.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+          {% for option in documents_over_time_ranges %}
+            <a
+              href="?range={{ option }}"
+              class="block rounded-lg px-3 py-1.5 text-sm {% if option == documents_over_time_range %}font-semibold text-primary dark:text-primary-soft{% else %}text-ink hover:bg-surface dark:text-ink-dark dark:hover:bg-white/5{% endif %}"
+            >{{ option }} Days</a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if stats.total_documents %}
+    {% comment %}
+    "relative" is required here, not decorative: Chart.js's
+    responsive:true + maintainAspectRatio:false combination sizes the
+    canvas off its immediate parent's box, and without a positioned
+    containing block the canvas can grow unbounded inside a flex/grid
+    ancestor (a well-documented Chart.js gotcha) - overlapping or
+    clipping neighboring cards, worse at tighter effective viewport
+    widths (zoomed in) since there's less slack to hide it.
+    {% endcomment %}
+    <div class="relative h-40 w-full"><canvas id="documentsOverTimeChart"></canvas></div>
+    <div class="mt-2 flex items-center gap-3 text-[11px] text-muted dark:text-muted-dark">
+      <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-primary"></span> Total documents</span>
+      <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-sm bg-primary/30"></span> New that day</span>
+    </div>
+  {% else %}
+    {% include "partials/_empty_state.html" with icon="trending-up" title="No activity yet" message="Upload a document to start tracking growth over time." action_url=documents_url action_label="Go to Documents" %}
+  {% endif %}
+</div>
+
+{{ documents_over_time.labels|json_script:"documents-over-time-labels" }}
+{{ documents_over_time.series|json_script:"documents-over-time-series" }}
+{{ documents_over_time.daily|json_script:"documents-over-time-daily" }}

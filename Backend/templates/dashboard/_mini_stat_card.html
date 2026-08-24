@@ -1,0 +1,38 @@
+{% comment %}
+Compact stat card for the (deliberately simpler) User Dashboard -
+matches _kpi_card.html's density/sizing (same padding, icon size, type
+scale) but without the trend badge/sparkline, since User Dashboard's
+metrics (Questions Asked, Avg Response Time, Topics...) don't have a
+computed 7-day trend the way Admin Overview's KPIs do. Kept as its own
+partial rather than reusing partials/_stat_card.html (used by 6 other,
+unrelated pages) so this dashboard-specific density never leaks
+elsewhere.
+
+Args: icon, label, value, numeric (optional)
+Optional: icon_bg / icon_color - Tailwind classes for the icon badge
+(e.g. "bg-info/10" / "text-info"), matching _kpi_card.html's palette so
+each metric gets its own color instead of one repeated tone. Falls
+back to the primary brand color when omitted.
+{% endcomment %}
+
+<div class="min-w-0 rounded-xl border border-line bg-card p-3 shadow-soft transition-transform hover:-translate-y-0.5 dark:border-line-dark dark:bg-card-dark">
+
+  <div class="flex items-center justify-between">
+    <span class="text-xs font-medium leading-snug text-muted dark:text-muted-dark">{{ label }}</span>
+    <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg {{ icon_bg|default:"bg-primary/10" }} {{ icon_color|default:"text-primary" }}">
+      <i data-lucide="{{ icon }}" class="h-4 w-4"></i>
+    </div>
+  </div>
+
+  {% if numeric %}
+    <div
+      class="mt-2 text-xl font-bold leading-tight tracking-tight text-ink dark:text-ink-dark"
+      x-data="{ display: 0 }"
+      x-init="const target = {{ value|default:0 }}; let start = null; const step = (ts) => { if (start === null) start = ts; const progress = Math.min((ts - start) / 700, 1); display = Math.round(progress * target); if (progress < 1) requestAnimationFrame(step); }; requestAnimationFrame(step);"
+      x-text="display.toLocaleString()"
+    ></div>
+  {% else %}
+    <div class="mt-2 text-xl font-bold leading-tight tracking-tight text-ink dark:text-ink-dark">{{ value }}</div>
+  {% endif %}
+
+</div>

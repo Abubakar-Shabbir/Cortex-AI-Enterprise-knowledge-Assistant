@@ -1,0 +1,8 @@
+{% extends "emails/_base_email.html" %}
+
+{% block content %}
+  <p style="margin:0 0 12px; font-size:16px; font-weight:600; color:#1f1b16;">Verify your email</p>
+  <p style="margin:0 0 20px; font-size:14px; line-height:1.6; color:#3a352d;">Enter this code to finish setting up your account ({{ masked_email }}):</p>
+  <p style="margin:0 0 20px; font-size:32px; font-weight:700; letter-spacing:6px; color:#7a1f2b; text-align:center;">{{ code }}</p>
+  <p style="margin:0; font-size:13px; color:#8a8378;">This code expires in {{ expiry_minutes }} minutes. If you didn't request this, you can safely ignore this email.</p>
+{% endblock %}

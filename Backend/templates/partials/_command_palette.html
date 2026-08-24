@@ -1,0 +1,120 @@
+{% comment %}
+Command palette (Cmd/Ctrl+K) — client-side keyboard navigation across
+every top-level page this user can see. Destinations are the exact
+same URLs as the sidebar (built with {% url %}, not hardcoded paths),
+just reachable without touching the mouse.
+
+Each entry carries the permission codename that gates its page
+(`perm: null` for pages every authenticated user can reach, e.g.
+Profile; `perm: [a, b]` for a page reachable by any one of several
+permissions, e.g. the multi-tab System Logs page) - `allItems` is
+filtered against user_permissions
+(context_processors.sidebar_status, json_script'd below) so an entry
+never appears for a role that can't actually open it, the same rule
+every sidebar/quick-actions template applies.
+
+The six entries marked "(admin)" point into /admin/*, which is
+Admin-role-only (see _sidebar.html's comment on can_view_admin_area) -
+`adminOnly: true` on those filters them out for any non-Admin role even
+if it happens to hold the listed `perm` codename, so this never offers
+a link the backend would 403.
+{% endcomment %}
+{{ user_permissions|json_script:"user-permissions-json" }}
+<div
+  x-data="{
+    open: false,
+    query: '',
+    activeIndex: 0,
+    permissions: JSON.parse(document.getElementById('user-permissions-json').textContent),
+    isAdmin: {{ can_view_admin_area|yesno:"true,false" }},
+    allItems: [
+      { label: 'Dashboard', icon: 'layout-dashboard', href: '{% url 'home' %}', hint: 'Overview', perm: null },
+      { label: 'Documents', icon: 'file-text', href: '{% url 'documents' %}', hint: 'Upload & manage', perm: 'pages.documents' },
+      { label: 'Knowledge Base', icon: 'share-2', href: '{% url 'knowledge_base' %}', hint: 'Entities & relationships', perm: 'pages.knowledge_base' },
+      { label: 'AI Search', icon: 'message-square', href: '{% url 'ask_ai' %}', hint: 'Ask a question', perm: 'pages.ask_ai' },
+      { label: 'Search History', icon: 'history', href: '{% url 'search_history' %}', hint: 'Past questions', perm: 'pages.ask_ai' },
+      { label: 'AI Tasks', icon: 'sparkles', href: '{% url 'ai_tasks' %}', hint: 'Run a guided AI operation', perm: 'pages.ai_tasks' },
+      { label: 'AI Task History', icon: 'history', href: '{% url 'ai_task_history' %}', hint: 'Past AI Task runs', perm: 'pages.ai_tasks' },
+      { label: 'Analytics', icon: 'bar-chart-3', href: '{% url 'analytics' %}', hint: 'Usage trends', perm: 'pages.analytics' },
+      { label: 'Reports', icon: 'file-down', href: '{% url 'reports' %}', hint: 'Export data', perm: 'pages.reports' },
+      { label: 'Profile', icon: 'user-round', href: '{% url 'profile' %}', hint: 'Account settings', perm: null },
+      { label: 'Users', icon: 'users', href: '{% url 'admin_users' %}', hint: 'Roles & access (admin)', perm: 'users.view_all', adminOnly: true },
+      { label: 'Roles', icon: 'shield', href: '{% url 'admin_roles' %}', hint: 'Define permissions (admin)', perm: 'roles.manage', adminOnly: true },
+      { label: 'Queries', icon: 'search', href: '{% url 'admin_queries' %}', hint: 'Workspace-wide log (admin)', perm: 'queries.view_all_logs', adminOnly: true },
+      { label: 'System Logs', icon: 'terminal', href: '{% url 'admin_system_logs' %}', hint: 'Traces, errors & activity (admin)', perm: ['system.view_ai_logs', 'activity.view_all_logs'], adminOnly: true },
+      { label: 'Settings', icon: 'settings', href: '{% url 'admin_settings' %}', hint: 'RAG pipeline config (admin)', perm: ['settings.manage_llm', 'settings.manage_chunking', 'settings.manage_retrieval', 'settings.manage_embedding', 'settings.manage_database'], adminOnly: true },
+      { label: 'Monitoring', icon: 'activity', href: '{% url 'monitoring' %}', hint: 'System health (admin)', perm: 'system.view_health', adminOnly: true },
+    ],
+    get items() {
+      return this.allItems.filter(i => {
+        if (i.adminOnly && !this.isAdmin) return false;
+        if (i.perm === null) return true;
+        if (Array.isArray(i.perm)) return i.perm.some(p => this.permissions.includes(p));
+        return this.permissions.includes(i.perm);
+      });
+    },
+    get filtered() {
+      const q = this.query.trim().toLowerCase();
+      if (!q) return this.items;
+      return this.items.filter(i => i.label.toLowerCase().includes(q) || i.hint.toLowerCase().includes(q));
+    },
+    openPalette() {
+      this.open = true;
+      this.query = '';
+      this.activeIndex = 0;
+      this.$nextTick(() => { this.$refs.paletteInput.focus(); window.lucide && window.lucide.createIcons(); });
+    },
+    go(href) { window.location.href = href; },
+  }"
+  @keydown.window="
+    if ((($event.metaKey || $event.ctrlKey) && $event.key.toLowerCase() === 'k')) { $event.preventDefault(); open ? (open = false) : openPalette(); }
+    else if (open && $event.key === 'Escape') { open = false; }
+    else if (open && $event.key === 'ArrowDown') { $event.preventDefault(); activeIndex = Math.min(activeIndex + 1, filtered.length - 1); }
+    else if (open && $event.key === 'ArrowUp') { $event.preventDefault(); activeIndex = Math.max(activeIndex - 1, 0); }
+    else if (open && $event.key === 'Enter' && filtered[activeIndex]) { go(filtered[activeIndex].href); }
+  "
+  @open-command-palette.window="openPalette()"
+>
+  <div x-show="open" x-cloak x-transition.opacity @click="open = false" class="fixed inset-0 z-50 bg-black/40"></div>
+
+  <div x-show="open" x-cloak x-transition class="fixed inset-x-0 top-24 z-50 mx-auto w-full max-w-lg px-4">
+    <div @click.outside="open = false" class="overflow-hidden rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+      <div class="flex items-center gap-2.5 border-b border-line px-4 py-3 dark:border-line-dark">
+        <i data-lucide="search" class="h-4 w-4 shrink-0 text-muted dark:text-muted-dark"></i>
+        <input
+          x-ref="paletteInput"
+          x-model="query"
+          @input="activeIndex = 0"
+          type="text"
+          placeholder="Jump to a page…"
+          class="w-full bg-transparent text-sm text-ink placeholder:text-muted focus:outline-none dark:text-ink-dark dark:placeholder:text-muted-dark"
+        >
+        <kbd class="shrink-0 rounded border border-line px-1.5 py-0.5 text-[10px] font-medium text-muted dark:border-line-dark dark:text-muted-dark">Esc</kbd>
+      </div>
+
+      <div class="max-h-80 overflow-y-auto p-2">
+        <template x-for="(item, index) in filtered" :key="item.href">
+          <button
+            type="button"
+            @click="go(item.href)"
+            @mouseenter="activeIndex = index"
+            class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors"
+            :class="index === activeIndex ? 'bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft' : 'text-ink dark:text-ink-dark'"
+          >
+            <i :data-lucide="item.icon" class="h-4 w-4 shrink-0"></i>
+            <span class="flex-1 font-medium" x-text="item.label"></span>
+            <span class="text-xs text-muted dark:text-muted-dark" x-text="item.hint"></span>
+          </button>
+        </template>
+        <p x-show="filtered.length === 0" class="px-3 py-6 text-center text-sm text-muted dark:text-muted-dark">No matches.</p>
+      </div>
+
+      <div class="flex items-center gap-3 border-t border-line px-4 py-2 text-[11px] text-muted dark:border-line-dark dark:text-muted-dark">
+        <span class="flex items-center gap-1"><kbd class="rounded border border-line px-1 dark:border-line-dark">↑</kbd><kbd class="rounded border border-line px-1 dark:border-line-dark">↓</kbd> Navigate</span>
+        <span class="flex items-center gap-1"><kbd class="rounded border border-line px-1 dark:border-line-dark">Enter</kbd> Open</span>
+        <span class="ml-auto flex items-center gap-1"><kbd class="rounded border border-line px-1 dark:border-line-dark">⌘K</kbd> Toggle</span>
+      </div>
+    </div>
+  </div>
+</div>

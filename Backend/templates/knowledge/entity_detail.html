@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+
+{% block title %}{{ entity.display_name }}{% endblock %}
+
+{% block content %}
+
+<div class="mb-6 flex flex-wrap items-start justify-between gap-3">
+  <div class="flex items-start gap-3">
+    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg" style="background-color: {{ entity_color }}22; color: {{ entity_color }}">
+      <i data-lucide="compass" class="h-5 w-5"></i>
+    </div>
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">{{ entity.display_name }}</h1>
+      <p class="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted dark:text-muted-dark">
+        <span class="rounded-full border border-line px-2 py-0.5 text-xs font-medium capitalize dark:border-line-dark">{{ entity.entity_type|lower }}</span>
+        <span>{{ document_count }} connected document{{ document_count|pluralize }}</span>
+        <span aria-hidden="true">·</span>
+        <span>{{ mention_count }} mention{{ mention_count|pluralize }}</span>
+        {% if member_count > 1 %}
+          <span aria-hidden="true">·</span>
+          <span>seen across {{ member_count }} contributor{{ member_count|pluralize }}</span>
+        {% endif %}
+      </p>
+    </div>
+  </div>
+  <a href="{% url 'knowledge_base' %}" class="inline-flex items-center gap-2 rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">
+    <i data-lucide="arrow-left" class="h-4 w-4"></i> Back to Explore Topics
+  </a>
+</div>
+
+<div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+
+  <div class="lg:col-span-2 space-y-6">
+
+    {# ---------- Connected Documents (bucketed: Policies / Procedures & SOPs / Manuals & Guides / Reports / Other) ---------- #}
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+        <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+          <i data-lucide="file-text" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Connected Documents
+        </h2>
+      </div>
+      <div class="divide-y divide-line dark:divide-line-dark">
+        {% for bucket_label, bucket_documents in document_buckets %}
+          <div class="px-5 py-4">
+            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">{{ bucket_label }} ({{ bucket_documents|length }})</p>
+            <div class="space-y-1.5">
+              {% for document in bucket_documents %}
+                <div class="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 hover:bg-surface dark:hover:bg-white/5">
+                  <span class="min-w-0 truncate text-sm text-ink dark:text-ink-dark">{{ document.title }}</span>
+                  <span class="flex shrink-0 items-center gap-3">
+                    <a href="{% url 'document_knowledge' document.id %}" class="inline-flex items-center gap-1 text-xs font-medium text-ink hover:text-primary dark:text-ink-dark dark:hover:text-primary-soft">
+                      <i data-lucide="network" class="h-3 w-3"></i> Knowledge
+                    </a>
+                    <a href="{% url 'document_download' document.id %}" class="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline dark:text-primary-soft">
+                      <i data-lucide="external-link" class="h-3 w-3"></i> View Source
+                    </a>
+                  </span>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% empty %}
+          {% include "partials/_empty_state.html" with icon="file-text" title="No connected documents" message="No source documents are visible to you for this topic." %}
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ---------- Cross-References ---------- #}
+    {% if cross_reference_documents %}
+      <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+          <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+            <i data-lucide="git-compare-arrows" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Cross-References
+          </h2>
+          <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">Documents connected through a related concept, not a direct mention.</p>
+        </div>
+        <div class="divide-y divide-line dark:divide-line-dark">
+          {% for document in cross_reference_documents %}
+            <div class="flex items-center justify-between gap-3 px-5 py-3">
+              <span class="min-w-0 truncate text-sm text-ink dark:text-ink-dark">{{ document.title }}</span>
+              <a href="{% url 'document_download' document.id %}" class="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline dark:text-primary-soft">
+                <i data-lucide="external-link" class="h-3 w-3"></i> View Source
+              </a>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    {# ---------- Topic Timeline ---------- #}
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+        <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+          <i data-lucide="history" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Timeline
+        </h2>
+      </div>
+      <div class="divide-y divide-line dark:divide-line-dark">
+        {% for event in timeline %}
+          <div class="flex items-start gap-3 px-5 py-3">
+            <i data-lucide="{% if event.kind == 'mention' %}file-plus{% else %}link{% endif %}" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted dark:text-muted-dark"></i>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm text-ink dark:text-ink-dark">{{ event.description }}</p>
+              <p class="text-xs text-muted dark:text-muted-dark">{{ event.at|timesince }} ago</p>
+            </div>
+          </div>
+        {% empty %}
+          <p class="px-5 py-6 text-center text-sm text-muted dark:text-muted-dark">No timeline activity yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ---------- Citation Viewer ---------- #}
+    {% if citations %}
+      <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+          <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+            <i data-lucide="quote" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Cited in AI Search
+          </h2>
+          <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">Questions whose answer actually cited a source about this topic.</p>
+        </div>
+        <div class="divide-y divide-line dark:divide-line-dark">
+          {% for citation in citations %}
+            <div class="px-5 py-3">
+              <p class="truncate text-sm font-medium text-ink dark:text-ink-dark">{{ citation.question }}</p>
+              <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">{{ citation.document }} · chunk {{ citation.chunk_number }} · {{ citation.created_at|timesince }} ago</p>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+  </div>
+
+  <div class="space-y-6">
+
+    {# ---------- Related Teams / Departments ---------- #}
+    {% if related_teams %}
+      <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+        <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+          <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+            <i data-lucide="users" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Related Teams
+          </h2>
+        </div>
+        <div class="divide-y divide-line dark:divide-line-dark">
+          {% for team in related_teams %}
+            <a href="{% url 'entity_detail' team.id %}" class="flex items-center justify-between gap-2 px-5 py-3 text-sm hover:bg-surface dark:hover:bg-white/5">
+              <span class="font-medium text-ink dark:text-ink-dark">{{ team.display_name }}</span>
+              <span class="shrink-0 rounded-full border border-line px-2 py-0.5 text-[11px] text-muted dark:border-line-dark dark:text-muted-dark">{{ team.mention_count }} mention{{ team.mention_count|pluralize }}</span>
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+        <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+          <i data-lucide="arrow-up-right" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Connected Concepts
+        </h2>
+        <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">What this topic points to.</p>
+      </div>
+      <div class="divide-y divide-line dark:divide-line-dark">
+        {% for rel in outgoing %}
+          <a href="{% url 'entity_detail' rel.target.id %}" class="flex items-center justify-between gap-2 px-5 py-3 text-sm hover:bg-surface dark:hover:bg-white/5">
+            <span class="text-ink dark:text-ink-dark">
+              <span class="text-muted dark:text-muted-dark">{{ rel.relation_type|lower }}</span> → <span class="font-medium">{{ rel.target.display_name }}</span>
+            </span>
+            <span class="shrink-0 rounded-full border border-line px-2 py-0.5 text-[11px] text-muted dark:border-line-dark dark:text-muted-dark">×{{ rel.weight }}</span>
+          </a>
+        {% empty %}
+          <p class="px-5 py-6 text-center text-sm text-muted dark:text-muted-dark">None found.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-4 dark:border-line-dark">
+        <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+          <i data-lucide="arrow-down-left" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Referenced By
+        </h2>
+        <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">What points to this topic.</p>
+      </div>
+      <div class="divide-y divide-line dark:divide-line-dark">
+        {% for rel in incoming %}
+          <a href="{% url 'entity_detail' rel.source.id %}" class="flex items-center justify-between gap-2 px-5 py-3 text-sm hover:bg-surface dark:hover:bg-white/5">
+            <span class="text-ink dark:text-ink-dark">
+              <span class="font-medium">{{ rel.source.display_name }}</span> → <span class="text-muted dark:text-muted-dark">{{ rel.relation_type|lower }}</span>
+            </span>
+            <span class="shrink-0 rounded-full border border-line px-2 py-0.5 text-[11px] text-muted dark:border-line-dark dark:text-muted-dark">×{{ rel.weight }}</span>
+          </a>
+        {% empty %}
+          <p class="px-5 py-6 text-center text-sm text-muted dark:text-muted-dark">None found.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# ---------- Check for conflicts - deep link into AI Tasks rather than faking an on-page "conflicting information" insight (see CLAUDE.md's Knowledge Center Decision 4) ---------- #}
+    <div class="rounded-xl border border-dashed border-line bg-card/50 p-5 dark:border-line-dark dark:bg-card-dark/50">
+      <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+        <i data-lucide="shield-question" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Check for conflicts
+      </h2>
+      <p class="mt-1.5 text-xs text-muted dark:text-muted-dark">Spotting contradictions between documents is an analysis task, not a discovery one. Run <strong>Compare Documents</strong> or <strong>Validate Against Reference Documents</strong> in AI Tasks over this topic's connected documents to check.</p>
+      <a href="{% url 'ai_tasks' %}" class="mt-3 inline-flex items-center gap-2 rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-ink transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary dark:border-line-dark dark:text-ink-dark dark:hover:bg-primary/10">
+        <i data-lucide="sparkles" class="h-4 w-4"></i> Open AI Tasks
+      </a>
+    </div>
+
+  </div>
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}AI Task History{% endblock %}
+
+{% block content %}
+
+{% url 'ai_tasks' as ai_tasks_url %}
+{% include "partials/_page_header.html" with title="AI Task History" subtitle="Every guided AI Task you've run, and its results." action_url=ai_tasks_url action_label="New AI Task" action_icon="sparkles" %}
+
+<form id="csrf-source" class="hidden">{% csrf_token %}</form>
+
+<div class="overflow-hidden rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+  {% if page_obj %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-sm">
+        <thead class="sticky top-0 border-b border-line bg-surface dark:border-line-dark dark:bg-white/5">
+          <tr class="text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">
+            <th class="px-5 py-3.5">Task</th>
+            <th class="px-5 py-3.5">Documents</th>
+            <th class="px-5 py-3.5">Status</th>
+            <th class="px-5 py-3.5">Started</th>
+            <th class="px-5 py-3.5 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-line dark:divide-line-dark">
+          {% for run in page_obj %}
+            <tr class="transition-colors hover:bg-surface dark:hover:bg-white/5">
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-2.5">
+                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
+                    <i data-lucide="sparkles" class="h-4 w-4"></i>
+                  </div>
+                  <span class="font-medium text-ink dark:text-ink-dark">{{ run.get_task_type_display }}</span>
+                </div>
+              </td>
+              <td class="px-5 py-3.5 text-muted dark:text-muted-dark">{{ run.document_count }} document{{ run.document_count|pluralize }}</td>
+              <td class="px-5 py-3.5">
+                <span class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium
+                  {% if run.status == 'completed' %} bg-success/10 text-success dark:text-success-dark
+                  {% elif run.status == 'failed' %} bg-danger/10 text-danger dark:text-danger-dark
+                  {% elif run.status == 'running' %} bg-warning/10 text-warning dark:text-warning-dark
+                  {% else %} bg-line text-muted dark:bg-white/10 dark:text-muted-dark {% endif %}">
+                  <span class="h-1.5 w-1.5 rounded-full
+                    {% if run.status == 'completed' %} bg-success
+                    {% elif run.status == 'failed' %} bg-danger
+                    {% elif run.status == 'running' %} bg-warning
+                    {% else %} bg-muted {% endif %}"></span>
+                  {{ run.get_status_display }}
+                </span>
+              </td>
+              <td class="whitespace-nowrap px-5 py-3.5 text-muted dark:text-muted-dark">{{ run.created_at|date:"M d, Y H:i" }}</td>
+              <td class="px-5 py-3.5 text-right">
+                <div class="inline-flex items-center gap-1.5">
+                  <a href="{% url 'ai_task_results' run.id %}" class="inline-flex items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary dark:border-line-dark dark:text-ink-dark dark:hover:bg-primary/10">
+                    <i data-lucide="eye" class="h-3.5 w-3.5"></i> View
+                  </a>
+                  {% if run.status == 'pending' or run.status == 'running' %}
+                    <span class="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-muted opacity-60 dark:border-line-dark dark:text-muted-dark" title="Stop this run first (from the View page) before deleting it.">
+                      <i data-lucide="trash-2" class="h-3.5 w-3.5"></i> Delete
+                    </span>
+                  {% else %}
+                    <button type="button" onclick="deleteAiTaskRun({{ run.id }}, this)" class="inline-flex items-center gap-1.5 rounded-lg border border-danger/30 bg-danger/5 px-3 py-1.5 text-xs font-medium text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-60 dark:border-danger-dark/30 dark:text-danger-dark dark:hover:bg-danger-dark/10">
+                      <i data-lucide="trash-2" class="h-3.5 w-3.5"></i> Delete
+                    </button>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+      <div class="flex items-center justify-between border-t border-line px-5 py-3.5 dark:border-line-dark">
+        <p class="text-xs text-muted dark:text-muted-dark">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</p>
+        <div class="flex gap-1.5">
+          {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Previous</a>
+          {% endif %}
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}" class="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Next</a>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  {% else %}
+    {% include "partials/_empty_state.html" with icon="sparkles" title="No AI Tasks run yet" message="Run your first guided AI Task over a set of documents." action_url=ai_tasks_url action_label="Start an AI Task" %}
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  function deleteAiTaskRun(runId, button) {
+    if (!confirm('Delete this AI Task run and its results? This cannot be undone.')) return;
+
+    button.disabled = true;
+
+    const csrftoken = document.querySelector('#csrf-source [name=csrfmiddlewaretoken]').value;
+
+    fetch(`/ai-tasks/${runId}/delete/`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrftoken },
+    })
+      .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) {
+          alert(data.error || 'Could not delete this run.');
+          button.disabled = false;
+          return;
+        }
+        window.location.reload();
+      })
+      .catch(() => {
+        alert('Could not delete this run - check your connection.');
+        button.disabled = false;
+      });
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,182 @@
+{% comment %}
+THE sidebar — the single reusable nav shell for every authenticated
+page in the app (base.html includes this unconditionally; see that
+file's comment for why). There is no second sidebar variant to keep in
+sync and no visual/layout change when navigating between "workspace"
+and "admin" pages - only which items render changes.
+
+Workspace/Insights items are gated per pages.* (or, for Queries,
+queries.view_all_logs) permission the viewer's role holds. The whole
+Administration group is gated on can_view_admin_area
+(RAG.services.permission_service.has_admin_area_access - true for the
+Admin role, or for any role holding at least one admin-area
+permission); a plain workspace role with none of those still never
+sees it. Each item inside the group is then gated on its own specific
+permission, so a role holding e.g. only "system.view_health" sees the
+group header but only the System Health link.
+
+Active-item highlighting reuses active_nav
+(context_processors.breadcrumbs()), populated on every authenticated
+page render.
+
+h-dvh (dynamic viewport height) alongside inset-y-0, not instead of it:
+a `position: fixed` element pinned only via top:0/bottom:0 is what was
+making this sidebar look a different height per page - on a page whose
+content is short enough to fit without scrolling it renders at the
+expected full height, but on a page tall enough to require scrolling,
+mobile Safari/Chrome collapse their address bar as the user scrolls,
+which resizes the *layout* viewport those fixed offsets are computed
+against mid-scroll - the classic "fixed sidebar changes height as you
+scroll a tall page" mobile bug. h-dvh pins it to the actual current
+viewport instead and isn't affected by that toolbar collapse; inset-y-0
+stays as a harmless no-op fallback for browsers that don't understand
+dvh yet.
+{% endcomment %}
+
+<div
+  x-show="sidebarOpen"
+  x-cloak
+  x-transition.opacity
+  @click="sidebarOpen = false"
+  class="fixed inset-0 z-30 bg-black/40 lg:hidden"
+></div>
+
+<aside class="fixed inset-y-0 left-0 z-40 flex h-dvh w-64 -translate-x-full flex-col bg-gradient-to-b from-sidebar to-sidebar-deep text-ink-dark shadow-[1px_0_0_rgba(255,255,255,0.04)] transition-transform duration-200 lg:translate-x-0" :class="sidebarOpen && '!translate-x-0'">
+
+  <a href="{% url 'home' %}" class="relative flex h-16 shrink-0 items-center gap-2.5 overflow-hidden border-b border-white/10 px-5">
+    <div class="pointer-events-none absolute -left-6 -top-10 h-28 w-28 rounded-full bg-primary/25 blur-2xl"></div>
+    <div class="relative text-primary-soft">{% include "partials/_logo.html" with size="h-8 w-8" %}</div>
+    <div class="relative leading-tight">
+      <div class="text-sm font-semibold text-white">Cortex</div>
+      <div class="text-[11px] text-muted-dark">Admin Panel</div>
+    </div>
+  </a>
+
+  {% comment %}
+  sidebar-scroll: dark-themed scrollbar (see base.html) - the global
+  ::-webkit-scrollbar-thumb color is tuned for the light card/surface
+  backgrounds everywhere else in the app, so without this override, a
+  role with enough visible nav items to actually overflow (e.g. Admin,
+  with every group + Administration all showing) would get a pale
+  beige scrollbar thumb rendered on top of this dark sidebar - visibly
+  mismatched, not "enterprise-grade" at all.
+  {% endcomment %}
+  <nav class="sidebar-scroll flex-1 space-y-1 overflow-y-auto px-3 py-4 text-sm">
+
+    {% comment %}
+    Overview is never permission-gated - every authenticated account
+    reaching this sidebar gets one (Admin or User shell, see
+    permission_service.get_dashboard_url_for_user); the page itself
+    scopes down which widgets it shows rather than disappearing from
+    the nav entirely.
+    {% endcomment %}
+    {% include "dashboard/_nav_item.html" with url_name="home" label="Overview" icon="home" %}
+
+    {% if "pages.ask_ai" in user_permissions or "pages.documents" in user_permissions or "pages.knowledge_base" in user_permissions or "pages.ai_tasks" in user_permissions %}
+      <div class="mb-1.5 mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-dark">Workspace</div>
+      {% if "pages.documents" in user_permissions %}
+        {% include "dashboard/_nav_item.html" with url_name="documents" label="Documents" icon="file-text" %}
+      {% endif %}
+      {% if "pages.knowledge_base" in user_permissions %}
+        {% include "dashboard/_nav_item.html" with url_name="knowledge_base" label="Knowledge Base" icon="share-2" %}
+      {% endif %}
+      {% if "pages.ask_ai" in user_permissions %}
+        {% include "dashboard/_nav_item.html" with url_name="ask_ai" label="Ask AI" icon="message-square" %}
+      {% endif %}
+      {% if "pages.ai_tasks" in user_permissions %}
+        {% include "dashboard/_nav_item.html" with url_name="ai_tasks" label="AI Tasks" icon="sparkles" %}
+      {% endif %}
+    {% endif %}
+
+    {% if "pages.analytics" in user_permissions or "pages.reports" in user_permissions or "queries.view_all_logs" in user_permissions %}
+      <div class="mb-1.5 mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-dark">Insights</div>
+      {% if "pages.analytics" in user_permissions %}
+        {% include "dashboard/_nav_item.html" with url_name="analytics" label="Analytics" icon="bar-chart-3" %}
+      {% endif %}
+      {% if "pages.reports" in user_permissions %}
+        {% include "dashboard/_nav_item.html" with url_name="reports" label="Reports" icon="file-down" %}
+      {% endif %}
+      {% if "queries.view_all_logs" in user_permissions %}
+        {% include "dashboard/_nav_item.html" with url_name="admin_queries" label="Queries" icon="search" %}
+      {% endif %}
+    {% endif %}
+
+    {% if can_view_admin_area %}
+      {% comment %}
+      /admin/* is Admin-role-only (RAG.middleware.RoleBasedAccessMiddleware
+      via permission_service.has_admin_area_access) - gated here on
+      can_view_admin_area alone, not on the individual permission
+      codenames below, so this group never shows a link the backend
+      would 403. The per-item permission checks still narrow which
+      admin pages appear even for Admin (harmless today since Admin
+      holds every permission, but keeps this list correct if that ever
+      changes).
+      {% endcomment %}
+      <div class="mb-1.5 mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-dark">Administration</div>
+      {% if "users.view_all" in user_permissions %}
+        {% include "dashboard/_nav_item.html" with url_name="admin_users" label="Users" icon="users" %}
+      {% endif %}
+      {% if "roles.manage" in user_permissions %}
+        {% include "dashboard/_nav_item.html" with url_name="admin_roles" label="Roles" icon="shield" %}
+      {% endif %}
+      {% if "settings.manage_llm" in user_permissions or "settings.manage_chunking" in user_permissions or "settings.manage_retrieval" in user_permissions or "settings.manage_embedding" in user_permissions or "settings.manage_database" in user_permissions %}
+        {% include "dashboard/_nav_item.html" with url_name="admin_settings" label="Settings" icon="settings" %}
+      {% endif %}
+      {% if "system.view_health" in user_permissions %}
+        {% include "dashboard/_nav_item.html" with url_name="monitoring" label="System Health" icon="heart-pulse" %}
+      {% endif %}
+      {% if "system.view_ai_logs" in user_permissions or "activity.view_all_logs" in user_permissions %}
+        {% include "dashboard/_nav_item.html" with url_name="admin_system_logs" label="System Logs" icon="terminal" %}
+      {% endif %}
+    {% endif %}
+
+    <div class="my-3 border-t border-white/10"></div>
+    {% include "dashboard/_nav_item.html" with url_name="profile" label="Profile" icon="user-round" %}
+
+  </nav>
+
+  <div class="border-t border-white/10 p-3">
+    <div class="relative" x-data="{ open: false }" @click.outside="open = false">
+      <button @click="open = !open" class="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors duration-150 hover:bg-primary/15">
+        {% if request.user.profile.avatar %}
+          <img src="{{ request.user.profile.avatar.url }}" alt="" class="h-9 w-9 shrink-0 rounded-full object-cover ring-2 ring-white/10">
+        {% else %}
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary-light to-primary-dark text-xs font-semibold text-white ring-2 ring-white/10">
+            {{ request.user.first_name|first|default:request.user.username|first|upper }}{{ request.user.last_name|first|upper }}
+          </div>
+        {% endif %}
+        <div class="min-w-0 flex-1 leading-tight">
+          <div class="truncate text-sm font-medium text-white">{{ request.user.first_name|default:request.user.username }}</div>
+          <div class="truncate text-xs text-muted-dark">{{ sidebar_role.name|default:"Member" }}</div>
+        </div>
+        <i data-lucide="chevron-down" class="h-4 w-4 shrink-0 text-muted-dark transition-transform duration-150" :class="open && 'rotate-180'"></i>
+      </button>
+
+      <div x-show="open" x-cloak x-transition class="absolute bottom-full left-0 z-30 mb-2 w-56 rounded-xl border border-white/10 bg-sidebar-soft p-1.5 shadow-soft">
+        <a href="{% url 'profile' %}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-dark transition-colors duration-150 hover:bg-primary/15">
+          <i data-lucide="user-round" class="h-4 w-4 text-muted-dark"></i> Profile
+        </a>
+        <div class="my-1 border-t border-white/10"></div>
+        <a href="{% url 'logout' %}" class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-danger-dark transition-colors duration-150 hover:bg-danger/10">
+          <i data-lucide="log-out" class="h-4 w-4"></i> Logout
+        </a>
+      </div>
+    </div>
+
+    <button
+      @click="document.documentElement.classList.toggle('dark'); localStorage.theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light'"
+      class="mt-2 flex w-full items-center justify-between gap-2.5 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-dark transition-colors duration-150 hover:bg-primary/15 hover:text-white"
+    >
+      <span class="flex items-center gap-2.5">
+        <i data-lucide="sun" class="hidden h-4 w-4 dark:block"></i>
+        <i data-lucide="moon" class="block h-4 w-4 dark:hidden"></i>
+        <span class="dark:hidden">Light Mode</span>
+        <span class="hidden dark:inline">Dark Mode</span>
+      </span>
+      <span class="relative h-5 w-9 rounded-full bg-white/10">
+        <span class="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform dark:translate-x-4"></span>
+      </span>
+    </button>
+  </div>
+
+</aside>

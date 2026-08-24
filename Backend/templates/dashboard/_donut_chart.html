@@ -1,0 +1,39 @@
+{% comment %}
+"Document Types" — real Chart.js doughnut over the user's own
+Document.file_type breakdown (stats_service.get_document_type_breakdown).
+{% endcomment %}
+
+{% url 'documents' as documents_url %}
+
+<div class="rounded-xl border border-line bg-card p-3 shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <div class="mb-2 flex items-center justify-between">
+    <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Document Types</h2>
+    <a href="{% url 'documents' %}" class="text-xs font-medium text-primary hover:underline dark:text-primary-soft">View all</a>
+  </div>
+
+  {% if document_types.breakdown %}
+    <div class="relative mx-auto h-24 w-24">
+      <canvas id="documentTypesChart"></canvas>
+      <div class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+        <span class="text-lg font-bold leading-tight text-ink dark:text-ink-dark">{{ document_types.total }}</span>
+        <span class="text-xs text-muted dark:text-muted-dark">Total</span>
+      </div>
+    </div>
+
+    <div class="mt-2.5 space-y-1.5">
+      {% for item in document_types.breakdown %}
+        <div class="flex items-center justify-between text-xs">
+          <span class="flex items-center gap-2 font-medium text-ink dark:text-ink-dark">
+            <span class="h-2 w-2 rounded-full" style="background-color: {{ item.color }}"></span>
+            {{ item.type }}
+          </span>
+          <span class="text-muted dark:text-muted-dark">{{ item.percent }}% ({{ item.count }})</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    {% include "partials/_empty_state.html" with icon="pie-chart" title="No documents yet" message="Upload a document to see its type breakdown here." action_url=documents_url action_label="Go to Documents" %}
+  {% endif %}
+</div>
+
+{{ document_types.breakdown|json_script:"document-types-data" }}

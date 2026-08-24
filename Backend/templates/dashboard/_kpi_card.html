@@ -1,0 +1,81 @@
+{% comment %}
+Reusable KPI card: icon, big number, trend badge, and a real Chart.js
+sparkline (not CSS/SVG) rendered from a 7-point daily series.
+
+Required args:
+  icon         - lucide icon name
+  icon_bg      - Tailwind bg class for the icon badge (e.g. "bg-primary/10")
+  icon_color   - Tailwind text class for the icon (e.g. "text-primary")
+  label        - card title
+  value        - the big number/string to display
+  trend        - dict with change_pct (float) and direction ("up"/"down"/"flat")
+  trend_label  - comparison period text, e.g. "vs last 7 days"
+  chart_id     - unique id for this card's canvas/data (no spaces)
+  chart_color  - hex color for the sparkline line
+  chart_data   - list of 7 numbers (daily series) for the sparkline
+
+Optional:
+  numeric      - True to animate the value counting up from 0 (only for real integers)
+{% endcomment %}
+
+<div class="min-w-0 rounded-xl border border-line bg-card p-3 shadow-soft transition-transform hover:-translate-y-0.5 dark:border-line-dark dark:bg-card-dark">
+
+  <div class="flex items-center justify-between">
+    <div class="flex h-7 w-7 items-center justify-center rounded-lg {{ icon_bg }} {{ icon_color }}">
+      <i data-lucide="{{ icon }}" class="h-4 w-4"></i>
+    </div>
+  </div>
+
+  <div class="mt-2 text-xs font-medium leading-snug text-muted dark:text-muted-dark">{{ label }}</div>
+
+  {% if numeric %}
+    <div
+      class="mt-0.5 text-xl font-bold leading-tight tracking-tight text-ink dark:text-ink-dark"
+      x-data="{ display: 0 }"
+      x-init="const target = {{ value|default:0 }}; let start = null; const step = (ts) => { if (start === null) start = ts; const progress = Math.min((ts - start) / 700, 1); display = Math.round(progress * target); if (progress < 1) requestAnimationFrame(step); }; requestAnimationFrame(step);"
+      x-text="display.toLocaleString()"
+    ></div>
+  {% else %}
+    <div class="mt-0.5 text-xl font-bold leading-tight tracking-tight text-ink dark:text-ink-dark">{{ value }}</div>
+  {% endif %}
+
+  <div class="mt-2 flex items-end justify-between gap-2">
+    <div class="flex items-center gap-1 text-xs font-medium">
+      {% if trend.direction == "up" %}
+        <i data-lucide="trending-up" class="h-3.5 w-3.5 text-success dark:text-success-dark"></i>
+        <span class="text-success dark:text-success-dark">{{ trend.change_pct }}%</span>
+      {% elif trend.direction == "down" %}
+        <i data-lucide="trending-down" class="h-3.5 w-3.5 text-danger dark:text-danger-dark"></i>
+        <span class="text-danger dark:text-danger-dark">{{ trend.change_pct }}%</span>
+      {% else %}
+        <i data-lucide="minus" class="h-3.5 w-3.5 text-muted dark:text-muted-dark"></i>
+        <span class="text-muted dark:text-muted-dark">0%</span>
+      {% endif %}
+      <span class="text-muted dark:text-muted-dark">{{ trend_label }}</span>
+    </div>
+
+    {% if trend.has_activity %}
+      {% comment %}
+      "relative" required - see dashboard/_main_chart.html's comment
+      for why (Chart.js responsive:true canvas containment in
+      flex/grid).
+      {% endcomment %}
+      <div class="relative h-6 w-14 shrink-0">
+        <canvas id="{{ chart_id }}"></canvas>
+      </div>
+    {% else %}
+      {% comment %}
+      No real trend to plot yet (every day in the window is 0) - an
+      all-zero series still renders *a* Chart.js line, but it reads as
+      a rendering glitch, not "nothing happened here yet". A flat
+      muted dash reads as the latter and needs no canvas at all.
+      {% endcomment %}
+      <div class="flex h-6 w-14 shrink-0 items-center" title="No activity in this period yet">
+        <div class="h-px w-full rounded-full bg-line dark:bg-line-dark"></div>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+
+{% with data_id=chart_id|add:"-data" %}{{ chart_data|json_script:data_id }}{% endwith %}

@@ -1,0 +1,62 @@
+# CPU-only wheel index for torch (pulled in transitively by
+# sentence-transformers below). Without this, pip resolves torch from
+# plain PyPI, which ships a CUDA-bundled build several GB larger than
+# needed on a CPU-only host like Railway - a slow, sometimes
+# build-timeout-triggering download for wheels never used at runtime.
+# --extra-index-url only *adds* this index (PyPI is still used for
+# every other package here); PEP 440 sorts the "+cpu" local version as
+# newer than the plain PyPI release at the same version, so pip prefers
+# it automatically once both indexes are visible.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Core
+Django==6.0.6
+djangorestframework==3.16.1
+django-environ==0.14.0
+python-dotenv==1.2.2
+psycopg2-binary==2.9.12
+pgvector==0.5.0
+
+# Retrieval / NLP
+sentence-transformers==5.6.1
+rank-bm25==0.2.2
+numpy==2.5.1
+langchain-text-splitters==1.1.2
+langchain-experimental==0.4.2
+langchain-community==0.4.2
+
+# Document parsing
+pymupdf==1.28.0
+python-docx==1.2.0
+
+# LLM
+google-genai==2.17.0
+requests==2.34.2
+
+# Profile module - avatar uploads (Django ImageField) and real
+# device/browser/OS parsing for login history (RAG/services/
+# device_intelligence_service.py) - deliberately not hand-rolled regex,
+# see that module's docstring
+Pillow==12.3.0
+user-agents==2.2.0
+
+# Answer rendering - Markdown -> sanitized HTML for Ask AI / AI Tasks
+# LLM output (citation_service.render_answer_html())
+markdown==3.10.3
+nh3==0.3.6
+
+# Background document processing and AI Tasks run on an in-process
+# concurrent.futures.ThreadPoolExecutor (RAG/services/task_runner.py) -
+# stdlib, no dependency needed. Celery/Redis were removed in the
+# free-tier refactor.
+
+# Production deployment (Render free tier - see DEPLOYMENT.md)
+gunicorn==23.0.0
+whitenoise==6.9.0
+# S3-compatible object storage for uploaded documents/avatars
+# (settings.py USE_S3_STORAGE) - only imported/used when that flag is
+# on; a local/DEBUG deployment with USE_S3_STORAGE unset never touches
+# either package, but both still need to be installed since settings.py
+# always evaluates STORAGES at import time.
+django-storages==1.14.6
+boto3==1.40.7

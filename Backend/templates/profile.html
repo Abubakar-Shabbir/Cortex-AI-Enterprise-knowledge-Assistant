@@ -1,0 +1,470 @@
+{% extends "base.html" %}
+
+{% block title %}Profile{% endblock %}
+
+{% block content %}
+
+{% include "partials/_page_header.html" with title="Profile" subtitle="Your identity, work details, and account security." %}
+
+{# ============ Compact header ============ #}
+<div class="mb-4 overflow-hidden rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <div class="h-14 bg-gradient-to-r from-primary-light to-primary-dark"></div>
+  <div class="px-5 pb-4">
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+      <form method="POST" enctype="multipart/form-data" class="group relative -mt-9 shrink-0">
+        {% csrf_token %}
+        <input type="hidden" name="form" value="avatar">
+        <label class="relative block cursor-pointer" title="Change profile photo">
+          {% if profile.avatar %}
+            <img src="{{ profile.avatar.url }}" alt="" class="h-[72px] w-[72px] rounded-full object-cover ring-4 ring-card dark:ring-card-dark">
+          {% else %}
+            <div class="flex h-[72px] w-[72px] items-center justify-center rounded-full bg-gradient-to-br from-primary-light to-primary-dark text-xl font-semibold text-white ring-4 ring-card dark:ring-card-dark">
+              {{ request.user.first_name|first|default:request.user.username|first|upper }}{{ request.user.last_name|first|upper }}
+            </div>
+          {% endif %}
+          <span class="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
+            <i data-lucide="camera" class="h-4 w-4 text-white"></i>
+          </span>
+          <input type="file" name="avatar" accept="image/png,image/jpeg,image/webp" class="hidden" onchange="this.form.submit()">
+        </label>
+        <span class="absolute bottom-0.5 right-0.5 h-3 w-3 rounded-full ring-2 ring-card dark:ring-card-dark {% if is_online %}bg-success{% else %}bg-muted{% endif %}" title="{% if is_online %}Online{% else %}Offline{% endif %}"></span>
+      </form>
+
+      <div class="min-w-0 flex-1 pb-0.5">
+        <div class="flex flex-wrap items-center gap-1.5">
+          <h2 class="truncate text-base font-bold text-ink dark:text-ink-dark">{{ request.user.get_full_name|default:request.user.username }}</h2>
+          <span class="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold
+            {% if account_health.category == 'success' %} bg-success/10 text-success dark:text-success-dark
+            {% elif account_health.category == 'warning' %} bg-warning/10 text-warning dark:text-warning-dark
+            {% elif account_health.category == 'danger' %} bg-danger/10 text-danger dark:text-danger-dark
+            {% else %} bg-muted/10 text-muted dark:text-muted-dark {% endif %}">
+            {{ account_health.label }}
+          </span>
+          <span class="inline-flex items-center gap-1 rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+            <i data-lucide="shield" class="h-2.5 w-2.5"></i> {{ request.user.role_assignment.role.name|default:"Unassigned" }}
+          </span>
+        </div>
+        <p class="mt-0.5 text-xs {% if profile.headline %}font-medium text-primary dark:text-primary-soft{% else %}italic text-muted dark:text-muted-dark{% endif %}">
+          {{ profile.headline|default:"No professional headline set yet" }}
+        </p>
+        <p class="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-muted dark:text-muted-dark">
+          <span class="flex items-center gap-1">
+            <span class="h-1.5 w-1.5 rounded-full {% if is_online %}bg-success{% else %}bg-muted{% endif %}"></span>
+            {% if is_online %}Online now{% else %}Last active {{ last_active|timesince }} ago{% endif %}
+          </span>
+          {% if profile.job_title %}<span>{{ profile.job_title }}</span>{% endif %}
+          {% if profile.department %}<span>· {{ profile.department }}</span>{% endif %}
+        </p>
+      </div>
+
+      <div class="shrink-0">
+        <span class="text-lg font-bold tracking-tight text-ink dark:text-ink-dark">{{ completion.percent }}%</span>
+        <span class="text-[11px] text-muted dark:text-muted-dark">complete</span>
+        <div class="mt-1 h-1.5 w-28 overflow-hidden rounded-full bg-line/60 dark:bg-white/10">
+          <div class="h-full rounded-full {% if completion.percent >= 80 %}bg-success{% elif completion.percent >= 50 %}bg-primary{% else %}bg-warning{% endif %}" style="width: {{ completion.percent }}%"></div>
+        </div>
+      </div>
+    </div>
+
+    {% if completion.missing %}
+      <div class="mt-3 flex flex-wrap items-center gap-1.5 border-t border-line pt-3 dark:border-line-dark">
+        <span class="text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Missing:</span>
+        {% for label, tip in completion.missing_with_tips %}
+          <span class="cursor-help rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning dark:text-warning-dark" title="{{ tip }}">{{ label }}</span>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+
+  <div class="space-y-4 lg:col-span-2">
+
+    {# ============ Profile Details - one card, two forms as sections ============ #}
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-3 dark:border-line-dark">
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Profile Details</h2>
+      </div>
+
+      <form method="POST" class="space-y-3 px-5 py-4">
+        {% csrf_token %}
+        <input type="hidden" name="form" value="profile">
+        <p class="text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Personal</p>
+
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">First Name</label>
+            <input type="text" name="first_name" value="{{ request.user.first_name }}"
+              class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Last Name</label>
+            <input type="text" name="last_name" value="{{ request.user.last_name }}"
+              class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Email</label>
+            <input type="email" name="email" value="{{ request.user.email }}"
+              class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Username</label>
+            <input type="text" value="{{ request.user.username }}" disabled
+              class="w-full cursor-not-allowed rounded-lg border border-line bg-line/40 px-3 py-2 text-sm text-muted dark:border-line-dark dark:bg-white/5 dark:text-muted-dark">
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Join Date</label>
+            <input type="text" value="{{ request.user.date_joined|date:'M d, Y' }}" disabled
+              class="w-full cursor-not-allowed rounded-lg border border-line bg-line/40 px-3 py-2 text-sm text-muted dark:border-line-dark dark:bg-white/5 dark:text-muted-dark">
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Last Login</label>
+            <input type="text" value="{{ request.user.last_login|date:'M d, Y H:i'|default:'Never' }}" disabled
+              class="w-full cursor-not-allowed rounded-lg border border-line bg-line/40 px-3 py-2 text-sm text-muted dark:border-line-dark dark:bg-white/5 dark:text-muted-dark">
+          </div>
+        </div>
+
+        <div class="flex justify-end pt-1">
+          <button type="submit" class="rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark">Save</button>
+        </div>
+      </form>
+
+      <form method="POST" class="space-y-3 border-t border-line px-5 py-4 dark:border-line-dark" x-data="{
+          skills: JSON.parse(document.getElementById('skills-data').textContent),
+          certifications: JSON.parse(document.getElementById('certs-data').textContent),
+          newSkill: '', newCert: '',
+          addSkill() { const v = this.newSkill.trim(); if (v && !this.skills.includes(v)) this.skills.push(v); this.newSkill = ''; },
+          addCert() { const v = this.newCert.trim(); if (v && !this.certifications.includes(v)) this.certifications.push(v); this.newCert = ''; },
+        }">
+        {% csrf_token %}
+        <input type="hidden" name="form" value="extended">
+        {{ profile.skills|json_script:"skills-data" }}
+        {{ profile.certifications|json_script:"certs-data" }}
+
+        <p class="text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Work</p>
+        <div>
+          <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Professional Headline</label>
+          <input type="text" name="headline" maxlength="150" value="{{ profile.headline }}" placeholder="AI Engineer | RAG Systems | Knowledge Intelligence"
+            class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Job Title</label>
+            <input type="text" name="job_title" value="{{ profile.job_title }}"
+              class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Department</label>
+            <input type="text" name="department" value="{{ profile.department }}"
+              class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Team</label>
+            <input type="text" name="team" value="{{ profile.team }}"
+              class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Manager</label>
+            <select name="manager_id" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+              <option value="">— None —</option>
+              {% for m in manager_options %}
+                <option value="{{ m.id }}" {% if profile.manager_id == m.id %}selected{% endif %}>{{ m.get_full_name|default:m.username }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Phone</label>
+            <input type="text" name="phone" value="{{ profile.phone }}"
+              class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Employee ID</label>
+            <input type="text" name="employee_id" value="{{ profile.employee_id }}"
+              class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+          </div>
+        </div>
+
+        <div>
+          <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Location</label>
+          <input type="text" name="location" value="{{ profile.location }}" placeholder="City, Country"
+            class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+        </div>
+
+        <p class="border-t border-line pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted dark:border-line-dark dark:text-muted-dark">Skills & Certifications</p>
+        <div>
+          <div class="mb-1.5 flex flex-wrap gap-1.5">
+            <template x-for="(skill, idx) in skills" :key="skill">
+              <span class="inline-flex items-center gap-1 rounded-full bg-primary/10 py-1 pl-2.5 pr-1.5 text-xs font-medium text-primary dark:text-primary-soft">
+                <span x-text="skill"></span>
+                <button type="button" @click="skills.splice(idx, 1)" class="flex h-3.5 w-3.5 items-center justify-center rounded-full text-primary/70 hover:bg-primary/20 hover:text-primary">&times;</button>
+              </span>
+            </template>
+            <template x-if="skills.length === 0"><span class="text-xs text-muted dark:text-muted-dark">No skills added.</span></template>
+          </div>
+          <div class="flex gap-2">
+            <input type="text" x-model="newSkill" @keydown.enter.prevent="addSkill()" placeholder="Add a skill and press Enter"
+              class="w-full rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+            <button type="button" @click="addSkill()" class="shrink-0 rounded-lg border border-line px-3 text-sm font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Add</button>
+          </div>
+          <template x-for="skill in skills" :key="'field-'+skill"><input type="hidden" name="skills" :value="skill"></template>
+        </div>
+
+        <div>
+          <div class="mb-1.5 flex flex-wrap gap-1.5">
+            <template x-for="(cert, idx) in certifications" :key="cert">
+              <span class="inline-flex items-center gap-1 rounded-full bg-accent/10 py-1 pl-2.5 pr-1.5 text-xs font-medium text-accent">
+                <span x-text="cert"></span>
+                <button type="button" @click="certifications.splice(idx, 1)" class="flex h-3.5 w-3.5 items-center justify-center rounded-full text-accent/70 hover:bg-accent/20 hover:text-accent">&times;</button>
+              </span>
+            </template>
+            <template x-if="certifications.length === 0"><span class="text-xs text-muted dark:text-muted-dark">No certifications added.</span></template>
+          </div>
+          <div class="flex gap-2">
+            <input type="text" x-model="newCert" @keydown.enter.prevent="addCert()" placeholder="Add a certification and press Enter"
+              class="w-full rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+            <button type="button" @click="addCert()" class="shrink-0 rounded-lg border border-line px-3 text-sm font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Add</button>
+          </div>
+          <template x-for="cert in certifications" :key="'field-'+cert"><input type="hidden" name="certifications" :value="cert"></template>
+        </div>
+
+        <p class="border-t border-line pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted dark:border-line-dark dark:text-muted-dark">Social Links</p>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label class="mb-1 flex items-center gap-1 text-xs font-medium text-muted dark:text-muted-dark"><i data-lucide="linkedin" class="h-3 w-3"></i> LinkedIn</label>
+            <input type="url" name="linkedin_url" value="{{ profile.linkedin_url }}" placeholder="linkedin.com/in/..."
+              class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+          </div>
+          <div>
+            <label class="mb-1 flex items-center gap-1 text-xs font-medium text-muted dark:text-muted-dark"><i data-lucide="github" class="h-3 w-3"></i> GitHub</label>
+            <input type="url" name="github_url" value="{{ profile.github_url }}" placeholder="github.com/..."
+              class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+          </div>
+          <div>
+            <label class="mb-1 flex items-center gap-1 text-xs font-medium text-muted dark:text-muted-dark"><i data-lucide="globe" class="h-3 w-3"></i> Portfolio</label>
+            <input type="url" name="portfolio_url" value="{{ profile.portfolio_url }}" placeholder="yourdomain.com"
+              class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+          </div>
+        </div>
+
+        <p class="border-t border-line pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted dark:border-line-dark dark:text-muted-dark">Preferences</p>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Time Zone</label>
+            <select name="timezone" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+              <option value="">— Not set —</option>
+              {% for tz in timezone_choices %}
+                <option value="{{ tz }}" {% if profile.timezone == tz %}selected{% endif %}>{{ tz }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Language</label>
+            <select name="language" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+              {% for code, label in language_choices %}
+                <option value="{{ code }}" {% if profile.language == code %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Profile Visibility</label>
+            <select name="profile_visibility" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+              {% for value, label in visibility_choices %}
+                <option value="{{ value }}" {% if profile.profile_visibility == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-1">
+          <button
+            type="button"
+            @click="document.documentElement.classList.toggle('dark'); localStorage.theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light'"
+            class="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5"
+          >
+            <i data-lucide="sun" class="hidden h-3.5 w-3.5 dark:block"></i>
+            <i data-lucide="moon" class="block h-3.5 w-3.5 dark:hidden"></i>
+            <span class="hidden dark:inline">Dark</span>
+            <span class="inline dark:hidden">Light</span>
+          </button>
+          <button type="submit" class="rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark">Save</button>
+        </div>
+      </form>
+    </div>
+
+    {# ============ Security ============ #}
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-3 dark:border-line-dark">
+        <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+          <i data-lucide="shield" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Security
+        </h2>
+      </div>
+      <form method="POST" class="space-y-3 px-5 py-4">
+        {% csrf_token %}
+        <input type="hidden" name="form" value="password">
+
+        {% if password_form.non_field_errors %}
+          <div class="rounded-lg border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger dark:text-danger-dark">
+            {{ password_form.non_field_errors.0 }}
+          </div>
+        {% endif %}
+
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Current Password</label>
+            <input type="password" name="old_password"
+              class="w-full rounded-lg border {% if password_form.old_password.errors %}border-danger{% else %}border-line dark:border-line-dark{% endif %} bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:bg-white/5 dark:text-ink-dark">
+            {% if password_form.old_password.errors %}<p class="mt-1 text-xs text-danger dark:text-danger-dark">{{ password_form.old_password.errors.0 }}</p>{% endif %}
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">New Password</label>
+            <input type="password" name="new_password1"
+              class="w-full rounded-lg border {% if password_form.new_password1.errors %}border-danger{% else %}border-line dark:border-line-dark{% endif %} bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:bg-white/5 dark:text-ink-dark">
+            {% if password_form.new_password1.errors %}<p class="mt-1 text-xs text-danger dark:text-danger-dark">{{ password_form.new_password1.errors.0 }}</p>{% endif %}
+          </div>
+          <div>
+            <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Confirm New Password</label>
+            <input type="password" name="new_password2"
+              class="w-full rounded-lg border {% if password_form.new_password2.errors %}border-danger{% else %}border-line dark:border-line-dark{% endif %} bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:bg-white/5 dark:text-ink-dark">
+            {% if password_form.new_password2.errors %}<p class="mt-1 text-xs text-danger dark:text-danger-dark">{{ password_form.new_password2.errors.0 }}</p>{% endif %}
+          </div>
+        </div>
+
+        <div class="flex justify-end">
+          <button type="submit" class="rounded-lg border border-line px-3.5 py-2 text-xs font-semibold text-ink transition-colors hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Update Password</button>
+        </div>
+      </form>
+    </div>
+
+    {# ============ Notification Preferences ============ #}
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-3 dark:border-line-dark">
+        <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+          <i data-lucide="bell" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Notification Preferences
+        </h2>
+      </div>
+      <form method="POST" class="space-y-3 px-5 py-4">
+        {% csrf_token %}
+        <input type="hidden" name="form" value="notifications">
+
+        <p class="text-xs text-muted dark:text-muted-dark">Choose which notifications also send you an email. In-app notifications always appear in your Notification Center regardless of these settings.</p>
+
+        <div class="space-y-2">
+          {% for key, label, description in toggleable_email_categories %}
+            <label class="flex items-start gap-2.5 rounded-lg border border-line px-3 py-2.5 dark:border-line-dark">
+              <input
+                type="checkbox"
+                name="email_categories"
+                value="{{ key }}"
+                {% if key not in notification_preferences.disabled_email_categories %}checked{% endif %}
+                class="mt-0.5 rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark"
+              >
+              <span>
+                <span class="block text-sm font-medium text-ink dark:text-ink-dark">{{ label }}</span>
+                <span class="block text-xs text-muted dark:text-muted-dark">{{ description }}</span>
+              </span>
+            </label>
+          {% endfor %}
+        </div>
+
+        <p class="text-xs text-muted dark:text-muted-dark">Account and security emails (password changes, sign-in verification) always send and can't be turned off.</p>
+
+        <div class="flex justify-end">
+          <button type="submit" class="rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark">Save Preferences</button>
+        </div>
+      </form>
+    </div>
+
+  </div>
+
+  <div class="space-y-4">
+
+    {# ============ Activity summary ============ #}
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-3 dark:border-line-dark">
+        <h2 class="text-sm font-semibold text-ink dark:text-ink-dark">Activity Summary</h2>
+      </div>
+      <div class="space-y-2 px-5 py-4 text-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-muted dark:text-muted-dark">Documents Owned</span>
+          <span class="font-medium text-ink dark:text-ink-dark">{{ activity_summary.documents_owned }}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-muted dark:text-muted-dark">Questions Asked</span>
+          <span class="font-medium text-ink dark:text-ink-dark">{{ activity_summary.queries_asked }}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-muted dark:text-muted-dark">AI Task Runs</span>
+          <span class="font-medium text-ink dark:text-ink-dark">{{ activity_summary.ai_task_runs }}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-muted dark:text-muted-dark">Activity Events</span>
+          <span class="font-medium text-ink dark:text-ink-dark">{{ activity_summary.activity_events }}</span>
+        </div>
+        <div class="flex items-center justify-between border-t border-line pt-2 dark:border-line-dark">
+          <span class="text-muted dark:text-muted-dark">Member For</span>
+          <span class="font-medium text-ink dark:text-ink-dark">{{ activity_summary.account_age_days }} days</span>
+        </div>
+      </div>
+    </div>
+
+    {# ============ Device & Sessions ============ #}
+    <div class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+      <div class="border-b border-line px-5 py-3 dark:border-line-dark">
+        <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+          <i data-lucide="monitor-smartphone" class="h-4 w-4 text-primary dark:text-primary-soft"></i> Device & Sessions
+        </h2>
+      </div>
+      <div class="space-y-3 px-5 py-4 text-xs">
+
+        <div class="flex items-center gap-2 text-ink dark:text-ink-dark">
+          <i data-lucide="{% if current_device.device_type == 'Mobile' %}smartphone{% elif current_device.device_type == 'Tablet' %}tablet{% else %}monitor{% endif %}" class="h-3.5 w-3.5 text-muted dark:text-muted-dark"></i>
+          {{ current_device.device_type }} · {{ current_device.browser }} · {{ current_device.os }}
+        </div>
+
+        <div class="border-t border-line pt-2 dark:border-line-dark">
+          <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Active Sessions ({{ active_sessions|length }})</p>
+          <div class="space-y-1.5">
+            {% for session in active_sessions %}
+              <div class="flex items-center gap-2">
+                <span class="h-1.5 w-1.5 shrink-0 rounded-full {% if session.is_current %}bg-success{% else %}bg-muted{% endif %}"></span>
+                <span class="text-ink dark:text-ink-dark">{% if session.is_current %}This device{% else %}Other device{% endif %}</span>
+                <span class="text-muted dark:text-muted-dark">· expires {{ session.expire_date|timesince }}</span>
+              </div>
+            {% empty %}
+              <p class="text-muted dark:text-muted-dark">No active sessions.</p>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="border-t border-line pt-2 dark:border-line-dark">
+          <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Login History</p>
+          <div class="space-y-2">
+            {% for entry in login_history|slice:":5" %}
+              <div>
+                <p class="font-medium text-ink dark:text-ink-dark">{{ entry.at|date:"M d, Y H:i" }} <span class="font-normal text-muted dark:text-muted-dark">({{ entry.at|timesince }} ago)</span></p>
+                <p class="text-muted dark:text-muted-dark">
+                  {{ entry.device_type }} · {{ entry.browser }} · {{ entry.os }}{% if entry.ip_address %} · {{ entry.ip_address }}{% endif %}{% if entry.location %} · {{ entry.location }}{% endif %}
+                </p>
+              </div>
+            {% empty %}
+              <p class="text-muted dark:text-muted-dark">No login history recorded yet.</p>
+            {% endfor %}
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+{% endblock %}

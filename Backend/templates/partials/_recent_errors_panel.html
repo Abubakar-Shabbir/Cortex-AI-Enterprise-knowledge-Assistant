@@ -1,0 +1,23 @@
+{% comment %}
+Usage: {% include "partials/_recent_errors_panel.html" with errors=health.recent_errors.background_jobs %}
+Compact expandable "N recent issue(s)" indicator for one Monitoring
+service card - errors is a list of RAG.models.ErrorGroup, already
+scoped to that service and a recent time window by
+health_service._recent_errors(). Native <details>/<summary> - no extra
+Alpine state needed for a simple expand/collapse.
+{% endcomment %}
+{% if errors %}
+  <details class="mt-2 text-xs">
+    <summary class="cursor-pointer list-none flex items-center gap-1 font-medium text-danger dark:text-danger-dark">
+      <i data-lucide="triangle-alert" class="h-3 w-3"></i> {{ errors|length }} recent issue{{ errors|length|pluralize }}
+    </summary>
+    <div class="mt-1.5 space-y-1.5 border-l-2 border-danger/20 pl-2 dark:border-danger-dark/20">
+      {% for group in errors %}
+        <div>
+          <p class="text-muted dark:text-muted-dark" title="{{ group.message }}">{{ group.message|truncatechars:70 }}</p>
+          <p class="text-[10px] text-muted/70 dark:text-muted-dark/70">×{{ group.occurrence_count }} · last {{ group.last_seen|timesince }} ago</p>
+        </div>
+      {% endfor %}
+    </div>
+  </details>
+{% endif %}

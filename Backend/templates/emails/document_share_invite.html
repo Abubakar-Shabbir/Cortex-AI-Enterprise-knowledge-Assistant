@@ -1,0 +1,7 @@
+{% extends "emails/_base_email.html" %}
+
+{% block content %}
+  <p style="margin:0 0 12px; font-size:16px; font-weight:600; color:#1f1b16;">{{ sharer_username }} shared a document with you</p>
+  <p style="margin:0 0 20px; font-size:14px; line-height:1.6; color:#3a352d;">{{ sharer_username }} shared &ldquo;{{ document_title }}&rdquo; with you on {{ site_name }}. You don't have an account yet - sign up with this email address to view it.</p>
+  <a href="{{ signup_url }}" style="display:inline-block; background-color:#7a1f2b; color:#ffffff; text-decoration:none; font-size:14px; font-weight:600; padding:10px 20px; border-radius:8px;">Create your account</a>
+{% endblock %}

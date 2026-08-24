@@ -1,0 +1,14 @@
+{% comment %}
+Usage: {% include "partials/_empty_state.html" with icon="inbox" title="Nothing here yet" message="..." action_url=... action_label=... %}
+action_url must be an already-resolved path/URL (e.g.
+{% url 'documents' as documents_url %} then action_url=documents_url) -
+rendered as a literal href, not a URL name.
+{% endcomment %}
+<div class="flex flex-col items-center justify-center px-5 py-14 text-center">
+  <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary-soft/40 text-primary dark:bg-primary/10 dark:text-primary-soft">
+    <i data-lucide="{{ icon|default:'inbox' }}" class="h-5 w-5"></i>
+  </div>
+  <p class="text-sm font-medium text-ink dark:text-ink-dark">{{ title }}</p>
+  {% if message %}<p class="mt-1 max-w-xs text-xs text-muted dark:text-muted-dark">{{ message }}</p>{% endif %}
+  {% if action_url %}<a href="{{ action_url }}" class="mt-3 text-sm font-medium text-primary hover:underline dark:text-primary-soft">{{ action_label }}</a>{% endif %}
+</div>

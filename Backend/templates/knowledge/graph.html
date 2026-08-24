@@ -1,0 +1,444 @@
+{% extends "base.html" %}
+
+{% block title %}Knowledge Graph{% endblock %}
+
+{% block content %}
+
+{% include "partials/_page_header.html" with icon="share-2" title="Knowledge Graph" subtitle="A visual map of how topics connect across everything you can access. Click a node or connection to explore it in place." %}
+
+{% include "partials/_kb_tabs.html" with active="graph" %}
+
+{% comment %}
+A 4-up equal-width grid, not flex-wrap + min-w-[190px] - two of these
+cards (Most Mentioned / Most Connected) show an entity display_name
+instead of a short number, so with flex-basis sizing they'd grow wider
+than their siblings on a long name. A grid keeps all four the same
+size regardless of content; _stat_card.html's value now truncates too,
+so a very long name still can't stretch its own card's height.
+{% endcomment %}
+<div class="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+  {% include "partials/_stat_card.html" with icon="tag" label="Entities" value=insights.total_entities icon_bg="bg-primary/10" icon_color="text-primary dark:text-primary-soft" %}
+  {% include "partials/_stat_card.html" with icon="git-branch" label="Relationships" value=insights.total_relationships icon_bg="bg-info/10" icon_color="text-info" %}
+  {% include "partials/_stat_card.html" with icon="star" label="Most Mentioned" value=insights.most_mentioned_entity.display_name|default:"—" sublabel=insights.most_mentioned_entity.mention_count|default:"" icon_bg="bg-warning/10" icon_color="text-warning" %}
+  {% include "partials/_stat_card.html" with icon="network" label="Most Connected" value=insights.most_connected.entity.display_name|default:"—" sublabel=insights.most_connected.degree|default:"" icon_bg="bg-accent/10" icon_color="text-accent" %}
+</div>
+
+{% if graph_data.nodes %}
+<div x-data="knowledgeGraphExplorer()" x-init="init()" @keydown.escape.window="if (isFullscreen) toggleFullscreen()" :class="isFullscreen && 'fixed inset-0 z-50 overflow-y-auto rounded-none'" class="rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+  {# ---- Toolbar ---- #}
+  <div class="flex flex-wrap items-center gap-2 border-b border-line px-3 py-2.5 dark:border-line-dark">
+    <div class="relative min-w-[180px] flex-1">
+      <i data-lucide="search" class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted dark:text-muted-dark"></i>
+      <input
+        type="text" x-model="search" @input="applyFilters()" placeholder="Search topics…"
+        class="w-full rounded-lg border border-line bg-surface py-1.5 pl-8 pr-3 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark"
+      >
+    </div>
+
+    <button type="button" @click="filtersOpen = !filtersOpen" title="Show/hide entity and relationship type filters"
+      class="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors"
+      :class="filtersOpen ? 'border-primary/30 bg-primary/5 text-primary dark:text-primary-soft' : 'border-line text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5'">
+      <i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i> Filters
+    </button>
+
+    <div class="flex items-center gap-0.5 rounded-lg border border-line p-0.5 dark:border-line-dark">
+      <button type="button" @click="zoomOut()" title="Zoom out" class="rounded-md p-1.5 text-muted transition-colors hover:bg-surface hover:text-ink dark:text-muted-dark dark:hover:bg-white/5 dark:hover:text-ink-dark">
+        <i data-lucide="zoom-out" class="h-4 w-4"></i>
+      </button>
+      <button type="button" @click="zoomIn()" title="Zoom in" class="rounded-md p-1.5 text-muted transition-colors hover:bg-surface hover:text-ink dark:text-muted-dark dark:hover:bg-white/5 dark:hover:text-ink-dark">
+        <i data-lucide="zoom-in" class="h-4 w-4"></i>
+      </button>
+      <span class="h-4 w-px bg-line dark:bg-line-dark"></span>
+      <button type="button" @click="fit()" title="Fit to view" class="rounded-md p-1.5 text-muted transition-colors hover:bg-surface hover:text-ink dark:text-muted-dark dark:hover:bg-white/5 dark:hover:text-ink-dark">
+        <i data-lucide="maximize" class="h-4 w-4"></i>
+      </button>
+      <button type="button" @click="toggleFullscreen()" :title="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'" class="rounded-md p-1.5 text-muted transition-colors hover:bg-surface hover:text-ink dark:text-muted-dark dark:hover:bg-white/5 dark:hover:text-ink-dark">
+        <i data-lucide="minimize-2" class="h-4 w-4" x-show="isFullscreen" x-cloak></i>
+        <i data-lucide="expand" class="h-4 w-4" x-show="!isFullscreen"></i>
+      </button>
+    </div>
+
+    <button type="button" x-show="focusedId" x-cloak @click="clearFocus()" class="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">
+      <i data-lucide="x" class="h-3.5 w-3.5"></i> Clear focus
+    </button>
+  </div>
+
+  {# ---- Legend: always-visible entity-type color key, independent of the toggleable Filters panel ---- #}
+  <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface/60 px-3 py-1.5 text-xs dark:border-line-dark dark:bg-white/[0.02]">
+    <template x-for="type in entityTypes" :key="'legend-' + type.name">
+      <span class="inline-flex items-center gap-1.5 text-muted dark:text-muted-dark">
+        <span class="h-2 w-2 rounded-full" :style="'background-color: ' + type.color"></span>
+        <span class="capitalize" x-text="type.name.toLowerCase()"></span>
+      </span>
+    </template>
+  </div>
+
+  {# ---- Filters panel ---- #}
+  <div x-show="filtersOpen" x-cloak x-transition.opacity class="border-b border-line px-3 py-3 dark:border-line-dark">
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div>
+        <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Entity types</p>
+        <div class="flex flex-wrap gap-1.5">
+          <template x-for="type in entityTypes" :key="type.name">
+            <label class="flex cursor-pointer items-center gap-1.5 rounded-full border border-line px-2.5 py-1 text-xs transition-colors dark:border-line-dark" :class="activeTypes[type.name] ? 'text-ink dark:text-ink-dark' : 'text-muted opacity-50 dark:text-muted-dark'">
+              <input type="checkbox" x-model="activeTypes[type.name]" @change="applyFilters()" class="sr-only">
+              <span class="h-2 w-2 rounded-full" :style="'background-color: ' + type.color"></span>
+              <span x-text="type.name"></span>
+              <span class="text-muted dark:text-muted-dark" x-text="'(' + type.count + ')'"></span>
+            </label>
+          </template>
+        </div>
+      </div>
+      <div>
+        <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Relationship types</p>
+        <div class="flex flex-wrap gap-1.5">
+          <template x-for="rel in relationTypes" :key="rel.name">
+            <label class="flex cursor-pointer items-center gap-1.5 rounded-full border border-line px-2.5 py-1 text-xs transition-colors dark:border-line-dark" :class="activeRelations[rel.name] ? 'text-ink dark:text-ink-dark' : 'text-muted opacity-50 dark:text-muted-dark'">
+              <input type="checkbox" x-model="activeRelations[rel.name]" @change="applyFilters()" class="sr-only">
+              <span x-text="rel.name"></span>
+              <span class="text-muted dark:text-muted-dark" x-text="'(' + rel.count + ')'"></span>
+            </label>
+          </template>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ---- Canvas + side panel ---- #}
+  <div class="flex flex-col lg:flex-row">
+    <div class="relative flex-1 p-2">
+      {% comment %}
+      Dot-grid backdrop (a repeating radial-gradient, not an image) -
+      the same "graph editor" visual cue Figma/Miro-style canvases use,
+      so this reads as a workspace to drag/zoom around in rather than a
+      plain chart. Purely decorative background-image, no effect on
+      vis-network's own hit-testing/coordinates.
+      {% endcomment %}
+      <div id="knowledgeGraph"
+        :class="isFullscreen ? 'h-[calc(100vh-7.5rem)]' : 'h-[620px]'"
+        class="w-full rounded-lg bg-surface transition-[height] duration-200 dark:bg-white/[0.02] [background-image:radial-gradient(circle,rgba(109,102,101,0.16)_1px,transparent_1px)] [background-size:20px_20px] dark:[background-image:radial-gradient(circle,rgba(169,152,154,0.14)_1px,transparent_1px)]"
+      ></div>
+    </div>
+
+    <div x-show="panelOpen" x-cloak x-transition class="w-full shrink-0 border-t border-line p-4 dark:border-line-dark lg:w-80 lg:border-l lg:border-t-0">
+      <div class="mb-3 flex items-center justify-between">
+        <p class="text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark" x-text="selectedEdge ? 'Connection' : 'Topic'"></p>
+        <button type="button" @click="closePanel()" class="rounded-lg p-1 text-muted hover:bg-surface hover:text-ink dark:text-muted-dark dark:hover:bg-white/5 dark:hover:text-ink-dark">
+          <i data-lucide="x" class="h-4 w-4"></i>
+        </button>
+      </div>
+
+      <template x-if="loading">
+        <div class="flex items-center gap-2 py-8 text-sm text-muted dark:text-muted-dark">
+          <i data-lucide="loader-2" class="h-4 w-4 animate-spin"></i> Loading…
+        </div>
+      </template>
+
+      {# ---- Node detail ---- #}
+      <template x-if="!loading && selectedNode">
+        <div class="space-y-4">
+          <div class="-mx-4 -mt-4 flex items-center gap-3 rounded-t-lg px-4 py-3.5" :style="'background-color: ' + selectedNode.color + '14'">
+            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white shadow-soft" :style="'background-color: ' + selectedNode.color" x-text="selectedNode.display_name.charAt(0).toUpperCase()"></span>
+            <div class="min-w-0">
+              <h3 class="truncate text-sm font-semibold text-ink dark:text-ink-dark" x-text="selectedNode.display_name"></h3>
+              <p class="mt-0.5 text-xs text-muted dark:text-muted-dark">
+                <span x-text="selectedNode.entity_type"></span> · <span x-text="selectedNode.mention_count"></span> mentions · <span x-text="selectedNode.document_count"></span> document<span x-show="selectedNode.document_count !== 1">s</span>
+              </p>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap gap-1.5">
+            <button type="button" @click="focusNode(selectedNode.id)" class="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">
+              <i data-lucide="crosshair" class="h-3 w-3"></i> Focus
+            </button>
+            <button type="button" @click="expandNode(selectedNode.id)" class="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">
+              <i data-lucide="unfold-vertical" class="h-3 w-3"></i> Expand
+            </button>
+            <a :href="selectedNode.detail_url" class="inline-flex items-center gap-1 rounded-lg bg-primary/10 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/15 dark:text-primary-soft">
+              <i data-lucide="external-link" class="h-3 w-3"></i> Full page
+            </a>
+          </div>
+
+          <div x-show="selectedNode.documents.length">
+            <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Connected documents</p>
+            <ul class="space-y-1">
+              <template x-for="doc in selectedNode.documents" :key="doc.id">
+                <li class="flex items-center gap-1.5 truncate text-xs text-ink dark:text-ink-dark"><i data-lucide="file-text" class="h-3 w-3 shrink-0 text-muted dark:text-muted-dark"></i> <span x-text="doc.title" class="truncate"></span></li>
+              </template>
+            </ul>
+          </div>
+
+          <div x-show="selectedNode.outgoing.length || selectedNode.incoming.length">
+            <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Connections</p>
+            <ul class="space-y-1.5">
+              <template x-for="rel in selectedNode.outgoing" :key="'out-' + rel.target_id + rel.relation_type">
+                <li class="text-xs text-ink dark:text-ink-dark"><span class="text-muted dark:text-muted-dark" x-text="rel.relation_type + ' →'"></span> <span x-text="rel.target"></span></li>
+              </template>
+              <template x-for="rel in selectedNode.incoming" :key="'in-' + rel.source_id + rel.relation_type">
+                <li class="text-xs text-ink dark:text-ink-dark"><span x-text="rel.source"></span> <span class="text-muted dark:text-muted-dark" x-text="'→ ' + rel.relation_type"></span></li>
+              </template>
+            </ul>
+          </div>
+        </div>
+      </template>
+
+      {# ---- Edge detail ---- #}
+      <template x-if="!loading && selectedEdge">
+        <div class="space-y-4">
+          <div>
+            <h3 class="text-sm font-semibold text-ink dark:text-ink-dark">
+              <span x-text="selectedEdge.topic_a.display_name"></span> ↔ <span x-text="selectedEdge.topic_b.display_name"></span>
+            </h3>
+            <p class="mt-0.5 text-xs text-muted dark:text-muted-dark"><span x-text="selectedEdge.total"></span> supporting connection<span x-show="selectedEdge.total !== 1">s</span></p>
+          </div>
+          <ul class="space-y-2.5">
+            <template x-for="(rel, idx) in selectedEdge.relationships" :key="idx">
+              <li class="rounded-lg border border-line p-2.5 text-xs dark:border-line-dark">
+                <p class="font-medium text-ink dark:text-ink-dark"><span x-text="rel.source"></span> <span class="text-primary dark:text-primary-soft" x-text="'— ' + rel.relation_type + ' →'"></span> <span x-text="rel.target"></span></p>
+                <p class="mt-1 text-muted dark:text-muted-dark">Confirmed <span x-text="rel.weight"></span> time<span x-show="rel.weight !== 1">s</span></p>
+                <p x-show="rel.context" class="mt-1 italic text-muted dark:text-muted-dark" x-text="'“' + rel.context + '”'"></p>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <p class="border-t border-line px-3 py-2 text-xs text-muted dark:border-line-dark dark:text-muted-dark">
+    Showing your {{ graph_data.nodes|length }} most-mentioned topics. Node size reflects mention count; color reflects entity type. Drag to rearrange, scroll or use the toolbar to zoom, click a node or connection for detail.
+  </p>
+</div>
+{% else %}
+  <div class="rounded-xl border border-line bg-card p-2 shadow-soft dark:border-line-dark dark:bg-card-dark">
+    {% include "partials/_empty_state.html" with icon="share-2" title="Nothing to visualize yet" message="Once your documents are processed and entities are extracted, their relationships will appear here as a graph." %}
+  </div>
+{% endif %}
+
+{{ graph_data.nodes|json_script:"graph-nodes-data" }}
+{{ graph_data.edges|json_script:"graph-edges-data" }}
+{{ entity_type_colors|json_script:"entity-type-colors-data" }}
+
+{% endblock %}
+
+{% block extra_scripts %}
+{% if graph_data.nodes %}
+<script src="https://cdn.jsdelivr.net/npm/vis-network@9/standalone/umd/vis-network.min.js"></script>
+<script>
+function knowledgeGraphExplorer() {
+  const read = (id) => JSON.parse(document.getElementById(id).textContent);
+  const nodeDetailUrlTemplate = '{% url "graph_node_detail" 999999999 %}';
+  const edgeDetailUrl = '{% url "graph_edge_detail" %}';
+  const dimmedColor = { border: '#c9bdbd', background: '#e9e2e2' };
+  const highlightEdgeColor = '#8B1E2D';
+  const idleEdgeColor = 'rgba(109, 102, 101, 0.35)';
+
+  return {
+    search: '',
+    filtersOpen: false,
+    panelOpen: false,
+    loading: false,
+    isFullscreen: false,
+    selectedNode: null,
+    selectedEdge: null,
+    focusedId: null,
+    entityTypes: [],
+    relationTypes: [],
+    activeTypes: {},
+    activeRelations: {},
+    network: null,
+    nodes: null,
+    edges: null,
+    rawNodes: [],
+    rawEdges: [],
+
+    init() {
+      const colors = read('entity-type-colors-data');
+      this.rawNodes = read('graph-nodes-data');
+      this.rawEdges = read('graph-edges-data');
+
+      const typeCounts = {};
+      this.rawNodes.forEach((n) => { typeCounts[n.group] = (typeCounts[n.group] || 0) + 1; });
+      this.entityTypes = Object.keys(typeCounts).sort().map((name) => ({ name, count: typeCounts[name], color: colors[name] || '#8a7d7d' }));
+      this.entityTypes.forEach((t) => { this.activeTypes[t.name] = true; });
+
+      const relationCounts = {};
+      this.rawEdges.forEach((e) => { relationCounts[e.label] = (relationCounts[e.label] || 0) + 1; });
+      this.relationTypes = Object.keys(relationCounts).sort().map((name) => ({ name, count: relationCounts[name] }));
+      this.relationTypes.forEach((r) => { this.activeRelations[r.name] = true; });
+
+      const groups = {};
+      this.entityTypes.forEach((t) => { groups[t.name] = { color: { border: t.color, background: t.color + '33', highlight: { border: t.color, background: t.color + '55' }, hover: { border: t.color, background: t.color + '44' } } }; });
+
+      this.nodes = new vis.DataSet(this.rawNodes.map((n) => ({
+        ...n,
+        font: { color: '#8a7d7d', face: 'Inter, ui-sans-serif, system-ui, sans-serif', size: 13 },
+      })));
+
+      this.edges = new vis.DataSet(this.rawEdges.map((e, idx) => ({
+        ...e,
+        id: idx,
+        arrows: { to: { scaleFactor: 0.6 } },
+        color: { color: idleEdgeColor, highlight: highlightEdgeColor, hover: highlightEdgeColor },
+        font: { color: '#8a7d7d', size: 10, strokeWidth: 0, align: 'middle' },
+      })));
+
+      const container = document.getElementById('knowledgeGraph');
+
+      {% comment %}
+      shadow + a wider chosen-state border are the two settings doing
+      most of the "attractive" work here - depth on nodes (so the dot-
+      grid backdrop reads as behind them, not flush with them) and a
+      visibly thicker ring on hover/selection instead of vis-network's
+      default (barely perceptible) highlight.
+      {% endcomment %}
+      this.network = new vis.Network(container, { nodes: this.nodes, edges: this.edges }, {
+        groups,
+        nodes: {
+          shape: 'dot', scaling: { min: 10, max: 36 }, borderWidth: 2, borderWidthSelected: 4,
+          shadow: { enabled: true, color: 'rgba(31,27,27,0.18)', size: 8, x: 0, y: 2 },
+        },
+        edges: {
+          smooth: { type: 'continuous', roundness: 0.55 }, width: 1.5, hoverWidth: 0.5, selectionWidth: 1,
+          shadow: { enabled: true, color: 'rgba(31,27,27,0.06)', size: 4, x: 0, y: 1 },
+        },
+        physics: { stabilization: { iterations: 120 }, barnesHut: { gravitationalConstant: -6500, springLength: 150 } },
+        interaction: { hover: true, tooltipDelay: 150, hideEdgesOnDrag: true },
+      });
+
+      this.network.once('stabilizationIterationsDone', () => {
+        this.network.setOptions({ physics: false });
+      });
+
+      this.network.on('click', (params) => {
+        if (params.nodes.length) {
+          this.selectNode(params.nodes[0]);
+        } else if (params.edges.length) {
+          const edge = this.edges.get(params.edges[0]);
+          if (edge) this.selectEdge(edge.from, edge.to);
+        } else {
+          this.closePanel();
+        }
+      });
+    },
+
+    applyFilters() {
+      const query = this.search.trim().toLowerCase();
+
+      const hiddenNodeIds = new Set();
+      const updates = this.rawNodes.map((n) => {
+        const typeOn = this.activeTypes[n.group] !== false;
+        const matchesSearch = !query || n.label.toLowerCase().includes(query);
+        const hidden = !typeOn || !matchesSearch;
+        if (hidden) hiddenNodeIds.add(n.id);
+        return { id: n.id, hidden };
+      });
+      this.nodes.update(updates);
+
+      this.edges.update(this.rawEdges.map((e, idx) => {
+        const relOn = this.activeRelations[e.label] !== false;
+        const hidden = !relOn || hiddenNodeIds.has(e.from) || hiddenNodeIds.has(e.to);
+        return { id: idx, hidden };
+      }));
+    },
+
+    zoomIn() { this.network.moveTo({ scale: this.network.getScale() * 1.25, animation: true }); },
+    zoomOut() { this.network.moveTo({ scale: this.network.getScale() * 0.8, animation: true }); },
+    fit() { this.network.fit({ animation: true }); },
+
+    toggleFullscreen() {
+      // A CSS-only "fake fullscreen" (fixed inset-0 overlay, toggled via
+      // the isFullscreen class binding above) rather than the browser
+      // Fullscreen API - no permission prompt, works the same inside a
+      // sandboxed iframe, and the canvas resize handling below is the
+      // same either way. vis-network sizes off the container's actual
+      // pixel box, not a CSS class, so a redraw+fit has to be kicked off
+      // manually after the height transition finishes.
+      this.isFullscreen = !this.isFullscreen;
+      setTimeout(() => {
+        this.network.redraw();
+        this.network.fit({ animation: true });
+      }, 220);
+    },
+
+    focusNode(id) {
+      this.focusedId = id;
+      const connected = new Set(this.network.getConnectedNodes(id));
+      connected.add(id);
+
+      this.nodes.update(this.rawNodes.map((n) => ({
+        id: n.id,
+        color: connected.has(n.id) ? undefined : dimmedColor,
+      })));
+      this.edges.update(this.rawEdges.map((e, idx) => ({
+        id: idx,
+        color: { color: (connected.has(e.from) && connected.has(e.to)) ? idleEdgeColor : 'rgba(109, 102, 101, 0.08)', highlight: highlightEdgeColor },
+      })));
+
+      this.network.focus(id, { scale: 1.1, animation: true });
+    },
+
+    clearFocus() {
+      this.focusedId = null;
+      this.nodes.update(this.rawNodes.map((n) => ({ id: n.id, color: undefined })));
+      this.edges.update(this.rawEdges.map((e, idx) => ({ id: idx, color: { color: idleEdgeColor, highlight: highlightEdgeColor } })));
+    },
+
+    expandNode(id) {
+      const connected = this.network.getConnectedNodes(id);
+      this.nodes.update(connected.map((nid) => ({ id: nid, hidden: false })));
+      this.edges.update(this.rawEdges
+        .map((e, idx) => ({ e, idx }))
+        .filter(({ e }) => (e.from === id || e.to === id))
+        .map(({ idx }) => ({ id: idx, hidden: false })));
+    },
+
+    closePanel() {
+      this.panelOpen = false;
+      this.selectedNode = null;
+      this.selectedEdge = null;
+    },
+
+    refreshIcons() {
+      // lucide.createIcons() only runs on DOMContentLoaded/alpine:initialized
+      // (see base.html) - content behind x-if (the loading spinner, the
+      // node/edge detail panels) is added to the DOM later than that, so
+      // it needs its own pass once Alpine has actually rendered it.
+      this.$nextTick(() => { if (window.lucide) window.lucide.createIcons(); });
+    },
+
+    async selectNode(id) {
+      this.panelOpen = true;
+      this.selectedEdge = null;
+      this.loading = true;
+      this.refreshIcons();
+      try {
+        const res = await fetch(nodeDetailUrlTemplate.replace('999999999', id));
+        this.selectedNode = res.ok ? await res.json() : null;
+      } catch (e) {
+        this.selectedNode = null;
+      }
+      this.loading = false;
+      this.refreshIcons();
+    },
+
+    async selectEdge(fromId, toId) {
+      this.panelOpen = true;
+      this.selectedNode = null;
+      this.loading = true;
+      this.refreshIcons();
+      try {
+        const res = await fetch(`${edgeDetailUrl}?a=${fromId}&b=${toId}`);
+        this.selectedEdge = res.ok ? await res.json() : null;
+      } catch (e) {
+        this.selectedEdge = null;
+      }
+      this.loading = false;
+      this.refreshIcons();
+    },
+  };
+}
+</script>
+{% endif %}
+{% endblock %}

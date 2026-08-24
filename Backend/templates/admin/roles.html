@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}Roles{% endblock %}
+
+{% block content %}
+
+<div class="mb-6 flex flex-col gap-1">
+  <h1 class="text-2xl font-bold tracking-tight text-ink dark:text-ink-dark">Roles</h1>
+  <p class="text-sm text-muted dark:text-muted-dark">What each role can do. Admin always has full system access. Add a role for a future need (Manager, HR, Auditor…) without any code change — pick a module below, then choose exactly which actions it grants.</p>
+</div>
+
+<div class="mb-6 rounded-2xl border border-line bg-card p-5 shadow-soft dark:border-line-dark dark:bg-card-dark">
+  <h2 class="mb-4 text-sm font-semibold text-ink dark:text-ink-dark">Create a Role</h2>
+  <form method="POST" class="flex flex-col gap-3 sm:flex-row sm:items-end">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="create_role">
+    <div class="flex-1">
+      <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Name</label>
+      <input type="text" name="name" required placeholder="e.g. Auditor" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+    </div>
+    <div class="flex-[2]">
+      <label class="mb-1 block text-xs font-medium text-muted dark:text-muted-dark">Description</label>
+      <input type="text" name="description" placeholder="Read-only access for compliance review" class="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 dark:border-line-dark dark:bg-white/5 dark:text-ink-dark">
+    </div>
+    <button type="submit" class="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-dark">
+      <i data-lucide="plus" class="h-4 w-4"></i> Create Role
+    </button>
+  </form>
+</div>
+
+<div class="space-y-5">
+  {% for item in roles_data %}
+    {% with role=item.role %}
+    <div class="rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-4 dark:border-line-dark">
+        <div>
+          <h2 class="flex items-center gap-2 text-sm font-semibold text-ink dark:text-ink-dark">
+            {{ role.name }}
+            {% if role.is_system %}
+              <span class="inline-flex items-center rounded-full bg-line/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted dark:bg-white/5 dark:text-muted-dark">Built-in</span>
+            {% endif %}
+          </h2>
+          {% if role.description %}<p class="mt-0.5 text-xs text-muted dark:text-muted-dark">{{ role.description }}</p>{% endif %}
+        </div>
+
+        {% if not role.is_system %}
+          <form method="POST" onsubmit="return confirm('Delete the \'{{ role.name }}\' role? Users must be reassigned first.');">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="delete_role">
+            <input type="hidden" name="role_id" value="{{ role.id }}">
+            <button type="submit" class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-danger hover:bg-danger/10 dark:text-danger-dark">
+              <i data-lucide="trash-2" class="h-3.5 w-3.5"></i> Delete
+            </button>
+          </form>
+        {% endif %}
+      </div>
+
+      {% if role.slug == "admin" %}
+        <div class="px-5 py-4">
+          <span class="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 text-xs font-medium text-success dark:text-success-dark">
+            <i data-lucide="shield-check" class="h-3.5 w-3.5"></i> Full system access
+          </span>
+          <p class="mt-2 text-sm text-muted dark:text-muted-dark">Admin always has every permission by design - including any added later - and can't be restricted. Create a custom role instead for narrower access.</p>
+        </div>
+      {% else %}
+        {% comment %}
+        item.granted_json / module.codenames_json are NOT marked
+        |safe on purpose: Django's default autoescape turns each
+        embedded `"` into `&quot;`, which is required here - these
+        are JSON arrays sitting inside a double-quoted x-data="..."
+        HTML attribute, and a raw, unescaped `"` would terminate the
+        attribute at the first array entry, corrupting the tag and
+        leaving Alpine unable to parse x-data at all (verified: this
+        was a real bug - checkboxes silently stopped reflecting
+        granted permissions and "Select All" stopped working, because
+        the whole component failed to initialize). The browser decodes
+        &quot; back to " before Alpine ever sees the attribute value,
+        so escaping here is what makes the JSON valid JS again, not
+        what breaks it.
+        {% endcomment %}
+        <form method="POST" class="px-5 py-4" x-data="{ selected: {{ item.granted_json }} }">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="update_permissions">
+          <input type="hidden" name="role_id" value="{{ role.id }}">
+
+          <p class="mb-3 text-xs text-muted dark:text-muted-dark">
+            <span x-text="selected.length"></span> of {{ total_permission_count }} permissions granted, across {{ permission_modules|length }} modules. Click a module to view and choose its actions.
+            {% if item.hidden_granted_count %}
+              <span class="block mt-0.5 text-[11px] italic">+{{ item.hidden_granted_count }} more permission{{ item.hidden_granted_count|pluralize }} granted on this role, outside your own permissions - not shown or editable here.</span>
+            {% endif %}
+          </p>
+
+          <div class="space-y-2">
+            {% for module in permission_modules %}
+              <div class="overflow-hidden rounded-xl border border-line dark:border-line-dark" x-data="{ open: false, codenames: {{ module.codenames_json }} }">
+
+                <button
+                  type="button"
+                  @click="open = !open"
+                  class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-surface dark:hover:bg-white/5"
+                >
+                  <span class="flex min-w-0 items-center gap-2.5">
+                    <i data-lucide="{{ module.icon }}" class="h-4 w-4 shrink-0 text-muted dark:text-muted-dark"></i>
+                    <span class="truncate text-sm font-semibold text-ink dark:text-ink-dark">{{ module.label }}</span>
+                    {% if module.hidden_count %}
+                      <span class="shrink-0 text-[10px] text-muted dark:text-muted-dark" title="{{ module.hidden_count }} permission{{ module.hidden_count|pluralize }} in this module outside your own - not shown">+{{ module.hidden_count }} hidden</span>
+                    {% endif %}
+                  </span>
+                  <span class="flex shrink-0 items-center gap-3">
+                    <span
+                      class="rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums"
+                      :class="{
+                        'bg-line/60 text-muted dark:bg-white/10 dark:text-muted-dark': codenames.filter(c => selected.includes(c)).length === 0,
+                        'bg-success/10 text-success dark:text-success-dark': codenames.length > 0 && codenames.every(c => selected.includes(c)),
+                        'bg-primary/10 text-primary dark:text-primary-soft': codenames.filter(c => selected.includes(c)).length > 0 && !codenames.every(c => selected.includes(c))
+                      }"
+                      x-text="codenames.filter(c => selected.includes(c)).length + ' / ' + codenames.length"
+                    ></span>
+                    <i data-lucide="chevron-down" class="h-4 w-4 shrink-0 text-muted transition-transform duration-150 dark:text-muted-dark" :class="open && 'rotate-180'"></i>
+                  </span>
+                </button>
+
+                <div x-show="open" x-cloak x-transition.opacity class="border-t border-line bg-surface/60 px-4 py-3 dark:border-line-dark dark:bg-white/[0.03]">
+                  <label class="mb-2.5 flex items-center gap-2 border-b border-line pb-2.5 text-xs font-semibold text-primary dark:border-line-dark dark:text-primary-soft">
+                    <input
+                      type="checkbox"
+                      :checked="codenames.length > 0 && codenames.every(c => selected.includes(c))"
+                      @change="$event.target.checked ? (selected = [...new Set([...selected, ...codenames])]) : (selected = selected.filter(c => !codenames.includes(c)))"
+                      class="rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark"
+                    >
+                    Select All
+                  </label>
+                  <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {% for permission in module.permissions %}
+                      <label class="flex items-start gap-2 text-sm text-ink dark:text-ink-dark">
+                        <input
+                          type="checkbox"
+                          name="permissions"
+                          value="{{ permission.codename }}"
+                          x-model="selected"
+                          class="mt-0.5 rounded border-line text-primary focus:ring-primary/30 dark:border-line-dark"
+                        >
+                        <span class="flex items-center gap-1.5" title="{{ permission.description }}">
+                          {{ permission.name }}
+                          {% if permission.codename in sensitive_permissions %}
+                            <span class="inline-flex items-center gap-0.5 rounded-full bg-warning/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-warning dark:text-warning-dark" title="Exposes personally-identifiable data - grant only to explicitly authorized roles.">
+                              <i data-lucide="eye" class="h-2.5 w-2.5"></i> Sensitive
+                            </span>
+                          {% endif %}
+                        </span>
+                      </label>
+                    {% endfor %}
+                  </div>
+                </div>
+
+              </div>
+            {% endfor %}
+          </div>
+
+          <button type="submit" class="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary/10 px-4 py-2 text-sm font-semibold text-primary hover:bg-primary/15">
+            <i data-lucide="save" class="h-4 w-4"></i> Save Permissions
+          </button>
+        </form>
+      {% endif %}
+
+    </div>
+    {% endwith %}
+  {% endfor %}
+</div>
+
+{% endblock %}
