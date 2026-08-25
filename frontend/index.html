@@ -91,6 +91,20 @@
         background-color: currentColor;
         animation: ask-ai-cursor-blink 0.85s steps(1) infinite;
       }
+
+      /* Ask AI ambient mesh */
+      .ask-hero-mesh {
+        background:
+          radial-gradient(ellipse 80% 60% at 10% 0%, rgba(139, 30, 45, 0.12), transparent 55%),
+          radial-gradient(ellipse 60% 50% at 90% 10%, rgba(166, 51, 63, 0.08), transparent 50%),
+          radial-gradient(ellipse 50% 40% at 50% 100%, rgba(74, 58, 167, 0.05), transparent 60%);
+      }
+      .dark .ask-hero-mesh {
+        background:
+          radial-gradient(ellipse 80% 60% at 10% 0%, rgba(139, 30, 45, 0.28), transparent 55%),
+          radial-gradient(ellipse 60% 50% at 90% 10%, rgba(231, 200, 204, 0.06), transparent 50%),
+          radial-gradient(ellipse 50% 40% at 50% 100%, rgba(124, 107, 217, 0.08), transparent 60%);
+      }
     </style>
   </head>
   <body class="bg-surface dark:bg-surface-dark text-ink dark:text-ink-dark antialiased">

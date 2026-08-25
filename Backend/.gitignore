@@ -5,7 +5,7 @@ __pycache__/
 
 # Virtual Environment
 venv/
-.env
+.eee
 
 # Django
 db.sqlite3
@@ -20,7 +20,7 @@ staticfiles/
 *.log
 
 # Environment
-.env
+.eee
 
 # OS
 .DS_Store

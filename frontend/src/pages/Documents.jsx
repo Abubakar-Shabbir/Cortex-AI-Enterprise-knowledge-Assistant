@@ -8,6 +8,7 @@ import {
   useDeleteDocument, useDocuments, useDocumentsMeta, useEmbedDocument, useToggleArchive, useToggleFavorite,
   useUploadDocument, fetchDocumentPreview, fetchDocumentStatus,
 } from '../api/hooks';
+import { getApiBaseUrl } from '../api/client';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
 
@@ -339,10 +340,10 @@ function DocumentRow({ doc, onEmbed, onDelete, onToggleFavorite, onToggleArchive
       <td className="px-5 py-3.5 text-muted dark:text-muted-dark">{doc.file_size}</td>
       <td className="px-5 py-3.5">
         <div className="flex items-center justify-end gap-1">
-          <a href={`/api/documents/${doc.id}/download/`} target="_blank" rel="noreferrer" title="Open" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+          <a href={`${getApiBaseUrl()}/api/documents/${doc.id}/download/`} target="_blank" rel="noreferrer" title="Open" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
             <ExternalLink className="h-4 w-4" />
           </a>
-          <a href={`/api/documents/${doc.id}/download/?download=1`} title="Download" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+          <a href={`${getApiBaseUrl()}/api/documents/${doc.id}/download/?download=1`} title="Download" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
             <Download className="h-4 w-4" />
           </a>
           <button type="button" onClick={onToggleArchive} title="Archive / Unarchive" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">

@@ -53,7 +53,7 @@ class Command(BaseCommand):
         llm_providers = checks["llm_providers"]
 
         if not llm_providers:
-            self.stdout.write(self.style.WARNING("  - LLM providers: none configured - add an API key to .env"))
+            self.stdout.write(self.style.WARNING("  - LLM providers: none configured - add an API key to .eee"))
         else:
             for provider, result in llm_providers.items():
                 latency = f" ({result['latency_ms']}ms)" if result.get("latency_ms") else ""

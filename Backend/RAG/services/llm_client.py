@@ -548,7 +548,7 @@ class LLMClient:
                 f"Configured provider '{settings.LLM_PROVIDER}' has no API key, and fallback is disabled "
                 "(Admin > Settings > Enable Fallback)."
                 if not settings.LLM_FALLBACK_ENABLED
-                else "No LLM provider is configured - add an API key to .env."
+                else "No LLM provider is configured - add an API key to .eee."
             )
             _last_llm_meta_var.set({
                 "provider": "", "model": "", "providers_attempted": [], "retry_count": 0,
@@ -645,7 +645,7 @@ class LLMClient:
                 f"Configured provider '{settings.LLM_PROVIDER}' has no API key, and fallback is disabled "
                 "(Admin > Settings > Enable Fallback)."
                 if not settings.LLM_FALLBACK_ENABLED
-                else "No LLM provider is configured - add an API key to .env."
+                else "No LLM provider is configured - add an API key to .eee."
             )
             raise AllProvidersFailedError(reason)
 

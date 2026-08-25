@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   # Local dev database only. For a $0/free-tier deployment, point
-  # DB_HOST/DB_NAME/DB_USER/DB_PASSWORD/DB_PORT (.env) at a hosted
+  # DB_HOST/DB_NAME/DB_USER/DB_PASSWORD/DB_PORT (.eee) at a hosted
   # Postgres with the pgvector extension instead - Neon.tech and
   # Supabase both offer a free tier that supports
   # `CREATE EXTENSION vector`. The app itself (`manage.py runserver`)

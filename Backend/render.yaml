@@ -7,7 +7,7 @@
 #
 # Env vars marked `sync: false` are secrets Render will prompt for
 # on first deploy instead of storing in this file (which is committed
-# to the repo) - see .env.example for the full list and DEPLOYMENT.md
+# to the repo) - see .eee.example for the full list and DEPLOYMENT.md
 # for where each value comes from.
 services:
   - type: web
@@ -18,7 +18,7 @@ services:
     branch: main
     buildCommand: bash build.sh
     # 1 worker (see BACKGROUND_WORKER_THREADS's own comment in
-    # .env.example for why this app avoids multiple worker processes
+    # .eee.example for why this app avoids multiple worker processes
     # on a free-tier host), 2 threads for a bit of request concurrency
     # within that one process, and a generous --timeout: embedding a
     # large document or waiting on a slower LLM provider can take well

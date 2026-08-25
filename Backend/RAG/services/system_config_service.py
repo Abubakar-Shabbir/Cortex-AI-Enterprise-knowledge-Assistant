@@ -94,7 +94,7 @@ def get_config():
     """
     The singleton SystemConfiguration row, creating it on first access
     seeded from settings.py's own current values - so turning this
-    feature on doesn't silently reset a workspace's existing .env
+    feature on doesn't silently reset a workspace's existing .eee
     configuration back to this model's hardcoded field defaults.
     """
 
@@ -166,7 +166,7 @@ def get_llm_provider_options(config):
     dropdown choices - the curated free-model list from
     llm_client.PROVIDER_REGISTRY, plus the currently-configured value
     appended if it isn't already one of them, so a custom value set
-    directly via .env is never silently dropped from the dropdown.
+    directly via .eee is never silently dropped from the dropdown.
     """
 
     from .llm_client import PROVIDER_REGISTRY

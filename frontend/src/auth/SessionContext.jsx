@@ -1,10 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { api, setCsrfToken } from '../api/client';
+import { api, getCsrfToken, setCsrfToken } from '../api/client';
 
 const SessionContext = createContext(null);
 
 export function SessionProvider({ children }) {
-  const [session, setSession] = useState({ loading: true, authenticated: false, user: null, permissions: [], canViewAdminArea: false });
+  const [session, setSession] = useState({ loading: true, authenticated: false, user: null, role: null, permissions: [], canViewAdminArea: false });
 
   const refresh = useCallback(async () => {
     const data = await api.get('/auth/session/');
@@ -19,7 +19,7 @@ export function SessionProvider({ children }) {
         canViewAdminArea: data.can_view_admin_area,
       });
     } else {
-      setSession({ loading: false, authenticated: false, user: null, permissions: [], canViewAdminArea: false });
+      setSession({ loading: false, authenticated: false, user: null, role: null, permissions: [], canViewAdminArea: false });
     }
     return data;
   }, []);
@@ -29,6 +29,16 @@ export function SessionProvider({ children }) {
   }, [refresh]);
 
   const login = useCallback(async (username, password, rememberMe) => {
+    // Login is CSRF-protected; ensure we have a token from /api/auth/session/
+    // before the first POST (e.g. if the user submits before bootstrap finishes).
+    if (!getCsrfToken()) {
+      try {
+        await refresh();
+      } catch {
+        return { error: 'Unable to reach the server. Please try again.' };
+      }
+    }
+
     let data;
     try {
       data = await api.post('/auth/login/', { username, password, remember_me: rememberMe });
@@ -51,12 +61,12 @@ export function SessionProvider({ children }) {
       canViewAdminArea: data.can_view_admin_area,
     });
     return { ok: true };
-  }, []);
+  }, [refresh]);
 
   const logout = useCallback(async () => {
     const data = await api.post('/auth/logout/');
     setCsrfToken(data.csrf_token);
-    setSession({ loading: false, authenticated: false, user: null, permissions: [], canViewAdminArea: false });
+    setSession({ loading: false, authenticated: false, user: null, role: null, permissions: [], canViewAdminArea: false });
   }, []);
 
   const hasPermission = useCallback(

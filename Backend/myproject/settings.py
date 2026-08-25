@@ -1,3 +1,5 @@
+
+
 """
 Django settings for myproject project.
 
@@ -31,7 +33,7 @@ DEBUG = os.getenv("DEBUG", "True") == "True"
 
 # Both default to plain localhost so `manage.py runserver` keeps
 # working out of the box; set ALLOWED_HOSTS / CSRF_TRUSTED_ORIGINS in
-# .env (comma-separated) to whatever host you actually browse the app
+# .eee (comma-separated) to whatever host you actually browse the app
 # from - a LAN IP, a custom port, a devcontainer/tunnel URL, a real
 # domain - or Django will reject login (DisallowedHost / a CSRF
 # "Referer checking failed" error) for anything not listed here.
@@ -41,13 +43,25 @@ ALLOWED_HOSTS = [
     if host.strip()
 ]
 
+# Vite (5173) SPA origin must be trusted for CSRF on credentialed
+# cross-origin POSTs directly to Django (no Vite proxy).
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
-        "CSRF_TRUSTED_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000"
+        "CSRF_TRUSTED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000",
     ).split(",")
     if origin.strip()
 ]
+# Always keep local SPA origins even when .env only lists a production host.
+for _local_origin in (
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+):
+    if _local_origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(_local_origin)
 
 # Railway (and Render, via RENDER_EXTERNAL_HOSTNAME - same idea) injects
 # the domain it just assigned this deploy as an env var, known only
@@ -92,7 +106,7 @@ CSRF_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SAMESITE = "Lax"
 
-SECURE_SSL_REDIRECT = not DEBUG
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=not DEBUG)
 
 # Railway's own deploy healthcheck prober hits this container's $PORT
 # directly (not through the public HTTPS edge that sets
@@ -148,24 +162,17 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django.contrib.postgres',  # required for pgvector.django.HnswIndex - see ChunkEmbedding.Meta.indexes
     'rest_framework',
-    'RAG'
+    'RAG',
+    'corsheaders',
 ]
 
 # ==========================================
-# Django REST Framework (React SPA migration)
+# Django REST Framework (React SPA)
 # ==========================================
-# Session-based auth only - the React SPA is served from the same
-# origin as Django (same-origin fetch, Vite dev proxy in local dev - see
-# frontend/vite.config.js), so there's no need for token/JWT auth or
-# CORS. SessionAuthentication enforces the same CSRF protection every
-# classic Django form on this site already relies on
-# (CsrfViewMiddleware, already in MIDDLEWARE above) - unsafe requests
-# (POST/PUT/PATCH/DELETE) still require a valid X-CSRFToken header. The
-# JS client can't read the csrftoken cookie directly (CSRF_COOKIE_HTTPONLY
-# = True above), so RAG/api/views.py exposes the token value in a JSON
-# response instead (see csrf_view) - the same "server hands the token to
-# the client explicitly" approach Django's own docs recommend for JS
-# clients, not a weaker substitute for the cookie.
+# SessionAuthentication + CSRF. The SPA calls Django /api/... directly
+# (Vite does not proxy). Cross-origin credentialed fetches need CORS
+# below + matching CSRF_TRUSTED_ORIGINS. CSRF token is HttpOnly in the
+# cookie; JS receives it from GET /api/auth/session/ and sends X-CSRFToken.
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework.authentication.SessionAuthentication",
@@ -179,6 +186,7 @@ REST_FRAMEWORK = {
 }
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     # Serves STATIC_ROOT directly from the Django/Gunicorn process with
     # far-future cache headers + gzip/brotli compression - the
@@ -206,6 +214,36 @@ MIDDLEWARE = [
     'RAG.middleware.SystemConfigSyncMiddleware',
     'RAG.middleware.RequestActivityMiddleware',
 ]
+
+# Direct SPA (Vite :5173) → Django (:8000) credentialed CORS.
+# Origins must be explicit when CORS_ALLOW_CREDENTIALS is True.
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if origin.strip()
+]
+for _spa_origin in ("http://localhost:5173", "http://127.0.0.1:5173"):
+    if _spa_origin not in CORS_ALLOWED_ORIGINS:
+        CORS_ALLOWED_ORIGINS.append(_spa_origin)
+
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = list({
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+})
+CORS_EXPOSE_HEADERS = ["content-type"]
+# Prefight cache; safe for local + prod SPA origins above.
+CORS_PREFLIGHT_MAX_AGE = 86400
 
 ROOT_URLCONF = 'myproject.urls'
 
@@ -269,6 +307,7 @@ else:
             "PASSWORD": env("DB_PASSWORD"),
             "HOST": env("DB_HOST"),
             "PORT": env("DB_PORT"),
+            "CONN_MAX_AGE": 0,
         }
     }
 
@@ -444,7 +483,7 @@ CHUNK_OVERLAP = 150
 # Query expansion, HyDE, and multi-query retrieval each cost at least
 # one extra Gemini call per question on top of the existing hybrid
 # pipeline, so they default OFF - flip them on per-deployment via
-# .env once the added latency/cost is acceptable. Metadata filtering
+# .eee once the added latency/cost is acceptable. Metadata filtering
 # is opt-in per-call (a `filters=None` param), so it needs no flag.
 # Dynamic top-k is local/free (no LLM call) and defaults ON.
 
@@ -469,7 +508,7 @@ MULTI_QUERY_VARIANTS = int(os.getenv("MULTI_QUERY_VARIANTS", 3))
 # It costs a local model inference pass per question (no extra Gemini
 # call, no new dependency - see reranker_service.py), but still adds
 # latency and a one-time model load, so it defaults OFF like the
-# Sprint 6 LLM-cost features - flip it on per-deployment via .env.
+# Sprint 6 LLM-cost features - flip it on per-deployment via .eee.
 
 ENABLE_RERANKER = os.getenv("ENABLE_RERANKER", "False") == "True"
 
@@ -508,7 +547,7 @@ RERANKER_BATCH_SIZE = int(os.getenv("RERANKER_BATCH_SIZE", 32))
 # context_compression_service.py), reusing the existing embedding
 # model - no new dependency, no LLM call. Off by default: an overly
 # aggressive threshold could drop a chunk that genuinely mattered, so
-# this should be enabled deliberately per-deployment via .env.
+# this should be enabled deliberately per-deployment via .eee.
 
 ENABLE_CONTEXT_COMPRESSION = os.getenv("ENABLE_CONTEXT_COMPRESSION", "False") == "True"
 
@@ -666,7 +705,7 @@ GEMINI_API_KEY = env(
 #
 # OpenRouter is the default primary provider (a free-tier model) so
 # everyday usage doesn't run into Gemini's free-tier quota limits.
-# set LLM_PROVIDER=gemini in .env to flip which one is primary.
+# set LLM_PROVIDER=gemini in .eee to flip which one is primary.
 LLM_PROVIDER = env("LLM_PROVIDER", default="openrouter")
 
 # Whether llm_client.LLMClient is allowed to fall through to another
@@ -721,7 +760,7 @@ SITE_NAME = env("SITE_NAME", default="Cortex")
 
 # Email (auth/notification system) - no email infrastructure existed
 # in this project before. Backend choice is driven by whether real SMTP
-# creds are actually present in .env, not by DEBUG - a DEBUG=True local
+# creds are actually present in .eee, not by DEBUG - a DEBUG=True local
 # dev setup should still send real mail once EMAIL_HOST is filled in
 # (that's the whole point of adding credentials), and DEBUG=False with
 # no EMAIL_HOST would otherwise try to connect to a blank host and
@@ -745,3 +784,26 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=f"{SITE_NAME} <no-reply@e
 # (persistent cookie) when checked, or explicitly to 0 (browser-close)
 # when not - see RAG.auth_views.login_user.
 REMEMBER_ME_SESSION_AGE = env.int("REMEMBER_ME_SESSION_AGE", default=60 * 60 * 24 * 30)  # 30 days
+
+# Plain-HTTP localhost SPA talking *directly* to Django (no Vite proxy):
+#   http://localhost:5173  →  http://localhost:8000/api/...
+# Use the same hostname on both sides (localhost vs localhost). Mixing
+# localhost and 127.0.0.1 is cross-site and SameSite=Lax drops sessionid.
+# HttpOnly session + CSRF cookies; CSRF value also returned by
+# GET /api/auth/session/. Skip on PaaS hosts that terminate HTTPS.
+_on_paas = bool(
+    _railway_public_domain
+    or os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
+)
+if not _on_paas:
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SECURE = False
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_DOMAIN = None
+
+    CSRF_COOKIE_HTTPONLY = True
+    CSRF_COOKIE_SECURE = False
+    CSRF_COOKIE_SAMESITE = "Lax"
+    CSRF_COOKIE_DOMAIN = None
+
+    SECURE_SSL_REDIRECT = False

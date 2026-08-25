@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, getCsrfToken, setCsrfToken } from './client';
+import { api, getApiBaseUrl, getCsrfToken, setCsrfToken } from './client';
 
 // ── Dashboard ────────────────────────────────────────────────────────
 export function useDashboard() {
@@ -104,10 +104,10 @@ export function useAsk() {
 // AbortController stop/retry semantics), just returning structured
 // JSON on 'done' instead of swapping in server-rendered HTML.
 export async function streamAsk(payload, { onToken, onDone, onError, signal }) {
-  const response = await fetch('/api/ask/stream/', {
+  const response = await fetch(`${getApiBaseUrl()}/api/ask/stream/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() || '' },
-    credentials: 'same-origin',
+    credentials: 'include',
     body: JSON.stringify(payload),
     signal,
   });

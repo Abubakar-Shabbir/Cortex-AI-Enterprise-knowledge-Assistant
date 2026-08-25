@@ -29,7 +29,7 @@ There is no configured linter/formatter in the repo.
 
 ## Environment configuration
 
-Settings load from a `.env` file at the repo root via `django-environ` / `python-dotenv` (`myproject/settings.py`). Required variables:
+Settings load from a `.eee` file at the repo root via `django-environ` / `python-dotenv` (`myproject/settings.py`). Required variables:
 
 - `SECRET_KEY`, `DEBUG`
 - `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` — PostgreSQL connection (the only supported DB backend; `ENGINE` is hardcoded to `django.db.backends.postgresql`)
@@ -91,7 +91,7 @@ Settings load from a `.env` file at the repo root via `django-environ` / `python
 
 ### Advanced Retrieval (Sprint 6) (`RAG/services/{query_transform,query_expansion,hyde,retrieval_filters,dynamic_topk,multi_query}_service.py`)
 
-Five composable retrieval enhancements, all reusing the existing `vector_search()`/`bm25_search()`/embedding/Gemini plumbing rather than duplicating it. **Design choice:** the three that cost an extra Gemini call per question (query expansion, HyDE, multi-query) default to **off** (`ENABLE_QUERY_EXPANSION` / `ENABLE_HYDE` / `ENABLE_MULTI_QUERY` = `False`), so the out-of-the-box request path and its latency/cost are unchanged from Sprint 5. Metadata filtering and dynamic top-k are local/free and are effectively always available (filtering is opt-in per call via `filters=None`; dynamic top-k defaults **on**, `ENABLE_DYNAMIC_TOP_K = True`). All five are fully implemented and unit-tested regardless of their default flag state — flip the relevant `.env` flag to activate one, no code changes needed.
+Five composable retrieval enhancements, all reusing the existing `vector_search()`/`bm25_search()`/embedding/Gemini plumbing rather than duplicating it. **Design choice:** the three that cost an extra Gemini call per question (query expansion, HyDE, multi-query) default to **off** (`ENABLE_QUERY_EXPANSION` / `ENABLE_HYDE` / `ENABLE_MULTI_QUERY` = `False`), so the out-of-the-box request path and its latency/cost are unchanged from Sprint 5. Metadata filtering and dynamic top-k are local/free and are effectively always available (filtering is opt-in per call via `filters=None`; dynamic top-k defaults **on**, `ENABLE_DYNAMIC_TOP_K = True`). All five are fully implemented and unit-tested regardless of their default flag state — flip the relevant `.eee` flag to activate one, no code changes needed.
 
 - **Query Expansion** (`query_expansion_service.expand_query()`) — asks Gemini for alternate phrasings via the shared `query_transform_service.generate_query_variants()`, then folds their distinct *words* into one enriched string appended to the original question. Used only to enrich the **BM25** query (`retrieve_chunks()`'s `lexical_query`) — vector search keeps embedding the raw question, since a keyword-stuffed sentence doesn't embed more accurately, only lexical matching benefits.
 - **HyDE** (`hyde_service.generate_hypothetical_document()` + `retrieval_service.hyde_search()`) — asks Gemini to write a short hypothetical passage that would answer the question, embeds *that* instead of the question, and runs it through the same nearest-neighbor lookup as `vector_search()`. Both now share `retrieval_service._vector_similarity_search()` (extracted in this sprint) rather than duplicating the pgvector query. Tagged `search_type: "hyde"`.

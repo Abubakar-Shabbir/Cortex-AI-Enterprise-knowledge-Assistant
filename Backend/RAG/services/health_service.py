@@ -311,7 +311,7 @@ def get_health_status(live_llm_check: bool = False, light: bool = False) -> dict
       live synchronous generate() call per provider
       (_check_llm_providers()) - a real-time answer, on demand.
 
-    Every *configured* LLM provider (an API key present in .env) is
+    Every *configured* LLM provider (an API key present in .eee) is
     also checked - at least one of them must show a real success signal
     (ok=True, from either check) for the overall verdict, since no
     configured/working provider means the core Q&A feature can't answer
@@ -321,7 +321,7 @@ def get_health_status(live_llm_check: bool = False, light: bool = False) -> dict
     counted as a failure - no data is not the same as bad data. A
     deployment with zero providers configured at all is treated the
     same as today's DB/pgvector-only check (nothing to require),
-    matching "add API keys to .env" being the one manual setup step
+    matching "add API keys to .eee" being the one manual setup step
     this app has always documented.
     """
 

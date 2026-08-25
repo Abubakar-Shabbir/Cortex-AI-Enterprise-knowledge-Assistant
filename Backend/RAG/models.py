@@ -781,7 +781,7 @@ class SystemConfiguration(models.Model):
     # one provider is meaningless to another. See
     # RAG.services.llm_client.PROVIDER_REGISTRY for the curated
     # free-model choices the Settings page offers per provider; these
-    # fields accept any string, so a value set directly via .env is
+    # fields accept any string, so a value set directly via .eee is
     # never clobbered by the dropdown's curated list.
     openrouter_model = models.CharField(max_length=150, default="openai/gpt-oss-20b:free")
     groq_model = models.CharField(max_length=150, default="llama-3.1-8b-instant")
