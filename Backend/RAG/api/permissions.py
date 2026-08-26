@@ -9,7 +9,27 @@ one.
 
 from rest_framework.permissions import BasePermission
 
-from ..services.permission_service import user_has_permission
+from ..services.permission_service import has_admin_area_access, user_has_permission
+
+
+class HasAdminAreaAccess(BasePermission):
+    """
+    DRF mirror of RAG.decorators.admin_area_required - coarse,
+    role-based "can this account reach the admin area at all" gate
+    (permission_service.has_admin_area_access), not a specific
+    permission codename. Used by the Admin Overview API endpoint, the
+    same population admin_dashboard_view's Django-template predecessor
+    is restricted to.
+    """
+
+    message = "You don't have access to this page."
+
+    def has_permission(self, request, view):
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and has_admin_area_access(request.user)
+        )
 
 
 def HasPagePermission(*codenames):

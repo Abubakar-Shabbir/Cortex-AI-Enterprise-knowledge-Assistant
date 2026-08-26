@@ -3,13 +3,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { useSession } from '../auth/SessionContext';
 import { useTheme } from '../hooks/useTheme';
+import NotificationBell from './NotificationBell';
 
-// Port of templates/dashboard/_topbar.html. The notification bell is
-// intentionally simplified to a static link in this increment - live
-// unread-count polling (RAG.notification_views) isn't part of the API
-// surface this migration built; see the migration's final report for
-// that gap. Search submits to the Documents page's own ?q= filter,
-// matching the classic topbar's behavior exactly.
+// Port of templates/dashboard/_topbar.html. Search submits to the
+// Documents page's own ?q= filter, matching the classic topbar's
+// behavior exactly.
 export default function Topbar({ onOpenSidebar }) {
   const { permissions } = useSession();
   const { isDark, toggle } = useTheme();
@@ -41,6 +39,8 @@ export default function Topbar({ onOpenSidebar }) {
       <div className="flex-1 sm:hidden"></div>
 
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2.5">
+        <NotificationBell />
+
         {permissions.includes('pages.documents') && (
           <Link
             to="/documents"

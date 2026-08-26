@@ -159,11 +159,16 @@ def send_password_reset_email_task(user_id, uidb64, token, to_email):
     reconstructs the reset link from primitives (user id, uid, token)
     rather than receiving a pre-built URL, so this task is the one
     place that has to know the password_reset_confirm URL shape.
+
+    Points at the React SPA's /app/reset/<uidb64>/<token>/ route (see
+    frontend/src/pages/auth/PasswordResetConfirm.jsx + RAG/api/auth_views.py's
+    password_reset_confirm_validate_view/password_reset_confirm_view),
+    not the classic Django `password_reset_confirm` URL - the SPA is
+    the primary UI now. The classic route/view/template still exist
+    and still work for anyone who reaches them directly.
     """
 
     apply_config_to_settings_cached()
-
-    from django.urls import reverse
 
     from .services.email_service import send_templated_email
 
@@ -173,7 +178,7 @@ def send_password_reset_email_task(user_id, uidb64, token, to_email):
         logger.error("send_password_reset_email_task: User %s no longer exists", user_id)
         return
 
-    reset_url = _absolute_url(reverse("password_reset_confirm", kwargs={"uidb64": uidb64, "token": token}))
+    reset_url = _absolute_url(f"/app/reset/{uidb64}/{token}/")
 
     success, error = send_templated_email(
         to_email=to_email,
@@ -206,7 +211,7 @@ def send_share_invite_email_task(document_id, invited_email, sharer_username):
         logger.error("send_share_invite_email_task: Document %s no longer exists", document_id)
         return
 
-    signup_url = _absolute_url(f"/signup/?invited_email={invited_email}")
+    signup_url = _absolute_url(f"/app/signup?invited_email={invited_email}")
 
     success, error = send_templated_email(
         to_email=invited_email,

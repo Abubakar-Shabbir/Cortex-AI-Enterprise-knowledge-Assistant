@@ -3,18 +3,15 @@ import {
   Shield, Sparkles, Terminal, Users, UserRound, ChevronDown, Sun, Moon,
 } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useSession } from '../auth/SessionContext';
 import { useTheme } from '../hooks/useTheme';
 import Logo from '../components/Logo';
 import NavItem from './NavItem';
 
-// Port of templates/dashboard/_sidebar.html. Workspace/Insights/
-// Administration items this migration hasn't ported to React yet
-// (Knowledge Base, AI Tasks, Analytics, Reports, Queries, the whole
-// Administration group) still render - permission-gated exactly like
-// the Django template - but link back to the classic pages (see
-// NavItem's `href` fallback) instead of a React Router route, so
-// nothing a user's role grants them disappears from the nav.
+// Port of templates/dashboard/_sidebar.html - every item is a React
+// Router route (zero full-page reloads), permission-gated exactly
+// like the Django template.
 export default function Sidebar({ open, onClose }) {
   const { permissions, canViewAdminArea, user, role, logout } = useSession();
   const { isDark, toggle } = useTheme();
@@ -35,14 +32,14 @@ export default function Sidebar({ open, onClose }) {
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <a href="/app" className="relative flex h-16 shrink-0 items-center gap-2.5 overflow-hidden border-b border-white/10 px-5">
+        <Link to="/" className="relative flex h-16 shrink-0 items-center gap-2.5 overflow-hidden border-b border-white/10 px-5">
           <div className="pointer-events-none absolute -left-6 -top-10 h-28 w-28 rounded-full bg-primary/25 blur-2xl"></div>
           <div className="relative text-primary-soft"><Logo size="h-8 w-8" /></div>
           <div className="relative leading-tight">
             <div className="text-sm font-semibold text-white">Cortex</div>
             <div className="text-[11px] text-muted-dark">Admin Panel</div>
           </div>
-        </a>
+        </Link>
 
         <nav className="sidebar-scroll flex-1 space-y-1 overflow-y-auto px-3 py-4 text-sm">
           <NavItem to="/" icon={Home} label="Overview" />
@@ -51,36 +48,36 @@ export default function Sidebar({ open, onClose }) {
             <>
               <div className="mb-1.5 mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-dark">Workspace</div>
               {has('pages.documents') && <NavItem to="/documents" icon={FileText} label="Documents" />}
-              {has('pages.knowledge_base') && <NavItem href="/knowledge/" icon={Share2} label="Knowledge Base" />}
+              {has('pages.knowledge_base') && <NavItem to="/knowledge" activeMatch="/knowledge" icon={Share2} label="Knowledge Base" />}
               {has('pages.ask_ai') && <NavItem to="/ask" icon={MessageSquare} label="Ask AI" />}
-              {has('pages.ai_tasks') && <NavItem href="/ai-tasks/" icon={Sparkles} label="AI Tasks" />}
+              {has('pages.ai_tasks') && <NavItem to="/ai-tasks" activeMatch="/ai-tasks" icon={Sparkles} label="AI Tasks" />}
             </>
           )}
 
           {(has('pages.analytics') || has('pages.reports') || has('queries.view_all_logs')) && (
             <>
               <div className="mb-1.5 mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-dark">Insights</div>
-              {has('pages.analytics') && <NavItem href="/analytics/" icon={BarChart3} label="Analytics" />}
-              {has('pages.reports') && <NavItem href="/reports/" icon={FileDown} label="Reports" />}
-              {has('queries.view_all_logs') && <NavItem href="/admin/queries/" icon={Search} label="Queries" />}
+              {has('pages.analytics') && <NavItem to="/analytics" icon={BarChart3} label="Analytics" />}
+              {has('pages.reports') && <NavItem to="/reports" icon={FileDown} label="Reports" />}
+              {has('queries.view_all_logs') && <NavItem to="/admin/queries" icon={Search} label="Queries" />}
             </>
           )}
 
           {canViewAdminArea && (
             <>
               <div className="mb-1.5 mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-dark">Administration</div>
-              {has('users.view_all') && <NavItem href="/admin/users/" icon={Users} label="Users" />}
-              {has('roles.manage') && <NavItem href="/admin/roles/" icon={Shield} label="Roles" />}
+              {has('users.view_all') && <NavItem to="/admin/users" icon={Users} label="Users" />}
+              {has('roles.manage') && <NavItem to="/admin/roles" icon={Shield} label="Roles" />}
               {(has('settings.manage_llm') || has('settings.manage_chunking') || has('settings.manage_retrieval') || has('settings.manage_embedding') || has('settings.manage_database')) && (
-                <NavItem href="/admin/settings/" icon={Settings} label="Settings" />
+                <NavItem to="/admin/settings" icon={Settings} label="Settings" />
               )}
-              {has('system.view_health') && <NavItem href="/admin/system-health/" icon={HeartPulse} label="System Health" />}
-              {(has('system.view_ai_logs') || has('activity.view_all_logs')) && <NavItem href="/admin/system-logs/" icon={Terminal} label="System Logs" />}
+              {has('system.view_health') && <NavItem to="/admin/system-health" icon={HeartPulse} label="System Health" />}
+              {(has('system.view_ai_logs') || has('activity.view_all_logs')) && <NavItem to="/admin/system-logs" icon={Terminal} label="System Logs" />}
             </>
           )}
 
           <div className="my-3 border-t border-white/10"></div>
-          <NavItem href="/profile/" icon={UserRound} label="Profile" />
+          <NavItem to="/profile" icon={UserRound} label="Profile" />
         </nav>
 
         <div className="border-t border-white/10 p-3">
@@ -98,9 +95,9 @@ export default function Sidebar({ open, onClose }) {
 
             {menuOpen && (
               <div className="absolute bottom-full left-0 z-30 mb-2 w-56 rounded-xl border border-white/10 bg-sidebar-soft p-1.5 shadow-soft">
-                <a href="/profile/" className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-dark transition-colors duration-150 hover:bg-primary/15">
+                <Link to="/profile" onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-ink-dark transition-colors duration-150 hover:bg-primary/15">
                   <UserRound className="h-4 w-4 text-muted-dark" /> Profile
-                </a>
+                </Link>
                 <div className="my-1 border-t border-white/10"></div>
                 <button
                   onClick={() => logout()}

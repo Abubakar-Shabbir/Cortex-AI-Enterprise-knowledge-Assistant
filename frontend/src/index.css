@@ -13,3 +13,117 @@ html, body, #root {
 [x-cloak] {
   display: none !important;
 }
+
+/* ============================================================
+   Auth flow ambient styling - ported verbatim from
+   templates/auth_base.html's <style> block so Login/Signup/Verify
+   OTP/Forgot Password/Reset pages (frontend/src/layout/AuthLayout.jsx
+   + frontend/src/pages/*) are pixel-identical to their Django-template
+   predecessors, not a re-approximation.
+   ============================================================ */
+
+.auth-card { animation: fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes fade-in-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.btn-sheen { position: relative; overflow: hidden; }
+.btn-sheen::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -60%;
+  width: 40%; height: 100%;
+  background: linear-gradient(115deg, transparent, rgba(255,255,255,0.28), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.65s ease;
+}
+.btn-sheen:hover::before { left: 130%; }
+
+.field-valid-icon { transition: opacity 0.2s ease, transform 0.2s ease; }
+
+.auth-card { transition: box-shadow 0.35s ease, border-color 0.35s ease; }
+.auth-card:focus-within { box-shadow: 0 0 0 4px rgba(139,30,45,0.07), 0 10px 30px rgba(31,27,27,0.08); }
+.dark .auth-card:focus-within { box-shadow: 0 0 0 4px rgba(231,200,204,0.06), 0 10px 30px rgba(0,0,0,0.35); }
+
+@keyframes shake-in {
+  0% { opacity: 0; transform: translateX(0); }
+  15% { opacity: 1; transform: translateX(-6px); }
+  30% { transform: translateX(5px); }
+  45% { transform: translateX(-3px); }
+  60% { transform: translateX(2px); }
+  100% { transform: translateX(0); }
+}
+.auth-error-banner { animation: shake-in 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+
+@keyframes pop-in { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+.auth-pop-in { animation: pop-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+@keyframes success-ring {
+  0% { opacity: 0.5; transform: scale(0.8); }
+  100% { opacity: 0; transform: scale(1.8); }
+}
+.auth-success-icon { position: relative; }
+.auth-success-icon::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid currentColor;
+  animation: success-ring 1s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both;
+}
+
+@keyframes drift-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-18px, 14px) scale(1.06); }
+}
+@keyframes drift-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(16px, -12px) scale(1.04); }
+}
+.auth-glow-a { animation: drift-a 22s ease-in-out infinite; }
+.auth-glow-b { animation: drift-b 26s ease-in-out infinite; }
+
+@keyframes node-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.4); }
+}
+.auth-node { animation: node-pulse 3.4s ease-in-out infinite; transform-origin: center; }
+
+@keyframes flow-dash { to { stroke-dashoffset: -240; } }
+.auth-flow-line { animation: flow-dash 9s linear infinite; }
+
+@keyframes status-ping {
+  0% { transform: scale(1); opacity: 0.65; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+.auth-status-ping { animation: status-ping 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+
+@keyframes particle-drift {
+  0% { transform: translate(0, 0); opacity: 0; }
+  12% { opacity: 0.55; }
+  88% { opacity: 0.5; }
+  100% { transform: translate(var(--drift-x, 24px), -160px); opacity: 0; }
+}
+.auth-particle { animation: particle-drift linear infinite; animation-duration: var(--drift-duration, 14s); animation-delay: var(--drift-delay, 0s); }
+
+#auth-parallax-layer { transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1); will-change: transform; }
+
+.auth-grid-bg {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+  background-size: 34px 34px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-card, .auth-error-banner, .auth-pop-in,
+  .auth-glow-a, .auth-glow-b, .auth-node, .auth-flow-line, .auth-status-ping,
+  .auth-particle {
+    animation: none !important;
+  }
+  .auth-success-icon::after {
+    animation: none !important;
+    content: none;
+  }
+  .btn-sheen::before { display: none; }
+  .auth-particle { display: none; }
+  #auth-parallax-layer { transition: none !important; }
+}

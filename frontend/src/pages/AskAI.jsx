@@ -5,7 +5,6 @@ import {
   BookOpen,
   Filter,
   History,
-  Loader2,
   RotateCcw,
   Send,
   Sparkles,
@@ -16,6 +15,7 @@ import {
 } from 'lucide-react';
 import { streamAsk, useAskContext, useAskLog } from '../api/hooks';
 import AskResult from '../components/AskResult';
+import Spinner from '../components/Spinner';
 
 export default function AskAI() {
   const { data: context, isLoading: contextLoading } = useAskContext();
@@ -408,7 +408,7 @@ export default function AskAI() {
           {submitting && liveText === '' && !streamError ? (
             <div className="overflow-hidden rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
               <div className="flex items-center gap-2 border-b border-line bg-primary/5 px-5 py-3 dark:border-line-dark dark:bg-primary/10">
-                <Loader2 className="h-4 w-4 animate-spin text-primary dark:text-primary-soft" />
+                <Spinner size={16} className="text-primary dark:text-primary-soft" />
                 <span className="text-xs font-semibold uppercase tracking-wide text-primary dark:text-primary-soft">
                   Retrieving &amp; thinking
                 </span>
@@ -418,7 +418,7 @@ export default function AskAI() {
                 <div className="h-3 w-[92%] animate-pulse rounded bg-surface dark:bg-white/10" style={{ animationDelay: '80ms' }} />
                 <div className="h-3 w-[78%] animate-pulse rounded bg-surface dark:bg-white/10" style={{ animationDelay: '160ms' }} />
                 <div className="mt-4 flex items-center gap-2">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-line border-t-primary dark:border-line-dark dark:border-t-primary-soft" />
+                  <Spinner size={16} className="text-primary dark:text-primary-soft" />
                   <span className="text-xs text-muted dark:text-muted-dark">Searching your knowledge base…</span>
                 </div>
               </div>

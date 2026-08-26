@@ -1,16 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
-  Archive, CheckCircle2, ChevronDown, Download, ExternalLink, FileText, Filter, HardDrive, Star,
-  Trash2, UploadCloud, X, Zap,
+  Archive, CheckCircle2, ChevronDown, Download, ExternalLink, FileText, Filter, HardDrive, History,
+  Network, Share2, Star, Trash2, UploadCloud, X, Zap,
 } from 'lucide-react';
 import {
-  useDeleteDocument, useDocuments, useDocumentsMeta, useEmbedDocument, useToggleArchive, useToggleFavorite,
-  useUploadDocument, fetchDocumentPreview, fetchDocumentStatus,
+  useBulkDocumentAction, useDeleteDocument, useDocuments, useDocumentsMeta, useEmbedDocument, useToggleArchive,
+  useToggleFavorite, useUploadDocument, fetchDocumentPreview, fetchDocumentStatus,
 } from '../api/hooks';
 import { getApiBaseUrl } from '../api/client';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
+import ShareModal from '../components/ShareModal';
+import Skeleton from '../components/Skeleton';
+import Spinner from '../components/Spinner';
+import VersionsModal from '../components/VersionsModal';
+import DocumentsTabs from '../layout/DocumentsTabs';
 
 const STATUS_OPTIONS = [
   ['', 'Any'], ['pending', 'Pending'], ['processing', 'Processing'], ['completed', 'Ready'], ['failed', 'Failed'],
@@ -26,6 +31,10 @@ export default function Documents() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [preview, setPreview] = useState(null);
+  const [shareDoc, setShareDoc] = useState(null);
+  const [versionsDoc, setVersionsDoc] = useState(null);
+  const [selected, setSelected] = useState({});
+  const [bulkCollectionId, setBulkCollectionId] = useState('');
 
   const filters = {
     q: searchParams.get('q') || '',
@@ -45,6 +54,7 @@ export default function Documents() {
   const embedMutation = useEmbedDocument();
   const favoriteMutation = useToggleFavorite();
   const archiveMutation = useToggleArchive();
+  const bulkActionMutation = useBulkDocumentAction();
 
   const updateFilter = (key, value) => {
     const next = new URLSearchParams(searchParams);
@@ -78,10 +88,34 @@ export default function Documents() {
   };
 
   const stats = data?.stats;
+  const selectedIds = Object.keys(selected).map(Number);
+
+  useEffect(() => { setSelected({}); }, [searchParams.toString()]);
+
+  const toggleOne = (id, checked) => {
+    setSelected((prev) => {
+      const next = { ...prev };
+      if (checked) next[id] = true;
+      else delete next[id];
+      return next;
+    });
+  };
+
+  const toggleAll = (checked) => {
+    if (!checked) { setSelected({}); return; }
+    setSelected(Object.fromEntries((data?.results || []).map((doc) => [doc.id, true])));
+  };
+
+  const runBulkAction = (action, extra) => {
+    if (!selectedIds.length) return;
+    if (action === 'delete' && !window.confirm(`Delete ${selectedIds.length} document(s)? This can't be undone.`)) return;
+    bulkActionMutation.mutate({ action, document_ids: selectedIds, ...(extra || {}) }, { onSuccess: () => setSelected({}) });
+  };
 
   return (
     <div>
       <PageHeader title="Documents" subtitle="Upload once, reuse everywhere — the single source of truth for what your assistant can answer from." />
+      <DocumentsTabs />
 
       <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <StatCard icon={FileText} label="Total Documents" value={stats?.total_documents ?? 0} numeric />
@@ -138,7 +172,7 @@ export default function Documents() {
 
               <div>
                 <button type="submit" disabled={uploadMutation.isPending} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-60">
-                  <UploadCloud className="h-4 w-4" /> {uploadMutation.isPending ? 'Uploading…' : 'Upload'}
+                  {uploadMutation.isPending ? <Spinner size={16} /> : <UploadCloud className="h-4 w-4" />} {uploadMutation.isPending ? 'Uploading…' : 'Upload'}
                 </button>
               </div>
             </form>
@@ -174,11 +208,35 @@ export default function Documents() {
         </form>
       </div>
 
+      {selectedIds.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 dark:border-primary/40 dark:bg-primary/10">
+          <span className="text-sm font-medium text-ink dark:text-ink-dark">{selectedIds.length} selected</span>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <button onClick={() => runBulkAction('favorite')} className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Favorite</button>
+            <button onClick={() => runBulkAction('archive')} className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Archive</button>
+            <button onClick={() => runBulkAction('unarchive')} className="rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Unarchive</button>
+            <select
+              value={bulkCollectionId}
+              onChange={(e) => { setBulkCollectionId(e.target.value); if (e.target.value) runBulkAction('add_to_collection', { collection_id: Number(e.target.value) }); }}
+              className="rounded-lg border border-line bg-transparent px-2.5 py-1.5 text-xs text-ink focus:border-primary focus:outline-none dark:border-line-dark dark:text-ink-dark"
+            >
+              <option value="">Add to collection…</option>
+              {meta?.collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <button onClick={() => runBulkAction('delete')} className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/10 dark:border-danger-dark/30 dark:text-danger-dark">Delete</button>
+            {bulkActionMutation.isPending && <Spinner size={16} className="text-muted dark:text-muted-dark" />}
+          </div>
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="sticky top-0 border-b border-line bg-surface dark:border-line-dark dark:bg-white/5">
               <tr className="text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">
+                <th className="w-10 px-5 py-3.5">
+                  <input type="checkbox" checked={!!data?.results.length && selectedIds.length === data.results.length} onChange={(e) => toggleAll(e.target.checked)} className="h-4 w-4 rounded border-line text-primary focus:ring-primary dark:border-line-dark" />
+                </th>
                 <th className="px-5 py-3.5">Document</th>
                 <th className="px-5 py-3.5">Type</th>
                 <th className="px-5 py-3.5">Uploaded</th>
@@ -190,20 +248,42 @@ export default function Documents() {
             </thead>
             <tbody className="divide-y divide-line dark:divide-line-dark">
               {isLoading ? (
-                <tr><td colSpan={7} className="px-5 py-14 text-center text-sm text-muted dark:text-muted-dark">Loading…</td></tr>
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i}>
+                    <td className="px-5 py-3.5"><Skeleton className="h-4 w-4 rounded" /></td>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="h-9 w-9 shrink-0 rounded-lg" />
+                        <Skeleton className="h-3.5 w-40" />
+                      </div>
+                    </td>
+                    <td className="px-5 py-3.5"><Skeleton className="h-3.5 w-10" /></td>
+                    <td className="px-5 py-3.5"><Skeleton className="h-3.5 w-20" /></td>
+                    <td className="px-5 py-3.5"><Skeleton className="h-3.5 w-8" /></td>
+                    <td className="px-5 py-3.5"><Skeleton className="h-5 w-16 rounded-full" /></td>
+                    <td className="px-5 py-3.5"><Skeleton className="h-3.5 w-14" /></td>
+                    <td className="px-5 py-3.5 text-right"><Skeleton className="ml-auto h-6 w-6 rounded" /></td>
+                  </tr>
+                ))
               ) : data.results.length ? (
                 data.results.map((doc) => (
                   <DocumentRow
                     key={doc.id} doc={doc}
+                    checked={!!selected[doc.id]}
+                    onToggleSelect={(checked) => toggleOne(doc.id, checked)}
+                    canShare={!!meta?.can_share}
+                    canViewKnowledgeBase={!!meta?.can_view_knowledge_base}
                     onEmbed={() => embedMutation.mutate(doc.id)}
                     onDelete={() => deleteMutation.mutate(doc.id)}
                     onToggleFavorite={() => favoriteMutation.mutate(doc.id)}
                     onToggleArchive={() => archiveMutation.mutate(doc.id)}
                     onPreview={() => setPreview({ id: doc.id, title: doc.title })}
+                    onShare={() => setShareDoc(doc)}
+                    onVersions={() => setVersionsDoc(doc)}
                   />
                 ))
               ) : (
-                <tr><td colSpan={7} className="px-5 py-14 text-center text-sm text-muted dark:text-muted-dark">{filters.q ? `No documents match "${filters.q}".` : 'No documents uploaded yet.'}</td></tr>
+                <tr><td colSpan={8} className="px-5 py-14 text-center text-sm text-muted dark:text-muted-dark">{filters.q ? `No documents match "${filters.q}".` : 'No documents uploaded yet.'}</td></tr>
               )}
             </tbody>
           </table>
@@ -225,6 +305,8 @@ export default function Documents() {
       </div>
 
       {preview && <PreviewModal doc={preview} onClose={() => setPreview(null)} />}
+      {shareDoc && <ShareModal doc={shareDoc} roles={meta?.assignable_roles || []} onClose={() => setShareDoc(null)} />}
+      {versionsDoc && <VersionsModal doc={versionsDoc} onClose={() => setVersionsDoc(null)} />}
     </div>
   );
 }
@@ -240,7 +322,10 @@ function Select({ name, label, defaultValue, options }) {
   );
 }
 
-function DocumentRow({ doc, onEmbed, onDelete, onToggleFavorite, onToggleArchive, onPreview }) {
+function DocumentRow({
+  doc, checked, onToggleSelect, canShare, canViewKnowledgeBase, onEmbed, onDelete, onToggleFavorite,
+  onToggleArchive, onPreview, onShare, onVersions,
+}) {
   const [status, setStatus] = useState(doc.status);
   const [percent, setPercent] = useState(doc.percent);
   const [chunkCount, setChunkCount] = useState(doc.chunk_count);
@@ -283,6 +368,9 @@ function DocumentRow({ doc, onEmbed, onDelete, onToggleFavorite, onToggleArchive
 
   return (
     <tr className="transition-colors hover:bg-surface dark:hover:bg-white/5">
+      <td className="px-5 py-3.5">
+        <input type="checkbox" checked={checked} onChange={(e) => onToggleSelect(e.target.checked)} className="h-4 w-4 rounded border-line text-primary focus:ring-primary dark:border-line-dark" />
+      </td>
       <td className="px-5 py-3.5">
         <div className="flex items-center gap-2.5">
           <button type="button" onClick={onToggleFavorite} title="Favorite" className="shrink-0">
@@ -346,8 +434,21 @@ function DocumentRow({ doc, onEmbed, onDelete, onToggleFavorite, onToggleArchive
           <a href={`${getApiBaseUrl()}/api/documents/${doc.id}/download/?download=1`} title="Download" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
             <Download className="h-4 w-4" />
           </a>
+          {canViewKnowledgeBase && (
+            <Link to={`/knowledge/documents/${doc.id}`} title="Knowledge" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+              <Network className="h-4 w-4" />
+            </Link>
+          )}
           <button type="button" onClick={onToggleArchive} title="Archive / Unarchive" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
             <Archive className="h-4 w-4" />
+          </button>
+          {canShare && (
+            <button type="button" onClick={onShare} title="Share" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+              <Share2 className="h-4 w-4" />
+            </button>
+          )}
+          <button type="button" onClick={onVersions} title="Version History" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+            <History className="h-4 w-4" />
           </button>
           <button onClick={() => setConfirmOpen(true)} title="Delete" className="rounded-lg p-2 text-muted transition-colors hover:bg-danger/10 hover:text-danger dark:text-muted-dark dark:hover:text-danger-dark">
             <Trash2 className="h-4 w-4" />
