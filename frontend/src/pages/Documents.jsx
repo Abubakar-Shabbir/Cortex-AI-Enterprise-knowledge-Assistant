@@ -280,6 +280,9 @@ export default function Documents() {
                     onPreview={() => setPreview({ id: doc.id, title: doc.title })}
                     onShare={() => setShareDoc(doc)}
                     onVersions={() => setVersionsDoc(doc)}
+                    isFavoritePending={favoriteMutation.isPending && favoriteMutation.variables === doc.id}
+                    isArchivePending={archiveMutation.isPending && archiveMutation.variables === doc.id}
+                    isDeletePending={deleteMutation.isPending && deleteMutation.variables === doc.id}
                   />
                 ))
               ) : (
@@ -324,7 +327,7 @@ function Select({ name, label, defaultValue, options }) {
 
 function DocumentRow({
   doc, checked, onToggleSelect, canShare, canViewKnowledgeBase, onEmbed, onDelete, onToggleFavorite,
-  onToggleArchive, onPreview, onShare, onVersions,
+  onToggleArchive, onPreview, onShare, onVersions, isFavoritePending, isArchivePending, isDeletePending,
 }) {
   const [status, setStatus] = useState(doc.status);
   const [percent, setPercent] = useState(doc.percent);
@@ -373,8 +376,12 @@ function DocumentRow({
       </td>
       <td className="px-5 py-3.5">
         <div className="flex items-center gap-2.5">
-          <button type="button" onClick={onToggleFavorite} title="Favorite" className="shrink-0">
-            <Star className={`h-4 w-4 transition-colors ${doc.is_favorite ? 'fill-warning text-warning' : 'text-muted dark:text-muted-dark'}`} />
+          <button type="button" onClick={onToggleFavorite} disabled={isFavoritePending} title="Favorite" className="shrink-0 disabled:opacity-50">
+            {isFavoritePending ? (
+              <Spinner size={16} className="text-muted dark:text-muted-dark" />
+            ) : (
+              <Star className={`h-4 w-4 transition-colors ${doc.is_favorite ? 'fill-warning text-warning' : 'text-muted dark:text-muted-dark'}`} />
+            )}
           </button>
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft/50 text-primary dark:bg-primary/15 dark:text-primary-soft">
             <FileText className="h-4 w-4" />
@@ -439,8 +446,8 @@ function DocumentRow({
               <Network className="h-4 w-4" />
             </Link>
           )}
-          <button type="button" onClick={onToggleArchive} title="Archive / Unarchive" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
-            <Archive className="h-4 w-4" />
+          <button type="button" onClick={onToggleArchive} disabled={isArchivePending} title="Archive / Unarchive" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink disabled:opacity-50 dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
+            {isArchivePending ? <Spinner size={16} /> : <Archive className="h-4 w-4" />}
           </button>
           {canShare && (
             <button type="button" onClick={onShare} title="Share" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
@@ -450,8 +457,8 @@ function DocumentRow({
           <button type="button" onClick={onVersions} title="Version History" className="rounded-lg p-2 text-muted transition-colors hover:bg-line hover:text-ink dark:text-muted-dark dark:hover:bg-white/10 dark:hover:text-ink-dark">
             <History className="h-4 w-4" />
           </button>
-          <button onClick={() => setConfirmOpen(true)} title="Delete" className="rounded-lg p-2 text-muted transition-colors hover:bg-danger/10 hover:text-danger dark:text-muted-dark dark:hover:text-danger-dark">
-            <Trash2 className="h-4 w-4" />
+          <button onClick={() => setConfirmOpen(true)} disabled={isDeletePending} title="Delete" className="rounded-lg p-2 text-muted transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-50 dark:text-muted-dark dark:hover:text-danger-dark">
+            {isDeletePending ? <Spinner size={16} /> : <Trash2 className="h-4 w-4" />}
           </button>
 
           {confirmOpen && (
@@ -462,8 +469,10 @@ function DocumentRow({
                   Delete "<span className="font-medium text-ink dark:text-ink-dark">{doc.title}</span>" and all {chunkCount} of its chunks? This can't be undone.
                 </p>
                 <div className="flex justify-end gap-2">
-                  <button onClick={() => setConfirmOpen(false)} className="rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Cancel</button>
-                  <button onClick={onDelete} className="rounded-lg bg-danger px-3.5 py-2 text-sm font-semibold text-white hover:bg-danger/90">Delete</button>
+                  <button onClick={() => setConfirmOpen(false)} disabled={isDeletePending} className="rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-ink hover:bg-surface disabled:opacity-50 dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Cancel</button>
+                  <button onClick={onDelete} disabled={isDeletePending} className="inline-flex items-center justify-center gap-2 rounded-lg bg-danger px-3.5 py-2 text-sm font-semibold text-white hover:bg-danger/90 disabled:opacity-60">
+                    {isDeletePending && <Spinner size={14} />} Delete
+                  </button>
                 </div>
               </div>
             </div>
@@ -492,7 +501,7 @@ function PreviewModal({ doc, onClose }) {
             <X className="h-4 w-4" />
           </button>
         </div>
-        {state.loading && <p className="text-sm text-muted dark:text-muted-dark">Loading preview…</p>}
+        {state.loading && <p className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark"><Spinner size={14} /> Loading preview…</p>}
         {!state.loading && state.error && <p className="text-sm text-muted dark:text-muted-dark">{state.error}</p>}
         {!state.loading && state.text && (
           <div>

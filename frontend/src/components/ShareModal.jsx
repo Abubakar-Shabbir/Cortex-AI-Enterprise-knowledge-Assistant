@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react';
 import { UserPlus, X } from 'lucide-react';
 import { createDocumentShare, fetchDocumentShares, revokeDocumentShare } from '../api/hooks';
+import Spinner from './Spinner';
 
 // Port of documents.html's Share modal (openShare/addShare/revokeShare Alpine methods).
 export default function ShareModal({ doc, roles, onClose }) {
   const [shares, setShares] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [targetType, setTargetType] = useState('user');
   const [targetValue, setTargetValue] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const load = () => fetchDocumentShares(doc.id).then((data) => setShares(data.shares || []));
+  const load = () => fetchDocumentShares(doc.id).then((data) => setShares(data.shares || [])).finally(() => setLoading(false));
 
   useEffect(() => { load(); }, [doc.id]);
 
@@ -68,15 +70,19 @@ export default function ShareModal({ doc, roles, onClose }) {
         </form>
 
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Shared with</p>
-        <div className="space-y-1.5">
-          {shares.map((s) => (
-            <div key={s.id} className="flex items-center justify-between rounded-lg border border-line px-3 py-2 text-sm dark:border-line-dark">
-              <span className="text-ink dark:text-ink-dark">{s.target}</span>
-              <button type="button" onClick={() => onRevoke(s.id)} className="text-xs font-medium text-danger hover:underline dark:text-danger-dark">Revoke</button>
-            </div>
-          ))}
-          {shares.length === 0 && <p className="text-xs text-muted dark:text-muted-dark">Not shared with anyone yet.</p>}
-        </div>
+        {loading ? (
+          <p className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark"><Spinner size={14} /> Loading…</p>
+        ) : (
+          <div className="space-y-1.5">
+            {shares.map((s) => (
+              <div key={s.id} className="flex items-center justify-between rounded-lg border border-line px-3 py-2 text-sm dark:border-line-dark">
+                <span className="text-ink dark:text-ink-dark">{s.target}</span>
+                <button type="button" onClick={() => onRevoke(s.id)} className="text-xs font-medium text-danger hover:underline dark:text-danger-dark">Revoke</button>
+              </div>
+            ))}
+            {shares.length === 0 && <p className="text-xs text-muted dark:text-muted-dark">Not shared with anyone yet.</p>}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { FileText, Star, StarOff } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
 import AppLoader from '../components/AppLoader';
+import Spinner from '../components/Spinner';
 import SimpleDocumentTable from '../components/SimpleDocumentTable';
 import DocumentsTabs from '../layout/DocumentsTabs';
 import { useFavoriteDocuments, useToggleFavorite } from '../api/hooks';
@@ -27,14 +28,17 @@ export default function Favorites() {
           pagination={data}
           onPageChange={(p) => setSearchParams({ page: String(p) })}
           emptyState={<EmptyState icon={Star} title="No favorites yet" message="Star a document from My Documents to pin it here for quick access." />}
-          renderExtraActions={(doc) => (
-            <button
-              type="button" onClick={() => toggleFavorite.mutate(doc.id)} title="Remove from Favorites"
-              className="rounded-lg p-2 text-muted transition-colors hover:bg-danger/10 hover:text-danger dark:text-muted-dark dark:hover:text-danger-dark"
-            >
-              <StarOff className="h-4 w-4" />
-            </button>
-          )}
+          renderExtraActions={(doc) => {
+            const isPending = toggleFavorite.isPending && toggleFavorite.variables === doc.id;
+            return (
+              <button
+                type="button" onClick={() => toggleFavorite.mutate(doc.id)} disabled={isPending} title="Remove from Favorites"
+                className="rounded-lg p-2 text-muted transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-50 dark:text-muted-dark dark:hover:text-danger-dark"
+              >
+                {isPending ? <Spinner size={16} /> : <StarOff className="h-4 w-4" />}
+              </button>
+            );
+          }}
         />
       )}
     </>

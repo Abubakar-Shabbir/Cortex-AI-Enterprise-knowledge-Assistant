@@ -5,6 +5,7 @@ import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
 import EmptyState from '../components/EmptyState';
 import AppLoader from '../components/AppLoader';
+import Spinner from '../components/Spinner';
 import { getApiBaseUrl } from '../api/client';
 import { timeAgo } from '../lib/timeAgo';
 import { fetchAdminQueryDetail, useAdminQueries, useToggleQueryFlag } from '../api/hooks';
@@ -20,7 +21,7 @@ function DetailModal({ logId, onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-line bg-card p-6 shadow-2xl dark:border-line-dark dark:bg-card-dark">
         {state.loading ? (
-          <p className="text-sm text-muted dark:text-muted-dark">Loading…</p>
+          <p className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark"><Spinner size={14} /> Loading…</p>
         ) : state.data ? (
           <div className="space-y-4">
             <div className="flex items-start justify-between gap-3">
@@ -228,10 +229,10 @@ export default function AdminQueries() {
                       <td className="px-5 py-3">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
-                            type="button" onClick={() => toggleFlag.mutate(log.id)} title={log.is_flagged ? 'Unpin' : 'Pin for follow-up'}
-                            className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${log.is_flagged ? 'text-warning hover:bg-warning/10' : 'text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5'}`}
+                            type="button" onClick={() => toggleFlag.mutate(log.id)} disabled={toggleFlag.isPending && toggleFlag.variables === log.id} title={log.is_flagged ? 'Unpin' : 'Pin for follow-up'}
+                            className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:opacity-50 ${log.is_flagged ? 'text-warning hover:bg-warning/10' : 'text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5'}`}
                           >
-                            <Flag className="h-4 w-4" />
+                            {toggleFlag.isPending && toggleFlag.variables === log.id ? <Spinner size={14} /> : <Flag className="h-4 w-4" />}
                           </button>
                           {data.can_view_content && (
                             <button type="button" onClick={() => setDetailId(log.id)} className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-ink transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-primary dark:border-line-dark dark:text-ink-dark dark:hover:bg-primary/10">

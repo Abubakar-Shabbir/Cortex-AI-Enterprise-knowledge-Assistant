@@ -3,6 +3,7 @@ import { FolderMinus, FolderOpen } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
 import AppLoader from '../components/AppLoader';
+import Spinner from '../components/Spinner';
 import SimpleDocumentTable from '../components/SimpleDocumentTable';
 import { useCollectionDetail, useCollectionDetailAction } from '../api/hooks';
 
@@ -28,11 +29,14 @@ export default function CollectionDetail() {
         pagination={data}
         onPageChange={(p) => setSearchParams({ page: String(p) })}
         emptyState={<EmptyState icon={FolderOpen} title="This collection is empty" message="Add documents to it from My Documents." actionTo="/documents" actionLabel="Go to My Documents" />}
-        renderExtraActions={(doc) => (
-          <button type="button" onClick={() => onRemove(doc)} title="Remove from collection" className="rounded-lg p-2 text-muted transition-colors hover:bg-danger/10 hover:text-danger dark:text-muted-dark dark:hover:text-danger-dark">
-            <FolderMinus className="h-4 w-4" />
-          </button>
-        )}
+        renderExtraActions={(doc) => {
+          const isPending = action.isPending && action.variables?.doc_id === doc.id;
+          return (
+            <button type="button" onClick={() => onRemove(doc)} disabled={isPending} title="Remove from collection" className="rounded-lg p-2 text-muted transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-50 dark:text-muted-dark dark:hover:text-danger-dark">
+              {isPending ? <Spinner size={16} /> : <FolderMinus className="h-4 w-4" />}
+            </button>
+          );
+        }}
       />
     </>
   );

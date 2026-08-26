@@ -25,6 +25,7 @@ import KnowledgeSnapshotCard from '../../components/KnowledgeSnapshotCard';
 import KpiCard from '../../components/KpiCard';
 import QuickActions from '../../components/QuickActions';
 import Skeleton from '../../components/Skeleton';
+import Spinner from '../../components/Spinner';
 import { useTheme } from '../../hooks/useTheme';
 import { timeAgo } from '../../lib/timeAgo';
 
@@ -406,8 +407,10 @@ function RecentDocumentsTable({ rows }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-line dark:divide-line-dark">
-              {rows.map((doc) => (
-                <tr key={doc.id} className="transition-colors hover:bg-surface dark:hover:bg-white/5">
+              {rows.map((doc) => {
+                const isDeletePending = deleteMutation.isPending && deleteMutation.variables === doc.id;
+                return (
+                <tr key={doc.id} className={`transition-colors hover:bg-surface dark:hover:bg-white/5 ${isDeletePending ? 'opacity-50' : ''}`}>
                   <td className="max-w-[220px] truncate px-3.5 py-2 font-medium text-ink dark:text-ink-dark">
                     <span className="flex items-center gap-2.5">
                       <FileText className="h-4 w-4 shrink-0 text-primary dark:text-primary-soft" />
@@ -429,10 +432,11 @@ function RecentDocumentsTable({ rows }) {
                       <button
                         type="button"
                         onClick={() => setOpenRowId((id) => (id === doc.id ? null : doc.id))}
-                        className="rounded-lg p-1.5 text-muted hover:bg-surface dark:text-muted-dark dark:hover:bg-white/5"
+                        disabled={isDeletePending}
+                        className="rounded-lg p-1.5 text-muted hover:bg-surface disabled:opacity-50 dark:text-muted-dark dark:hover:bg-white/5"
                         aria-label="Row actions"
                       >
-                        <MoreHorizontal className="h-4 w-4" />
+                        {isDeletePending ? <Spinner size={14} /> : <MoreHorizontal className="h-4 w-4" />}
                       </button>
                       {openRowId === doc.id && (
                         <div className="absolute right-0 z-20 mt-1 w-40 rounded-xl border border-line bg-card p-1.5 shadow-soft dark:border-line-dark dark:bg-card-dark">
@@ -454,7 +458,8 @@ function RecentDocumentsTable({ rows }) {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
