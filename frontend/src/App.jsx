@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useSession } from './auth/SessionContext';
 import AppShell from './layout/AppShell';
 import AppLoader from './components/AppLoader';
+import RequirePermission from './components/RequirePermission';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import VerifyOtp from './pages/VerifyOtp';
@@ -79,9 +80,11 @@ export default function App() {
         <Route path="/knowledge/citations" element={<KnowledgeCitations />} />
         <Route path="/knowledge/entities/:entityId" element={<EntityDetail />} />
         <Route path="/knowledge/documents/:docId" element={<DocumentKnowledge />} />
-        <Route path="/ai-tasks" element={<AiTasks />} />
-        <Route path="/ai-tasks/history" element={<AiTaskHistory />} />
-        <Route path="/ai-tasks/:runId/results" element={<AiTaskResults />} />
+        <Route element={<RequirePermission codename="pages.ai_tasks" />}>
+          <Route path="/ai-tasks" element={<AiTasks />} />
+          <Route path="/ai-tasks/history" element={<AiTaskHistory />} />
+          <Route path="/ai-tasks/:runId/results" element={<AiTaskResults />} />
+        </Route>
         <Route path="/analytics" element={<Analytics />} />
         <Route path="/reports" element={<Reports />} />
         <Route path="/documents/favorites" element={<Favorites />} />

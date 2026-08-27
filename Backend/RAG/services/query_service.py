@@ -56,6 +56,16 @@ def calculate_confidence(retrieved_chunks, answer=None, citation_count=None):
     BM25/graph/multi_query matches (no comparable distance score)
     fall back to a neutral value.
 
+    `embedding_service.generate_embedding()` calls SentenceTransformer
+    with `normalize_embeddings=True`, so every embedding is unit-length
+    and the pgvector L2 distance `d` between two of them relates to
+    their cosine similarity exactly: d**2 == 2 * (1 - cosine_similarity).
+    Solving for cosine_similarity - not a flat `min(d, 1.0)` cap, which
+    clamps to 0% confidence for any distance past 1.0 even though a
+    distance a bit over 1.0 is a routine, still-fairly-close match (the
+    real range for unit vectors is 0..2, where 2 is "exact opposite") -
+    is what turns the raw distance into a bounded, meaningful score.
+
     `answer` and `citation_count` are optional (Sprint 9) and fold in
     two hallucination-reduction signals on top of the retrieval-only
     score above:
@@ -84,7 +94,8 @@ def calculate_confidence(retrieved_chunks, answer=None, citation_count=None):
         confidence = 40
     else:
         best_distance = min(distances)
-        confidence = round((1 - min(best_distance, 1.0)) * 100)
+        cosine_similarity = 1 - (best_distance ** 2) / 2
+        confidence = round(max(0.0, min(1.0, cosine_similarity)) * 100)
 
     if citation_count == 0 and retrieved_chunks:
         confidence = round(confidence * 0.7)

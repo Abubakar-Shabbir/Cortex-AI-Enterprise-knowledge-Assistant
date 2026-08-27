@@ -224,7 +224,7 @@ export default function Documents() {
               {meta?.collections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <button onClick={() => runBulkAction('delete')} className="rounded-lg border border-danger/30 bg-danger/5 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/10 dark:border-danger-dark/30 dark:text-danger-dark">Delete</button>
-            {bulkActionMutation.isPending && <Spinner size={16} className="text-muted dark:text-muted-dark" />}
+            {bulkActionMutation.isPending && <Spinner size={20} className="text-muted dark:text-muted-dark" />}
           </div>
         </div>
       )}
@@ -325,6 +325,11 @@ function Select({ name, label, defaultValue, options }) {
   );
 }
 
+// A single transient network blip while polling embed status shouldn't
+// strand the row mid-progress forever - only give up, and tell the
+// user, after several consecutive failures.
+const MAX_CONSECUTIVE_POLL_FAILURES = 5;
+
 function DocumentRow({
   doc, checked, onToggleSelect, canShare, canViewKnowledgeBase, onEmbed, onDelete, onToggleFavorite,
   onToggleArchive, onPreview, onShare, onVersions, isFavoritePending, isArchivePending, isDeletePending,
@@ -333,6 +338,8 @@ function DocumentRow({
   const [percent, setPercent] = useState(doc.percent);
   const [chunkCount, setChunkCount] = useState(doc.chunk_count);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pollError, setPollError] = useState(false);
+  const [pollGeneration, setPollGeneration] = useState(0);
   const pollRef = useRef(null);
 
   useEffect(() => {
@@ -344,9 +351,13 @@ function DocumentRow({
   useEffect(() => {
     if (status !== 'Processing') return undefined;
 
+    setPollError(false);
+    let consecutiveFailures = 0;
+
     pollRef.current = setInterval(async () => {
       try {
         const data = await fetchDocumentStatus(doc.id);
+        consecutiveFailures = 0;
         setPercent(data.percent);
         setChunkCount(data.chunk_count);
         if (data.status === 'processing') return;
@@ -356,17 +367,26 @@ function DocumentRow({
         else if (data.status === 'completed') setStatus(data.percent >= 100 ? 'Ready' : 'Partial');
         else setStatus('Pending');
       } catch {
-        clearInterval(pollRef.current);
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+          clearInterval(pollRef.current);
+          setPollError(true);
+        }
       }
     }, 2000);
 
     return () => clearInterval(pollRef.current);
-  }, [status, doc.id]);
+  }, [status, doc.id, pollGeneration]);
 
   const startEmbed = () => {
     setStatus('Processing');
     setPercent(0);
     onEmbed();
+  };
+
+  const retryStatusCheck = () => {
+    setPollError(false);
+    setPollGeneration((generation) => generation + 1);
   };
 
   return (
@@ -406,6 +426,12 @@ function DocumentRow({
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-line dark:bg-white/10">
               <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${percent}%` }} />
             </div>
+            {pollError && (
+              <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-danger dark:text-danger-dark">
+                <span>Couldn&apos;t confirm status.</span>
+                <button type="button" onClick={retryStatusCheck} className="font-semibold hover:underline">Retry</button>
+              </div>
+            )}
           </div>
         )}
         {status === 'Ready' && (
@@ -471,7 +497,7 @@ function DocumentRow({
                 <div className="flex justify-end gap-2">
                   <button onClick={() => setConfirmOpen(false)} disabled={isDeletePending} className="rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-ink hover:bg-surface disabled:opacity-50 dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Cancel</button>
                   <button onClick={onDelete} disabled={isDeletePending} className="inline-flex items-center justify-center gap-2 rounded-lg bg-danger px-3.5 py-2 text-sm font-semibold text-white hover:bg-danger/90 disabled:opacity-60">
-                    {isDeletePending && <Spinner size={14} />} Delete
+                    {isDeletePending && <Spinner size={16} />} Delete
                   </button>
                 </div>
               </div>
@@ -501,7 +527,15 @@ function PreviewModal({ doc, onClose }) {
             <X className="h-4 w-4" />
           </button>
         </div>
-        {state.loading && <p className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark"><Spinner size={14} /> Loading preview…</p>}
+        {state.loading && (
+          <div className="space-y-2 rounded-lg bg-surface p-3 dark:bg-white/5">
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3.5 w-5/6" />
+            <Skeleton className="h-3.5 w-full" />
+            <Skeleton className="h-3.5 w-2/3" />
+          </div>
+        )}
         {!state.loading && state.error && <p className="text-sm text-muted dark:text-muted-dark">{state.error}</p>}
         {!state.loading && state.text && (
           <div>

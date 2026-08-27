@@ -3,10 +3,12 @@ import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import Breadcrumbs from './Breadcrumbs';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
+import usePageTitle from '../hooks/usePageTitle';
 
 export default function AppShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  usePageTitle();
 
   return (
     <div className="min-h-screen flex">
@@ -18,7 +20,7 @@ export default function AppShell() {
         <main className="relative flex-1 px-4 sm:px-6 lg:px-8 py-6 lg:py-8 w-full max-w-[1600px] mx-auto">
           <Breadcrumbs />
           <Suspense
-            fallback={<AppLoader variant="page" />}
+            fallback={<PageSkeleton variant="list" />}
           >
             <Outlet />
           </Suspense>

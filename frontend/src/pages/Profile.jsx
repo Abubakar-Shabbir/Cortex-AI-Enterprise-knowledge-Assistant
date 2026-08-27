@@ -21,9 +21,9 @@ function GithubIcon(props) {
   );
 }
 import PageHeader from '../components/PageHeader';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import Spinner from '../components/Spinner';
-import { timeAgo } from '../lib/timeAgo';
+import { timeAgo, timeUntil } from '../lib/timeAgo';
 import { useTheme } from '../hooks/useTheme';
 import { useSession } from '../auth/SessionContext';
 import {
@@ -130,7 +130,7 @@ export default function Profile() {
     setDisabledCategories(data.notification_preferences.disabled_email_categories || []);
   }, [data]);
 
-  if (isLoading || !data || !personal) return <AppLoader variant="page" />;
+  if (isLoading || !data || !personal) return <PageSkeleton variant="detail" />;
 
   const flashSaved = (msg) => {
     setSavedBanner(msg);
@@ -206,7 +206,7 @@ export default function Profile() {
                   </div>
                 )}
                 <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
-                  {uploadAvatar.isPending ? <Spinner size={16} className="text-white" /> : <Camera className="h-4 w-4 text-white" />}
+                  {uploadAvatar.isPending ? <Spinner size={20} className="text-white" /> : <Camera className="h-4 w-4 text-white" />}
                 </span>
                 <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={onAvatarChange} />
               </label>
@@ -308,7 +308,7 @@ export default function Profile() {
 
               <div className="flex justify-end pt-1">
                 <button type="submit" disabled={updatePersonal.isPending} className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-70">
-                  {updatePersonal.isPending && <Spinner size={12} />} Save
+                  {updatePersonal.isPending && <Spinner size={16} />} Save
                 </button>
               </div>
             </form>
@@ -422,7 +422,7 @@ export default function Profile() {
                   <span>{isDark ? 'Dark' : 'Light'}</span>
                 </button>
                 <button type="submit" disabled={updateExtended.isPending} className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-70">
-                  {updateExtended.isPending && <Spinner size={12} />} Save
+                  {updateExtended.isPending && <Spinner size={16} />} Save
                 </button>
               </div>
             </form>
@@ -463,7 +463,7 @@ export default function Profile() {
               </div>
               <div className="flex justify-end">
                 <button type="submit" disabled={changePassword.isPending} className="flex items-center gap-1.5 rounded-lg border border-line px-3.5 py-2 text-xs font-semibold text-ink transition-colors hover:bg-surface disabled:opacity-70 dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">
-                  {changePassword.isPending && <Spinner size={12} />} Update Password
+                  {changePassword.isPending && <Spinner size={16} />} Update Password
                 </button>
               </div>
             </form>
@@ -497,7 +497,7 @@ export default function Profile() {
               <p className="text-xs text-muted dark:text-muted-dark">Account and security emails (password changes, sign-in verification) always send and can't be turned off.</p>
               <div className="flex justify-end">
                 <button type="submit" disabled={updateNotifications.isPending} className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-70">
-                  {updateNotifications.isPending && <Spinner size={12} />} Save Preferences
+                  {updateNotifications.isPending && <Spinner size={16} />} Save Preferences
                 </button>
               </div>
             </form>
@@ -555,7 +555,7 @@ export default function Profile() {
                     <div key={session.session_key} className="flex items-center gap-2">
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${session.is_current ? 'bg-success' : 'bg-muted'}`}></span>
                       <span className="text-ink dark:text-ink-dark">{session.is_current ? 'This device' : 'Other device'}</span>
-                      <span className="text-muted dark:text-muted-dark">· expires {timeAgo(session.expire_date)}</span>
+                      <span className="text-muted dark:text-muted-dark">· expires in {timeUntil(session.expire_date)}</span>
                     </div>
                   ))}
                 </div>

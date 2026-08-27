@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft, Shield } from 'lucide-react';
-import AppLoader from '../components/AppLoader';
-import { timeAgo } from '../lib/timeAgo';
+import PageSkeleton from '../components/PageSkeleton';
+import { timeAgo, timeUntil } from '../lib/timeAgo';
 import { useAdminUserProfile } from '../api/hooks';
 
 const HEALTH_CLASSES = {
@@ -20,7 +20,7 @@ export default function AdminUserProfile() {
   const { userId } = useParams();
   const { data, isLoading } = useAdminUserProfile(userId);
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="detail" />;
 
   const { user, profile, completion, activity_summary: activitySummary, account_health: accountHealth, is_online: isOnline, last_active: lastActive, login_history: loginHistory, active_sessions: activeSessions } = data;
   const initials = `${(user.first_name || user.username || '?')[0] || ''}${(user.last_name || '')[0] || ''}`.toUpperCase();
@@ -103,7 +103,7 @@ export default function AdminUserProfile() {
             <div key={session.session_key} className="flex items-center gap-2">
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${session.is_current ? 'bg-success' : 'bg-muted'}`}></span>
               <span className="text-ink dark:text-ink-dark">Session</span>
-              <span className="text-muted dark:text-muted-dark">· expires {timeAgo(session.expire_date)}</span>
+              <span className="text-muted dark:text-muted-dark">· expires in {timeUntil(session.expire_date)}</span>
             </div>
           )) : <p className="text-muted dark:text-muted-dark">No active sessions.</p>}
         </div>

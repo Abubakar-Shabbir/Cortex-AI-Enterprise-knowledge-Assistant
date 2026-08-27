@@ -103,14 +103,14 @@ class GraphExtractionParsingTests(unittest.TestCase):
         self.assertEqual(result.relationships, [])
 
     def test_extract_graph_skips_short_text_without_calling_llm(self):
-        with patch.object(extraction, "get_model") as mock_get_model:
+        with patch.object(extraction, "get_llm") as mock_get_llm:
             result = extraction.extract_graph("too short")
 
-        mock_get_model.assert_not_called()
+        mock_get_llm.assert_not_called()
         self.assertEqual(result.entities, [])
 
     def test_extract_graph_returns_empty_result_on_llm_failure(self):
-        with patch.object(extraction, "get_model", side_effect=RuntimeError("boom")):
+        with patch.object(extraction, "get_llm", side_effect=RuntimeError("boom")):
             result = extraction.extract_graph(
                 "Ada Lovelace worked with Charles Babbage on the Analytical Engine."
             )
@@ -119,16 +119,13 @@ class GraphExtractionParsingTests(unittest.TestCase):
         self.assertEqual(result.relationships, [])
 
     def test_extract_graph_parses_mocked_llm_response(self):
-        mock_response = MagicMock()
-        mock_response.text = (
+        mock_llm = MagicMock()
+        mock_llm.generate.return_value = (
             '{"entities": [{"name": "Charles Babbage", "type": "person"}], '
             '"relationships": []}'
         )
 
-        mock_model = MagicMock()
-        mock_model.generate_content.return_value = mock_response
-
-        with patch.object(extraction, "get_model", return_value=mock_model):
+        with patch.object(extraction, "get_llm", return_value=mock_llm):
             result = extraction.extract_graph(
                 "Charles Babbage designed the Difference Engine."
             )
@@ -358,6 +355,34 @@ class CalculateConfidenceTests(unittest.TestCase):
             query_service.calculate_confidence(chunks, citation_count=None),
         )
 
+    def test_distance_past_one_still_yields_meaningful_confidence(self):
+        # Regression: a flat `min(distance, 1.0)` cap used to clamp any
+        # distance >= 1.0 straight to 0% confidence, even though 1.0 is
+        # not "unrelated" for a normalized-embedding L2 distance (the
+        # real range is 0..2). A distance of 1.0098 - the exact value
+        # observed for a correct, cited answer in manual testing - must
+        # read as a real, non-zero score, not 0%.
+        chunks = [{"search_type": "vector", "score": 1.0098}]
+        self.assertEqual(query_service.calculate_confidence(chunks), 49)
+
+    def test_zero_distance_yields_near_maximum_confidence(self):
+        # An exact embedding match (distance 0) should read as ~100%,
+        # clamped to the function's 99 ceiling.
+        chunks = [{"search_type": "vector", "score": 0.0}]
+        self.assertEqual(query_service.calculate_confidence(chunks), 99)
+
+    def test_orthogonal_distance_yields_zero_confidence(self):
+        # For unit-length embeddings, a distance of sqrt(2) corresponds
+        # to a cosine similarity of exactly 0 (orthogonal / unrelated).
+        chunks = [{"search_type": "vector", "score": 2 ** 0.5}]
+        self.assertEqual(query_service.calculate_confidence(chunks), 0)
+
+    def test_maximum_distance_clamps_to_zero_not_negative(self):
+        # Distance 2.0 (exact opposite vectors) maps to cosine
+        # similarity -1, which must clamp to 0%, not go negative.
+        chunks = [{"search_type": "vector", "score": 2.0}]
+        self.assertEqual(query_service.calculate_confidence(chunks), 0)
+
 
 class QueryTransformServiceTests(unittest.TestCase):
     """
@@ -371,7 +396,7 @@ class QueryTransformServiceTests(unittest.TestCase):
             '"what is the capital of france?", "Name the capital of France"]}'
         )
 
-        variants = transform._parse_variants(raw, "What is the capital of France?")
+        variants = transform._parse_response(raw, "What is the capital of France?")
 
         self.assertEqual(variants[0], "What is the capital of France?")
         # Second entry is a case-only duplicate of the question and
@@ -382,17 +407,17 @@ class QueryTransformServiceTests(unittest.TestCase):
         ])
 
     def test_parse_variants_malformed_json_falls_back_to_question(self):
-        self.assertEqual(transform._parse_variants("nope", "Q"), ["Q"])
+        self.assertEqual(transform._parse_response("nope", "Q"), ["Q"])
 
     def test_generate_query_variants_skips_short_question(self):
-        with patch.object(transform, "get_model") as mock_get_model:
+        with patch.object(transform, "get_llm") as mock_get_llm:
             result = transform.generate_query_variants("hi")
 
-        mock_get_model.assert_not_called()
+        mock_get_llm.assert_not_called()
         self.assertEqual(result, ["hi"])
 
     def test_generate_query_variants_falls_back_on_llm_failure(self):
-        with patch.object(transform, "get_model", side_effect=RuntimeError("boom")):
+        with patch.object(transform, "get_llm", side_effect=RuntimeError("boom")):
             result = transform.generate_query_variants("What is the capital of France?")
 
         self.assertEqual(result, ["What is the capital of France?"])
@@ -438,38 +463,32 @@ class HydeServiceTests(unittest.TestCase):
     """
 
     def test_generates_passage_from_mocked_response(self):
-        mock_response = MagicMock()
-        mock_response.text = "Paris is the capital of France."
+        mock_llm = MagicMock()
+        mock_llm.generate.return_value = "Paris is the capital of France."
 
-        mock_model = MagicMock()
-        mock_model.generate_content.return_value = mock_response
-
-        with patch.object(hyde, "get_model", return_value=mock_model):
+        with patch.object(hyde, "get_llm", return_value=mock_llm):
             passage = hyde.generate_hypothetical_document("What is the capital of France?")
 
         self.assertEqual(passage, "Paris is the capital of France.")
 
     def test_skips_short_question(self):
-        with patch.object(hyde, "get_model") as mock_get_model:
+        with patch.object(hyde, "get_llm") as mock_get_llm:
             result = hyde.generate_hypothetical_document("hi")
 
-        mock_get_model.assert_not_called()
+        mock_get_llm.assert_not_called()
         self.assertEqual(result, "")
 
     def test_returns_empty_string_on_failure(self):
-        with patch.object(hyde, "get_model", side_effect=RuntimeError("boom")):
+        with patch.object(hyde, "get_llm", side_effect=RuntimeError("boom")):
             result = hyde.generate_hypothetical_document("What is the capital of France?")
 
         self.assertEqual(result, "")
 
     def test_truncates_overly_long_passage(self):
-        mock_response = MagicMock()
-        mock_response.text = "x" * 5000
+        mock_llm = MagicMock()
+        mock_llm.generate.return_value = "x" * 5000
 
-        mock_model = MagicMock()
-        mock_model.generate_content.return_value = mock_response
-
-        with patch.object(hyde, "get_model", return_value=mock_model):
+        with patch.object(hyde, "get_llm", return_value=mock_llm):
             passage = hyde.generate_hypothetical_document("What is the capital of France?")
 
         self.assertEqual(len(passage), hyde.MAX_HYPOTHETICAL_CHARS)
@@ -880,52 +899,57 @@ class CitationServiceTests(unittest.TestCase):
 
 
 class LlmServiceTests(unittest.TestCase):
+    """
+    generate_answer() now returns a (answer, extras) tuple from a
+    structured JSON-mode response (see llm_service.py's docstring),
+    routed through the multi-provider llm_client.get_llm().generate()
+    rather than a single-provider get_model()/generate_content() call.
+    """
 
     def test_generate_answer_returns_stripped_model_text(self):
-        mock_response = MagicMock()
-        mock_response.text = "  The answer is 42 [1].  "
+        mock_llm = MagicMock()
+        mock_llm.generate.return_value = '{"answer": "  The answer is 42 [1].  "}'
 
-        mock_model = MagicMock()
-        mock_model.generate_content.return_value = mock_response
-
-        with patch.object(llm_service, "get_model", return_value=mock_model):
-            answer = llm_service.generate_answer("[1] (Doc, chunk 0):\ncontext", "Q?")
+        with patch.object(llm_service, "get_llm", return_value=mock_llm):
+            answer, extras = llm_service.generate_answer("[1] (Doc, chunk 0):\ncontext", "Q?")
 
         self.assertEqual(answer, "The answer is 42 [1].")
 
     def test_generate_answer_passes_configured_temperature(self):
-        mock_response = MagicMock()
-        mock_response.text = "answer"
+        mock_llm = MagicMock()
+        mock_llm.generate.return_value = '{"answer": "answer"}'
 
-        mock_model = MagicMock()
-        mock_model.generate_content.return_value = mock_response
-
-        with patch.object(llm_service, "get_model", return_value=mock_model), \
+        with patch.object(llm_service, "get_llm", return_value=mock_llm), \
              override_settings(ANSWER_TEMPERATURE=0.1):
 
             llm_service.generate_answer("context", "Q?")
 
-        _, kwargs = mock_model.generate_content.call_args
-        self.assertEqual(kwargs["generation_config"]["temperature"], 0.1)
+        _, kwargs = mock_llm.generate.call_args
+        self.assertEqual(kwargs["temperature"], 0.1)
 
     def test_generate_answer_returns_not_found_on_empty_response(self):
-        mock_response = MagicMock()
-        mock_response.text = ""
+        mock_llm = MagicMock()
+        mock_llm.generate.return_value = ""
 
-        mock_model = MagicMock()
-        mock_model.generate_content.return_value = mock_response
-
-        with patch.object(llm_service, "get_model", return_value=mock_model):
-            answer = llm_service.generate_answer("context", "Q?")
+        with patch.object(llm_service, "get_llm", return_value=mock_llm):
+            answer, extras = llm_service.generate_answer("context", "Q?")
 
         self.assertEqual(answer, prompt_templates.NOT_FOUND_ANSWER)
 
-    def test_generate_answer_returns_error_string_on_failure(self):
-        with patch.object(llm_service, "get_model", side_effect=RuntimeError("boom")):
-            answer = llm_service.generate_answer("context", "Q?")
+    def test_generate_answer_returns_service_unavailable_when_every_provider_fails(self):
+        mock_llm = MagicMock()
+        mock_llm.generate.side_effect = llm_service.AllProvidersFailedError("boom")
 
-        self.assertIn("Gemini Error", answer)
-        self.assertIn("boom", answer)
+        with patch.object(llm_service, "get_llm", return_value=mock_llm):
+            answer, extras = llm_service.generate_answer("context", "Q?")
+
+        self.assertEqual(answer, prompt_templates.SERVICE_UNAVAILABLE_ANSWER)
+
+    def test_generate_answer_returns_not_found_on_unexpected_failure(self):
+        with patch.object(llm_service, "get_llm", side_effect=RuntimeError("boom")):
+            answer, extras = llm_service.generate_answer("context", "Q?")
+
+        self.assertEqual(answer, prompt_templates.NOT_FOUND_ANSWER)
 
 
 class RetrieveChunksOrchestrationTests(unittest.TestCase):
