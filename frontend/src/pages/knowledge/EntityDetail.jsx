@@ -4,7 +4,7 @@ import {
   Link as LinkIcon, Quote, ShieldQuestion, Sparkles, Users,
 } from 'lucide-react';
 import { getApiBaseUrl } from '../../api/client';
-import AppLoader from '../../components/AppLoader';
+import PageSkeleton from '../../components/PageSkeleton';
 import EmptyState from '../../components/EmptyState';
 import { timeAgo } from '../../lib/timeAgo';
 import { useEntityDetail } from '../../api/hooks';
@@ -14,7 +14,7 @@ export default function EntityDetail() {
   const { entityId } = useParams();
   const { data, isLoading } = useEntityDetail(entityId);
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="detail" />;
 
   const {
     entity, member_count: memberCount, mention_count: mentionCount, document_count: documentCount,

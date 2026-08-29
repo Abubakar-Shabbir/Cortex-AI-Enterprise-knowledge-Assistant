@@ -1,5 +1,5 @@
 import { Link, useSearchParams } from 'react-router-dom';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import { useSearchHistory } from '../api/hooks';
 
 // Port of templates/search_history.html.
@@ -8,7 +8,7 @@ export default function SearchHistory() {
   const page = searchParams.get('page') || '1';
   const { data, isLoading } = useSearchHistory({ page });
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="list" />;
 
   return (
     <>

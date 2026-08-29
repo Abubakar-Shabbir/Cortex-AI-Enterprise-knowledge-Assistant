@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Eye, Sparkles, Trash2 } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import Spinner from '../components/Spinner';
 import { useAiTaskHistory, useDeleteAiTask } from '../api/hooks';
 
@@ -22,7 +22,7 @@ export default function AiTaskHistory() {
   const deleteRun = useDeleteAiTask();
   const [deletingId, setDeletingId] = useState(null);
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="list" />;
 
   const onDelete = async (runId) => {
     if (!window.confirm('Delete this AI Task run and its results? This cannot be undone.')) return;

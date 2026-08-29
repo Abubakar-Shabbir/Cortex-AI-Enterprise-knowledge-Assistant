@@ -4,7 +4,7 @@ import { FileText, HardDrive, Library, LibraryBig, Search } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
 import EmptyState from '../components/EmptyState';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import Spinner from '../components/Spinner';
 import SimpleDocumentTable from '../components/SimpleDocumentTable';
 import DocumentsTabs from '../layout/DocumentsTabs';
@@ -31,7 +31,7 @@ export default function OrgLibrary() {
     }
   };
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="list" />;
 
   return (
     <>
@@ -74,7 +74,7 @@ export default function OrgLibrary() {
                       type="button" onClick={() => toggleOrgLibrary.mutate(doc.id)} disabled={isPending}
                       className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-primary hover:border-primary/30 hover:bg-primary/5 disabled:opacity-50 dark:border-line-dark dark:text-primary-soft"
                     >
-                      {isPending && <Spinner size={12} />} Add to Library
+                      {isPending && <Spinner size={14} />} Add to Library
                     </button>
                   </div>
                 );

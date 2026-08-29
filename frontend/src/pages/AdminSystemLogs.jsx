@@ -8,7 +8,7 @@ import PageHeader from '../components/PageHeader';
 import Spinner from '../components/Spinner';
 import StatCard from '../components/StatCard';
 import EmptyState from '../components/EmptyState';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton, { SkeletonFields } from '../components/PageSkeleton';
 import { timeAgo } from '../lib/timeAgo';
 import {
   fetchAdminErrorGroupDetail, fetchAdminTraceDetail, useAdminSystemLogs, useCancelAiTask,
@@ -32,7 +32,7 @@ function TraceDetailModal({ traceId, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-line bg-card p-6 shadow-2xl dark:border-line-dark dark:bg-card-dark">
-        {state.loading ? <p className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark"><Spinner size={14} /> Loading…</p> : state.data && (
+        {state.loading ? <SkeletonFields fields={4} /> : state.data && (
           <div className="space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -96,7 +96,7 @@ function ErrorDetailModal({ groupId, onClose, onOpenTrace }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-line bg-card p-6 shadow-2xl dark:border-line-dark dark:bg-card-dark">
-        {state.loading ? <p className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark"><Spinner size={14} /> Loading…</p> : state.data && (
+        {state.loading ? <SkeletonFields fields={4} /> : state.data && (
           <div className="space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -149,7 +149,7 @@ export default function AdminSystemLogs() {
   const [errorGroupId, setErrorGroupId] = useState(null);
   const [cancellingId, setCancellingId] = useState(null);
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="list" />;
 
   const activeTab = filters.tab || data.default_tab;
   const setTab = (tab) => setSearchParams({ tab });

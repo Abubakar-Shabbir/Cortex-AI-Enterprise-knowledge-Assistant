@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Folder, FolderPlus, MoreVertical, Pencil, Trash2, X } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import Spinner from '../components/Spinner';
 import DocumentsTabs from '../layout/DocumentsTabs';
 import { useCollectionAction, useCollections } from '../api/hooks';
@@ -105,7 +105,7 @@ export default function Collections() {
         </button>
       </div>
 
-      {isLoading || !data ? <AppLoader variant="page" /> : data.collections.length > 0 ? (
+      {isLoading || !data ? <PageSkeleton variant="list" /> : data.collections.length > 0 ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {data.collections.map((c) => (
             <CollectionCard key={c.id} collection={c} onRename={onRename} onDelete={onDelete} />
@@ -135,7 +135,7 @@ export default function Collections() {
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setCreateOpen(false)} className="rounded-lg border border-line px-3.5 py-2 text-sm font-medium text-ink hover:bg-surface dark:border-line-dark dark:text-ink-dark dark:hover:bg-white/5">Cancel</button>
                 <button type="submit" disabled={action.isPending} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-sm font-semibold text-white hover:bg-primary-dark disabled:opacity-60">
-                  {action.isPending && <Spinner size={14} />} {action.isPending ? 'Creating…' : 'Create'}
+                  {action.isPending && <Spinner size={16} />} {action.isPending ? 'Creating…' : 'Create'}
                 </button>
               </div>
             </form>

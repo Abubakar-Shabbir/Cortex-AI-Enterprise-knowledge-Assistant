@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Bell, CheckCheck } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import Spinner from '../components/Spinner';
 import { notificationIcon } from '../lib/notificationIcons';
 import { timeAgo } from '../lib/timeAgo';
@@ -31,7 +31,7 @@ export default function Notifications() {
     }
   };
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="list" />;
 
   return (
     <>

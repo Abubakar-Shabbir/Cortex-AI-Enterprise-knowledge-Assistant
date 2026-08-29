@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
-import AppLoader from '../../components/AppLoader';
+import PageSkeleton from '../../components/PageSkeleton';
 import KnowledgeTabs from '../../layout/KnowledgeTabs';
 import { timeAgo } from '../../lib/timeAgo';
 import { useKnowledgeInsights } from '../../api/hooks';
@@ -28,7 +28,7 @@ function Panel({ icon: Icon, iconBg, iconColor, title, subtitle, children }) {
 export default function Insights() {
   const { data: insights, isLoading } = useKnowledgeInsights();
 
-  if (isLoading || !insights) return <AppLoader variant="page" />;
+  if (isLoading || !insights) return <PageSkeleton variant="grid" />;
 
   const hasCoverageGaps = insights.not_processed.length > 0 || insights.processed_without_extraction.length > 0;
 

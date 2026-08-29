@@ -436,7 +436,7 @@ function RecentDocumentsTable({ rows }) {
                         className="rounded-lg p-1.5 text-muted hover:bg-surface disabled:opacity-50 dark:text-muted-dark dark:hover:bg-white/5"
                         aria-label="Row actions"
                       >
-                        {isDeletePending ? <Spinner size={14} /> : <MoreHorizontal className="h-4 w-4" />}
+                        {isDeletePending ? <Spinner size={16} /> : <MoreHorizontal className="h-4 w-4" />}
                       </button>
                       {openRowId === doc.id && (
                         <div className="absolute right-0 z-20 mt-1 w-40 rounded-xl border border-line bg-card p-1.5 shadow-soft dark:border-line-dark dark:bg-card-dark">

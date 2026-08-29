@@ -3,6 +3,7 @@ import { Upload, X } from 'lucide-react';
 import { getApiBaseUrl } from '../api/client';
 import { fetchDocumentVersions, useUploadDocumentVersion } from '../api/hooks';
 import Spinner from './Spinner';
+import { SkeletonRows } from './PageSkeleton';
 
 // Port of documents.html's Version History modal (openVersions Alpine method + upload form).
 export default function VersionsModal({ doc, onClose }) {
@@ -66,7 +67,7 @@ export default function VersionsModal({ doc, onClose }) {
 
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">History</p>
         {loading ? (
-          <p className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark"><Spinner size={14} /> Loading…</p>
+          <SkeletonRows rows={3} />
         ) : (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm dark:border-primary/40 dark:bg-primary/10">

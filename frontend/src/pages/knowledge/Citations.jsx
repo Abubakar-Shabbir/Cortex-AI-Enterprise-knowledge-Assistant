@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { Compass, Quote } from 'lucide-react';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
-import AppLoader from '../../components/AppLoader';
+import PageSkeleton from '../../components/PageSkeleton';
 import KnowledgeTabs from '../../layout/KnowledgeTabs';
 import { timeAgo } from '../../lib/timeAgo';
 import { useCitationExplorer } from '../../api/hooks';
@@ -11,7 +11,7 @@ import { useCitationExplorer } from '../../api/hooks';
 export default function Citations() {
   const { data, isLoading } = useCitationExplorer();
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="list" />;
 
   const { citations } = data;
 

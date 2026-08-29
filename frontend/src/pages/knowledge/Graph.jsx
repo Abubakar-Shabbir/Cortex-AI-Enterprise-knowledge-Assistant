@@ -9,8 +9,7 @@ import { Link } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
 import EmptyState from '../../components/EmptyState';
-import AppLoader from '../../components/AppLoader';
-import Spinner from '../../components/Spinner';
+import PageSkeleton, { SkeletonFields } from '../../components/PageSkeleton';
 import KnowledgeTabs from '../../layout/KnowledgeTabs';
 import { fetchGraphEdgeDetail, useGraphNodeDetail, useKnowledgeGraph } from '../../api/hooks';
 
@@ -214,7 +213,7 @@ export default function KnowledgeGraph() {
 
   const insights = data?.insights;
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="grid" />;
 
   const hasNodes = data.graph_data.nodes.length > 0;
 
@@ -322,9 +321,7 @@ export default function KnowledgeGraph() {
                 </div>
 
                 {(selectedNodeId && selectedNode.isLoading) || edgeLoading ? (
-                  <div className="flex items-center gap-2 py-8 text-sm text-muted dark:text-muted-dark">
-                    <Spinner size={16} /> Loading…
-                  </div>
+                  <SkeletonFields fields={3} />
                 ) : selectedNodeId && selectedNode.data ? (
                   <div className="space-y-4">
                     <div className="-mx-4 -mt-4 flex items-center gap-3 rounded-t-lg px-4 py-3.5" style={{ backgroundColor: `${selectedNode.data.color}14` }}>

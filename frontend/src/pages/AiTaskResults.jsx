@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle, Check, Download, OctagonX, Plus, Sparkles, Square, Trash2, X, XCircle,
 } from 'lucide-react';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import EmptyState from '../components/EmptyState';
 import Spinner from '../components/Spinner';
 import ResultRow from '../components/ai_tasks/ResultRow';
@@ -48,7 +48,7 @@ export default function AiTaskResults() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status.data?.status]);
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="detail" />;
 
   const run = { ...data.run, ...(status.data || {}) };
   const isActive = run.status === 'pending' || run.status === 'running';
@@ -221,7 +221,7 @@ export default function AiTaskResults() {
 
       {data.per_document_results.length === 0 && data.corpus_results.length === 0 && run.status === 'pending' && (
         <div className="mt-6 flex items-center justify-center gap-2 rounded-xl border border-line bg-card p-8 text-sm text-muted shadow-soft dark:border-line-dark dark:bg-card-dark dark:text-muted-dark">
-          <Spinner size={16} />
+          <Spinner size={20} />
           Waiting for a worker to pick this up - results appear here as they're ready.
         </div>
       )}

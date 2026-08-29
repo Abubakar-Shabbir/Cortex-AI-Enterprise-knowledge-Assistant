@@ -2,7 +2,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowRight, GitBranch } from 'lucide-react';
 import PageHeader from '../../components/PageHeader';
 import EmptyState from '../../components/EmptyState';
-import AppLoader from '../../components/AppLoader';
+import PageSkeleton from '../../components/PageSkeleton';
 import KnowledgeTabs from '../../layout/KnowledgeTabs';
 import { timeAgo } from '../../lib/timeAgo';
 import { useRelationships } from '../../api/hooks';
@@ -15,7 +15,7 @@ export default function Relationships() {
 
   const { data, isLoading } = useRelationships({ type: selectedType, page });
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="list" />;
 
   const { relationships, pagination, relation_types: relationTypes } = data;
 

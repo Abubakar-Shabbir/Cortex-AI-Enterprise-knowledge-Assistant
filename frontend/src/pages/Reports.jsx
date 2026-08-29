@@ -1,7 +1,7 @@
 import { Compass, Download, FileText, Minus, MessageSquare, Sparkles, TrendingDown, TrendingUp } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import TrendBadge from '../components/TrendBadge';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import { getApiBaseUrl } from '../api/client';
 import { useReports } from '../api/hooks';
 
@@ -17,7 +17,7 @@ const DIRECTION_BAR_CLASS = { up: 'bg-success', down: 'bg-danger' };
 export default function Reports() {
   const { data, isLoading } = useReports();
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="detail" />;
 
   const {
     document_count: documentCount, total_storage: totalStorage, question_count: questionCount,

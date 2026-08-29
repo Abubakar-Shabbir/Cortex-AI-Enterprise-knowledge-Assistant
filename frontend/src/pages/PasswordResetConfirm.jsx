@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { AlertCircle, Eye, EyeOff, Link2Off, Lock } from 'lucide-react';
 import AuthLayout from '../layout/AuthLayout';
-import AppLoader from '../components/AppLoader';
 import Spinner from '../components/Spinner';
 import { usePasswordResetConfirm, usePasswordResetValidate } from '../api/hooks';
 
@@ -25,7 +24,9 @@ export default function PasswordResetConfirm() {
   if (validate.isLoading) {
     return (
       <AuthLayout title="Set a new password">
-        <AppLoader variant="page" />
+        <div className="flex flex-col items-center gap-3 py-10">
+          <Spinner size={40} className="text-primary dark:text-primary-soft" label="Loading" />
+        </div>
       </AuthLayout>
     );
   }
@@ -105,7 +106,7 @@ export default function PasswordResetConfirm() {
               type="submit" disabled={confirm.isPending}
               className="btn-sheen flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white shadow-softer transition-all duration-150 hover:bg-primary-dark hover:shadow-glow active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
             >
-              {confirm.isPending && <Spinner size={16} />}
+              {confirm.isPending && <Spinner size={20} />}
               <span>{confirm.isPending ? 'Saving…' : 'Set new password'}</span>
             </button>
           </form>

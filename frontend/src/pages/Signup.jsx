@@ -192,7 +192,7 @@ export default function Signup() {
           type="submit" disabled={signup.isPending}
           className="btn-sheen flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white shadow-softer transition-all duration-150 hover:bg-primary-dark hover:shadow-glow active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
         >
-          {signup.isPending && <Spinner size={16} />}
+          {signup.isPending && <Spinner size={20} />}
           <span>{signup.isPending ? 'Creating account…' : 'Sign up'}</span>
         </button>
 

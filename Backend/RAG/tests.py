@@ -6,11 +6,13 @@ from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 
-from .models import Document, DocumentChunk, DocumentShare, Entity, EntityMention, Notification, Relationship
+from .models import AITaskRun, AITaskRunDocument, Document, DocumentChunk, DocumentShare, Entity, EntityMention, Notification, Relationship
+from .services import ai_tasks_engine_service as ai_tasks_engine
 from .services import dynamic_topk_service as dynamic_topk
 from .services import graph_extraction_service as extraction
 from .services import graph_retrieval_service as graph_retrieval
 from .services import hyde_service as hyde
+from .services import llm_client
 from .services import query_expansion_service as expansion
 from . import tasks
 from .services import citation_service
@@ -1336,6 +1338,56 @@ class LlmProviderHealthCheckTests(unittest.TestCase):
         self.assertFalse(result["live_llm_check"])
 
 
+class LLMClientFallbackChainTests(unittest.TestCase):
+    """
+    LLMClient._build_chain() - pure function of settings + which
+    provider API keys are configured, no network/DB. Locks in the
+    guarantee _build_chain()'s own docstring promises ("never silently
+    substitutes a different provider the admin didn't select"): with
+    fallback disabled, a broken/unconfigured primary must fail rather
+    than quietly trying Groq/Gemini/whichever other provider happens
+    to have a key configured. This is the actual mechanism behind "AI
+    Tasks must use the selected model, not silently use Gemini until
+    it's explicitly selected" - the toggle already exists and already
+    works; these tests are what verify that going forward.
+    """
+
+    @override_settings(LLM_PROVIDER="openrouter", LLM_FALLBACK_ENABLED=False,
+                        OPENROUTER_API_KEY="key", GEMINI_API_KEY="key", GROQ_API_KEY="")
+    def test_fallback_disabled_returns_only_the_primary(self):
+        chain = llm_client.LLMClient()._build_chain()
+        self.assertEqual(chain, ["openrouter"])
+
+    @override_settings(LLM_PROVIDER="openrouter", LLM_FALLBACK_ENABLED=False,
+                        OPENROUTER_API_KEY="", GEMINI_API_KEY="key", GROQ_API_KEY="key")
+    def test_fallback_disabled_and_primary_unconfigured_returns_empty_chain(self):
+        # Even though Gemini and Groq both have keys configured, a
+        # disabled fallback must never substitute either of them for
+        # an unconfigured primary - an empty chain (which
+        # LLMClient.generate() turns into a clear AllProvidersFailedError)
+        # is the correct outcome, not a silent switch to Gemini.
+        chain = llm_client.LLMClient()._build_chain()
+        self.assertEqual(chain, [])
+
+    @override_settings(LLM_PROVIDER="openrouter", LLM_FALLBACK_ENABLED=True,
+                        OPENROUTER_API_KEY="key", GEMINI_API_KEY="key", GROQ_API_KEY="")
+    def test_fallback_enabled_appends_remaining_configured_providers_after_primary(self):
+        chain = llm_client.LLMClient()._build_chain()
+        self.assertEqual(chain, ["openrouter", "gemini"])
+
+    @override_settings(LLM_PROVIDER="gemini", LLM_FALLBACK_ENABLED=True,
+                        OPENROUTER_API_KEY="key", GEMINI_API_KEY="key", GROQ_API_KEY="key")
+    def test_primary_is_not_duplicated_in_the_fallback_tail(self):
+        chain = llm_client.LLMClient()._build_chain()
+        self.assertEqual(chain, ["gemini", "groq", "openrouter"])
+
+    @override_settings(LLM_PROVIDER="not_a_real_provider", LLM_FALLBACK_ENABLED=False,
+                        OPENROUTER_API_KEY="key", GEMINI_API_KEY="key", GROQ_API_KEY="key")
+    def test_unknown_primary_provider_is_ignored_not_substituted(self):
+        chain = llm_client.LLMClient()._build_chain()
+        self.assertEqual(chain, [])
+
+
 class ProcessDocumentTaskTests(unittest.TestCase):
     """
     RAG.tasks.process_document_task - Document.objects.get() and
@@ -1601,3 +1653,66 @@ class OtpInviteConversionTests(TestCase):
         self.assertTrue(
             Notification.objects.filter(recipient=self.invitee, notification_type="document.shared").exists()
         )
+
+
+class ExecuteRunStatusTests(TestCase):
+    """
+    ai_tasks_engine_service.execute_run()'s COMPLETED vs FAILED
+    decision. Added as a regression test: a run where every single
+    item failed used to still be marked COMPLETED (with only a
+    best-effort note in error_message), so a run that produced zero
+    real results - e.g. every configured LLM provider down or
+    misconfigured - still surfaced as "AI Task completed" instead of
+    "AI Task failed". get_document_context_text() and _call_llm_json()
+    are both mocked so this never touches the filesystem or a real LLM
+    provider.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="ai_tasks_tester", password="pw")
+        self.doc_a = Document.objects.create(user=self.user, title="Doc A", file="documents/a.txt")
+        self.doc_b = Document.objects.create(user=self.user, title="Doc B", file="documents/b.txt")
+
+    def _make_run(self):
+        run = AITaskRun.objects.create(user=self.user, task_type=AITaskRun.TaskType.SUMMARIZE, config={})
+        AITaskRunDocument.objects.create(run=run, document=self.doc_a, role=AITaskRunDocument.Role.TARGET)
+        AITaskRunDocument.objects.create(run=run, document=self.doc_b, role=AITaskRunDocument.Role.TARGET)
+        return run
+
+    def test_run_marked_failed_when_every_item_fails(self):
+        run = self._make_run()
+
+        with patch.object(ai_tasks_engine, "get_document_context_text", return_value={"text": "some content"}), \
+             patch.object(ai_tasks_engine, "_call_llm_json", return_value=None):
+            ai_tasks_engine.execute_run(run)
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, AITaskRun.Status.FAILED)
+        self.assertIn("2", run.error_message)
+        self.assertEqual(
+            run.results.filter(document__isnull=False, data__error=True).count(), 2
+        )
+
+    def test_run_marked_completed_with_a_partial_failure(self):
+        run = self._make_run()
+        success = {"summary": "ok", "key_points": [], "topics": []}
+
+        with patch.object(ai_tasks_engine, "get_document_context_text", return_value={"text": "some content"}), \
+             patch.object(ai_tasks_engine, "_call_llm_json", side_effect=[success, None]):
+            ai_tasks_engine.execute_run(run)
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, AITaskRun.Status.COMPLETED)
+        self.assertIn("1 of 2", run.error_message)
+
+    def test_run_marked_completed_when_everything_succeeds(self):
+        run = self._make_run()
+        success = {"summary": "ok", "key_points": [], "topics": []}
+
+        with patch.object(ai_tasks_engine, "get_document_context_text", return_value={"text": "some content"}), \
+             patch.object(ai_tasks_engine, "_call_llm_json", return_value=success):
+            ai_tasks_engine.execute_run(run)
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, AITaskRun.Status.COMPLETED)
+        self.assertEqual(run.error_message, "")

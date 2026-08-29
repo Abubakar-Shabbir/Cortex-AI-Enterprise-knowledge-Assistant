@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { UserPlus, X } from 'lucide-react';
 import { createDocumentShare, fetchDocumentShares, revokeDocumentShare } from '../api/hooks';
-import Spinner from './Spinner';
+import { SkeletonRows } from './PageSkeleton';
 
 // Port of documents.html's Share modal (openShare/addShare/revokeShare Alpine methods).
 export default function ShareModal({ doc, roles, onClose }) {
@@ -71,7 +71,7 @@ export default function ShareModal({ doc, roles, onClose }) {
 
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Shared with</p>
         {loading ? (
-          <p className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark"><Spinner size={14} /> Loading…</p>
+          <SkeletonRows rows={3} />
         ) : (
           <div className="space-y-1.5">
             {shares.map((s) => (

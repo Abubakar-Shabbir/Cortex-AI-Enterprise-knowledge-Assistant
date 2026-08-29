@@ -2,7 +2,7 @@ import { useSearchParams } from 'react-router-dom';
 import { FileText, Star, StarOff } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import Spinner from '../components/Spinner';
 import SimpleDocumentTable from '../components/SimpleDocumentTable';
 import DocumentsTabs from '../layout/DocumentsTabs';
@@ -20,7 +20,7 @@ export default function Favorites() {
       <PageHeader title="Favorites" subtitle="Documents you've pinned for quick access, across everything you own or can access." />
       <DocumentsTabs />
 
-      {isLoading || !data ? <AppLoader variant="page" /> : (
+      {isLoading || !data ? <PageSkeleton variant="list" /> : (
         <SimpleDocumentTable
           documents={data.results}
           badgeIcon={FileText}

@@ -3,7 +3,7 @@ import { Bell } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { notificationIcon } from '../lib/notificationIcons';
 import { useMarkNotificationRead, useNotificationList, useNotificationUnreadCount } from '../api/hooks';
-import Spinner from '../components/Spinner';
+import { SkeletonRows } from '../components/PageSkeleton';
 
 // Port of templates/dashboard/_topbar.html's notificationBell() Alpine
 // component - polls the unread count every 25s, lazy-fetches the list
@@ -55,7 +55,9 @@ export default function NotificationBell() {
           </div>
 
           {list.isFetching && !list.data && (
-            <p className="flex items-center justify-center gap-2 px-2 py-3 text-sm text-muted dark:text-muted-dark"><Spinner size={14} /> Loading…</p>
+            <div className="px-2 py-1">
+              <SkeletonRows rows={3} />
+            </div>
           )}
 
           {items.map((n) => {

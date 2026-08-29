@@ -725,18 +725,19 @@ LLM_MODEL = env("LLM_MODEL", default="gemini-2.0-flash")
 
 OPENROUTER_API_KEY = env("OPENROUTER_API_KEY", default="")
 
-# Was "deepseek/deepseek-chat-v3.1:free" - that specific free slug has
-# since been retired by OpenRouter (live-verified: returns 404 "This
-# model is unavailable for free. The paid version is available now -
-# use this slug instead: deepseek/deepseek-chat-v3.1"). Free-tier
-# model availability shifts over time; openai/gpt-oss-20b:free is
-# live-verified working as of this fix, and - like the other two
-# providers' models - changeable from Admin > Settings without a
-# redeploy if it's ever retired too. See
+# Was "deepseek/deepseek-chat-v3.1:free", then "openai/gpt-oss-20b:free" -
+# both specific free slugs have since been retired by OpenRouter
+# (live-verified: each now 404s with "This model is unavailable for
+# free. The paid version is available now - use this slug instead:
+# <same slug without ':free'>"). Free-tier model availability shifts
+# over time; nvidia/nemotron-3-super-120b-a12b:free is live-verified
+# working (both plain and JSON-mode generation) as of this fix, and -
+# like the other two providers' models - changeable from Admin >
+# Settings without a redeploy if it's ever retired too. See
 # RAG.services.llm_client.PROVIDER_REGISTRY.
 OPENROUTER_MODEL = env(
     "OPENROUTER_MODEL",
-    default="openai/gpt-oss-20b:free"
+    default="nvidia/nemotron-3-super-120b-a12b:free"
 )
 
 # Groq - OpenAI-compatible REST API, no SDK dependency (see

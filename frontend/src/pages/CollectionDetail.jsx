@@ -2,7 +2,7 @@ import { useParams, useSearchParams } from 'react-router-dom';
 import { FolderMinus, FolderOpen } from 'lucide-react';
 import PageHeader from '../components/PageHeader';
 import EmptyState from '../components/EmptyState';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import Spinner from '../components/Spinner';
 import SimpleDocumentTable from '../components/SimpleDocumentTable';
 import { useCollectionDetail, useCollectionDetailAction } from '../api/hooks';
@@ -15,7 +15,7 @@ export default function CollectionDetail() {
   const { data, isLoading } = useCollectionDetail(collectionId, { page });
   const action = useCollectionDetailAction(collectionId);
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="detail" />;
 
   const onRemove = (doc) => action.mutate({ action: 'remove_document', doc_id: doc.id });
 

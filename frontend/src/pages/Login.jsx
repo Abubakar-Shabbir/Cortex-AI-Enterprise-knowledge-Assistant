@@ -102,7 +102,7 @@ export default function Login() {
           type="submit" disabled={submitting}
           className="btn-sheen flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white shadow-softer transition-all duration-150 hover:bg-primary-dark hover:shadow-glow active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
         >
-          {submitting && <Spinner size={16} />}
+          {submitting && <Spinner size={20} />}
           <span>{submitting ? 'Logging in…' : 'Log in'}</span>
         </button>
 

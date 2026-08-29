@@ -4,7 +4,7 @@ import {
   ArrowRight, Bot, Cog, Cpu, Database, MemoryStick, RefreshCw, ServerCog, SlidersHorizontal,
   Terminal, TriangleAlert, Zap,
 } from 'lucide-react';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import Spinner from '../components/Spinner';
 import { timeAgo } from '../lib/timeAgo';
 import { fetchMonitoringLive, useMonitoring } from '../api/hooks';
@@ -48,7 +48,7 @@ export default function Monitoring() {
   const [ago, setAgo] = useState(0);
   const [checkingNow, setCheckingNow] = useState(false);
   const [liveOverride, setLiveOverride] = useState(null);
-  const { data: queryPayload } = useMonitoring();
+  const { data: queryPayload, isLoading } = useMonitoring();
   const payload = liveOverride || queryPayload;
 
   useEffect(() => {
@@ -75,7 +75,7 @@ export default function Monitoring() {
     }
   };
 
-  if (!payload) return <AppLoader variant="page" />;
+  if (isLoading || !payload) return <PageSkeleton variant="list" />;
 
   const { status, health, chunk_size: chunkSize, chunk_overlap: chunkOverlap, top_k: topK, django_version: djangoVersion, uptime_display: uptimeDisplay, can_view_system_logs: canViewSystemLogs } = payload;
 

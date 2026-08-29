@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Check,
+  CheckCircle2,
   Copy,
   FileText,
   Gauge,
@@ -14,9 +15,16 @@ import {
   Timer,
 } from 'lucide-react';
 
+// Mirrors partials/_ask_ai_result.html: one self-contained result card,
+// sources rendered inline at the bottom rather than in a separate panel -
+// clicking a `[n]` citation marker in the answer expands and scrolls to
+// that source card within this same component (scrollToSource(n) in the
+// classic template's Alpine component).
 export default function AskResult({ result, appliedFilterLabels = [], onAskAgain }) {
   const [copied, setCopied] = useState(false);
-  const [expanded, setExpanded] = useState({});
+  const [expandedSources, setExpandedSources] = useState({});
+  const [highlighted, setHighlighted] = useState(null);
+  const rootRef = useRef(null);
 
   if (!result) {
     return (
@@ -42,6 +50,24 @@ export default function AskResult({ result, appliedFilterLabels = [], onAskAgain
     });
   };
 
+  // The server renders citation markers as `<button @click="scrollToSource(n)">` -
+  // an Alpine.js directive from the classic template this page was ported from.
+  // The SPA doesn't load Alpine, so that click handler is otherwise dead; swap it
+  // for a real `data-citation` attribute a plain delegated onClick can act on.
+  const answerHtml = result.answer_html
+    ? result.answer_html.replace(/@click="scrollToSource\((\d+)\)"/g, 'data-citation="$1"')
+    : '';
+
+  const handleAnswerClick = (e) => {
+    const marker = e.target.closest('[data-citation]');
+    if (!marker) return;
+    const n = marker.getAttribute('data-citation');
+    setExpandedSources((s) => ({ ...s, [n]: true }));
+    setHighlighted(n);
+    rootRef.current?.querySelector(`[data-source-number="${n}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => setHighlighted((cur) => (cur === n ? null : cur)), 1600);
+  };
+
   const metric = (Icon, label, value, valueClass = 'text-ink dark:text-ink-dark') => (
     <div className="flex min-w-0 items-center gap-2.5 rounded-xl border border-line/80 bg-surface/60 px-3 py-2 dark:border-line-dark dark:bg-white/[0.03]">
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary-soft">
@@ -55,7 +81,7 @@ export default function AskResult({ result, appliedFilterLabels = [], onAskAgain
   );
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
+    <div ref={rootRef} className="overflow-hidden rounded-2xl border border-line bg-card shadow-soft dark:border-line-dark dark:bg-card-dark">
       {result.from_history && (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface px-5 py-2.5 dark:border-line-dark dark:bg-white/5">
           <span className="flex items-center gap-1.5 text-xs font-medium text-muted dark:text-muted-dark">
@@ -145,7 +171,14 @@ export default function AskResult({ result, appliedFilterLabels = [], onAskAgain
               <p className="text-sm font-medium text-ink dark:text-ink-dark">AI service temporarily unavailable</p>
               <p className="mt-0.5 text-xs text-muted dark:text-muted-dark">
                 Every configured AI provider failed to respond. This is usually temporary — please try again in a moment.
+                If it persists, check provider status in Admin &gt; Settings.
               </p>
+              {result.trace_id && (
+                <p className="mt-1.5 text-xs text-muted dark:text-muted-dark">
+                  Request ID: <code className="rounded bg-danger/10 px-1 py-0.5 font-mono">{result.trace_id}</code>{' '}
+                  <span className="opacity-75">(include this if you contact support)</span>
+                </p>
+              )}
             </div>
           </div>
         ) : result.is_not_found ? (
@@ -162,9 +195,51 @@ export default function AskResult({ result, appliedFilterLabels = [], onAskAgain
           </div>
         ) : (
           <div
+            onClick={handleAnswerClick}
             className="text-sm leading-relaxed text-ink dark:text-ink-dark [&>*+*]:mt-3 [&_strong]:font-semibold [&_em]:italic [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-sm [&_h2]:font-bold [&_h3]:text-sm [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_code]:rounded [&_code]:bg-surface [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-xs dark:[&_code]:bg-white/10 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-surface [&_pre]:p-3 [&_pre]:text-xs dark:[&_pre]:bg-white/5 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_a]:text-primary [&_a]:underline dark:[&_a]:text-primary-soft"
-            dangerouslySetInnerHTML={{ __html: result.answer_html }}
+            dangerouslySetInnerHTML={{ __html: answerHtml }}
           />
+        )}
+
+        {/* Structured findings (key_points/table) - only the non-streaming
+            answer_question() path populates these (see query_service.py);
+            a freshly-streamed answer always has them empty, same as the
+            classic template's _structured_findings.html partial. */}
+        {result.key_points?.length > 0 && (
+          <div className="mt-3">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted dark:text-muted-dark">Key Points</p>
+            <ul className="space-y-1 text-sm text-ink dark:text-ink-dark">
+              {result.key_points.map((point, i) => (
+                <li key={i} className="flex items-start gap-1.5">
+                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success dark:text-success-dark" />
+                  {point}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {result.table?.headers?.length > 0 && result.table?.rows?.length > 0 && (
+          <div className="mt-3 overflow-x-auto rounded-lg border border-line dark:border-line-dark">
+            <table className="w-full min-w-[420px] text-left text-xs">
+              <thead className="bg-surface dark:bg-white/5">
+                <tr>
+                  {result.table.headers.map((header, i) => (
+                    <th key={i} className="px-3 py-2 font-semibold text-muted dark:text-muted-dark">{header}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line dark:divide-line-dark">
+                {result.table.rows.map((row, i) => (
+                  <tr key={i}>
+                    {row.map((cell, j) => (
+                      <td key={j} className="px-3 py-2 text-ink dark:text-ink-dark">{cell}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -197,7 +272,12 @@ export default function AskResult({ result, appliedFilterLabels = [], onAskAgain
               return (
                 <div
                   key={n}
-                  className="rounded-xl border border-line bg-surface/80 p-3.5 transition hover:border-primary/25 dark:border-line-dark dark:bg-white/[0.04] dark:hover:border-primary-soft/30"
+                  data-source-number={n}
+                  className={`rounded-xl border p-3.5 transition ${
+                    highlighted === String(n)
+                      ? 'border-primary/50 bg-primary/5 ring-2 ring-primary/40 dark:border-primary-soft/50 dark:bg-primary/10'
+                      : 'border-line bg-surface/80 hover:border-primary/25 dark:border-line-dark dark:bg-white/[0.04] dark:hover:border-primary-soft/30'
+                  }`}
                 >
                   <div className="mb-1.5 flex items-center justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium text-ink dark:text-ink-dark">
@@ -216,15 +296,15 @@ export default function AskResult({ result, appliedFilterLabels = [], onAskAgain
                       </span>
                     </span>
                   </div>
-                  <p className={`text-xs leading-relaxed text-muted dark:text-muted-dark ${!expanded[n] ? 'line-clamp-2' : ''}`}>
+                  <p className={`text-xs leading-relaxed text-muted dark:text-muted-dark ${!expandedSources[n] ? 'line-clamp-2' : ''}`}>
                     {source.content}
                   </p>
                   <button
                     type="button"
-                    onClick={() => setExpanded((s) => ({ ...s, [n]: !s[n] }))}
+                    onClick={() => setExpandedSources((s) => ({ ...s, [n]: !s[n] }))}
                     className="mt-1.5 text-[11px] font-semibold text-primary hover:underline dark:text-primary-soft"
                   >
-                    {expanded[n] ? 'Show less' : 'Show more'}
+                    {expandedSources[n] ? 'Show less' : 'Show more'}
                   </button>
                 </div>
               );

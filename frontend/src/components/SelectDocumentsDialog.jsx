@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { FileCheck2, Square, SquareCheck, X } from 'lucide-react';
 import { api } from '../api/client';
-import Spinner from './Spinner';
+import { SkeletonRows } from './PageSkeleton';
 
 const FILE_TYPES = ['', 'pdf', 'docx', 'txt'];
 
@@ -126,11 +126,7 @@ export default function SelectDocumentsDialog({ selected, onChange, triggerLabel
                   </button>
                 ))}
                 {!loading && results.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted dark:text-muted-dark">No documents found.</p>}
-                {loading && (
-                  <p className="flex items-center justify-center gap-2 px-3 py-6 text-center text-sm text-muted dark:text-muted-dark">
-                    <Spinner size={16} /> Loading…
-                  </p>
-                )}
+                {loading && <SkeletonRows rows={4} />}
               </div>
 
               {hasNext && (

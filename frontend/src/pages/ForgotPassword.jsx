@@ -60,7 +60,7 @@ export default function ForgotPassword() {
           type="submit" disabled={request.isPending}
           className="btn-sheen flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-2.5 text-sm font-semibold text-white shadow-softer transition-all duration-150 hover:bg-primary-dark hover:shadow-glow active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
         >
-          {request.isPending && <Spinner size={16} />}
+          {request.isPending && <Spinner size={20} />}
           <span>{request.isPending ? 'Sending…' : 'Send reset link'}</span>
         </button>
 

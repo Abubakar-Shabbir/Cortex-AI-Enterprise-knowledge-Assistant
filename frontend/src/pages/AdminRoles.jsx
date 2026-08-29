@@ -4,7 +4,7 @@ import {
   Settings as SettingsIcon, Shield, ShieldCheck, Sparkles, Trash2, Users, BarChart3, HeartPulse, MessageSquare, Share2,
 } from 'lucide-react';
 import { useAdminRoles, useCreateAdminRole, useDeleteAdminRole, useUpdateRolePermissions } from '../api/hooks';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import Spinner from '../components/Spinner';
 
 const MODULE_ICONS = {
@@ -156,7 +156,7 @@ export default function AdminRoles() {
     }
   };
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="detail" />;
 
   return (
     <>

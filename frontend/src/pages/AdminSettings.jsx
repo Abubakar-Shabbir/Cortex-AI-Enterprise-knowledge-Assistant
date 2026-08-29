@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Bot, CircleAlert, Cpu, Database, Eye, Lock, Save, Scissors, SlidersHorizontal, Zap } from 'lucide-react';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import Spinner from '../components/Spinner';
 import ToggleSwitch from '../components/ToggleSwitch';
 import { timeAgo } from '../lib/timeAgo';
@@ -33,7 +33,7 @@ export default function AdminSettings() {
     setDirty(true);
   };
 
-  if (isLoading || !form) return <AppLoader variant="page" />;
+  if (isLoading || !form) return <PageSkeleton variant="detail" />;
 
   const { system_status: status, db_name: dbName, db_host: dbHost, llm_provider_options: providerOptions, can_edit_any: canEditAny } = data;
 

@@ -6,7 +6,7 @@ import PageHeader from '../components/PageHeader';
 import StatCard from '../components/StatCard';
 import EmptyState from '../components/EmptyState';
 import ChartCanvas from '../components/ChartCanvas';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import { useAnalytics } from '../api/hooks';
 
 const GRID_COLOR = 'rgba(109, 102, 101, 0.10)';
@@ -28,7 +28,7 @@ const AI_TASK_STATUS_COLOR_MAP = { Completed: SUCCESS, Failed: PRIMARY, Running:
 export default function Analytics() {
   const { data: payload, isLoading } = useAnalytics();
 
-  if (isLoading || !payload) return <AppLoader variant="page" />;
+  if (isLoading || !payload) return <PageSkeleton variant="grid" />;
 
   const { data, ai_performance: aiPerformance, document_types: documentTypes, can_view_ai_tasks: canViewAiTasks, can_view_knowledge_base: canViewKnowledgeBase } = payload;
 

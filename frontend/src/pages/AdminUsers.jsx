@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, IdCard, MoreHorizontal, Shield, Trash2, UserCheck, UserX, X } from 'lucide-react';
 import EmptyState from '../components/EmptyState';
-import AppLoader from '../components/AppLoader';
+import PageSkeleton from '../components/PageSkeleton';
 import Spinner from '../components/Spinner';
 import { useAdminUserAction, useAdminUsers } from '../api/hooks';
 
@@ -147,7 +147,7 @@ export default function AdminUsers() {
   const { data, isLoading } = useAdminUsers();
   const action = useAdminUserAction();
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="list" />;
 
   return (
     <>

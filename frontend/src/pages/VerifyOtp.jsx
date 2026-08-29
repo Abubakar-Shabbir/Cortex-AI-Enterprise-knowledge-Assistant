@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { AlertCircle, MailCheck, RefreshCw, ShieldCheck } from 'lucide-react';
 import AuthLayout from '../layout/AuthLayout';
-import AppLoader from '../components/AppLoader';
 import Spinner from '../components/Spinner';
 import { useSession } from '../auth/SessionContext';
 import { useResendOtp, useVerifyOtp, useVerifyOtpStatus } from '../api/hooks';
@@ -42,7 +41,9 @@ export default function VerifyOtp() {
   if (status.isLoading) {
     return (
       <AuthLayout title="Verify your email">
-        <AppLoader variant="page" />
+        <div className="flex flex-col items-center gap-3 py-10">
+          <Spinner size={40} className="text-primary dark:text-primary-soft" label="Loading" />
+        </div>
       </AuthLayout>
     );
   }

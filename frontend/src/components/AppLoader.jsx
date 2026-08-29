@@ -1,15 +1,14 @@
 import Spinner from './Spinner';
 
 /**
- * The app's shared loading indicator, in four flavors - always the
- * same Spinner mark, never a fake delay, always tied to a real
+ * The app's shared *spinner*-based loading indicator, for the cases
+ * that are genuinely spinner cases (not initial content loading, which
+ * uses PageSkeleton instead - see components/PageSkeleton.jsx). Always
+ * the same Spinner mark, never a fake delay, always tied to a real
  * isLoading/isPending/isFetching flag from the caller.
  *
  * variant="fullscreen" - full-viewport, used only before any layout
  *   exists yet (the auth gate in App.jsx). Never used inside a page.
- * variant="page"       - fills the content area under the sidebar/
- *   topbar, which stay mounted and visible - the page's own chrome is
- *   never hidden, only the not-yet-loaded content region.
  * variant="overlay"    - absolutely positioned over a `relative`
  *   parent (a card/table/panel already showing its previous data) -
  *   for a background refetch that shouldn't blank what's already on
@@ -20,7 +19,7 @@ import Spinner from './Spinner';
  */
 export default function AppLoader({ variant = 'fullscreen', subtitle = 'Loadingâ€¦', size }) {
   if (variant === 'inline') {
-    return <Spinner size={size || 16} label={subtitle} />;
+    return <Spinner size={size || 20} label={subtitle} />;
   }
 
   if (variant === 'overlay') {
@@ -32,25 +31,24 @@ export default function AppLoader({ variant = 'fullscreen', subtitle = 'Loadingâ
         aria-busy="true"
         aria-label={subtitle}
       >
-        <Spinner size={size || 22} className="text-primary dark:text-primary-soft" label={subtitle} />
+        <Spinner size={size || 38} className="text-primary dark:text-primary-soft" label={subtitle} />
         <span className="sr-only">{subtitle}</span>
       </div>
     );
   }
 
-  const shell =
-    variant === 'fullscreen'
-      ? 'fixed inset-0 z-[100] flex items-center justify-center bg-surface dark:bg-surface-dark'
-      : 'flex min-h-[40vh] w-full items-center justify-center py-16';
-
   return (
-    <div className={shell} role="status" aria-live="polite" aria-busy="true" aria-label={subtitle}>
-      <Spinner
-        size={size || 32}
-        className="text-primary drop-shadow-[0_0_10px_rgba(139,30,45,0.25)] dark:text-primary-soft dark:drop-shadow-[0_0_10px_rgba(231,200,204,0.15)]"
-        label={subtitle}
-      />
-      <span className="sr-only">{subtitle}</span>
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-surface dark:bg-surface-dark"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      aria-label={subtitle}
+    >
+      <div className="flex flex-col items-center gap-4">
+        <Spinner size={size || 80} className="text-primary dark:text-primary-soft" label={subtitle} />
+        <p className="text-sm font-medium text-muted dark:text-muted-dark">{subtitle}</p>
+      </div>
     </div>
   );
 }

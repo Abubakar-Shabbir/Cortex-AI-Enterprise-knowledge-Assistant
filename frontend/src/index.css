@@ -10,6 +10,16 @@ html, body, #root {
   min-height: 100%;
 }
 
+/* Always reserve the vertical scrollbar's width, whether or not the page
+   is currently tall enough to need one. Without this, any page whose
+   height crosses the viewport threshold (a new chat message, an expanded
+   panel, a loaded list) makes the scrollbar appear/disappear, which
+   shifts all page content - including anything sticky - sideways by the
+   scrollbar's width. */
+html {
+  scrollbar-gutter: stable;
+}
+
 [x-cloak] {
   display: none !important;
 }
@@ -113,12 +123,36 @@ html, body, #root {
   background-size: 34px 34px;
 }
 
+/* ============================================================
+   Spinner - the one loading mark used everywhere (see
+   components/Spinner.jsx): five short dots bouncing up and down in
+   a traveling wave, the classic "typing indicator" motion (iMessage/
+   Slack/Discord) rather than a spinning ring - each dot also
+   squashes/stretches a little at the top of its hop for a livelier,
+   more rubbery feel instead of a flat linear bob. Keyframes live
+   here alongside the auth-flow ones above since both are bespoke
+   animations the Tailwind CDN config can't express as utilities.
+   ============================================================ */
+@keyframes spinner-wave-bounce {
+  0%, 100%  { transform: translateY(0) scale(0.82); }
+  50%       { transform: translateY(-6px) scale(1.12); }
+}
+.spinner-wave-dot {
+  animation: spinner-wave-bounce var(--spinner-dur, 0.8s) cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+@keyframes spinner-wave-fade {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .auth-card, .auth-error-banner, .auth-pop-in,
   .auth-glow-a, .auth-glow-b, .auth-node, .auth-flow-line, .auth-status-ping,
   .auth-particle {
     animation: none !important;
   }
+  .spinner-wave-dot { animation-name: spinner-wave-fade; animation-duration: 1.8s; }
   .auth-success-icon::after {
     animation: none !important;
     content: none;

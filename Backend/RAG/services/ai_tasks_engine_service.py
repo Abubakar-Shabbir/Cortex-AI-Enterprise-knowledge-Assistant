@@ -27,6 +27,7 @@ not a new citation convention).
 import logging
 import re
 
+import fitz
 from django.utils import timezone
 
 from ..models import AITaskResult, AITaskRun
@@ -85,6 +86,23 @@ def get_document_context_text(document, max_chars=MAX_DOCUMENT_CONTEXT_CHARS):
 
         try:
             text = extract_text(document.file.path)
+        except (FileNotFoundError, fitz.FileNotFoundError):
+            # The DB row (and its already-computed chunks/embeddings,
+            # which is why Ask AI can still answer questions about this
+            # document) survives independently of the uploaded file on
+            # disk - a missing MEDIA_ROOT file (moved, deleted, or never
+            # persisted across environments) is a storage problem, not
+            # an LLM/AI provider failure, and needs its own message so
+            # it isn't mistaken for one (see FAILED_ITEM_SUMMARY below).
+            # Two distinct exception types because PyMuPDF's own
+            # fitz.FileNotFoundError (raised by extract_pdf()) is NOT a
+            # subclass of the builtin FileNotFoundError - it inherits
+            # from RuntimeError instead, a same-name-different-class
+            # gotcha that silently defeats a plain `except
+            # FileNotFoundError` (the .docx/.txt paths, via python-docx
+            # and open(), do raise the real builtin).
+            logger.error("AI Tasks: source file missing on disk for document %s", document.id)
+            return {"error": "The original file for this document is missing from storage - try re-uploading it."}
         except Exception:
             logger.exception("AI Tasks context extraction failed for document %s", document.id)
             return {"error": "Couldn't extract text from this document."}
@@ -212,12 +230,21 @@ def _citations_from_data(data, source_chunks):
     return citations
 
 
-def _write_failed_result(run, document=None, title=""):
+def _write_failed_result(run, document=None, title="", summary=None):
+    """
+    `summary` defaults to FAILED_ITEM_SUMMARY (an LLM/AI-provider
+    failure - _call_llm_json() returned None) but every call site
+    following a get_document_context_text() extraction failure passes
+    that result's own specific `error` string instead, so a missing
+    file/unreadable document is never mislabeled as "the AI service
+    returned an error" when the AI was never even called.
+    """
+
     return AITaskResult.objects.create(
         run=run,
         document=document,
         title=title or (document.title if document else ""),
-        summary=FAILED_ITEM_SUMMARY,
+        summary=summary or FAILED_ITEM_SUMMARY,
         data={"error": True},
     )
 
@@ -256,7 +283,7 @@ def _run_analyze(run, targets, references):
         context_result = get_document_context_text(document, max_chars=reference_budget)
 
         if "error" in context_result:
-            _write_failed_result(run, document=document)
+            _write_failed_result(run, document=document, summary=context_result["error"])
             continue
 
         source_chunks = reference_chunks + [_source_block(document, context_result["text"])]
@@ -324,7 +351,7 @@ def _run_compare(run, targets, references):
     for document in targets:
         context_result = get_document_context_text(document, max_chars=per_doc_budget)
         if "error" in context_result:
-            _write_failed_result(run, document=document)
+            _write_failed_result(run, document=document, summary=context_result["error"])
             continue
         included_documents.append(document)
         source_chunks.append(_source_block(document, context_result["text"]))
@@ -396,7 +423,7 @@ def _run_summarize(run, targets, references):
     for document in targets:
         context_result = get_document_context_text(document)
         if "error" in context_result:
-            _write_failed_result(run, document=document)
+            _write_failed_result(run, document=document, summary=context_result["error"])
             continue
 
         source_chunks = [_source_block(document, context_result["text"])]
@@ -446,7 +473,7 @@ def _run_extract(run, targets, references):
     for document in targets:
         context_result = get_document_context_text(document)
         if "error" in context_result:
-            _write_failed_result(run, document=document)
+            _write_failed_result(run, document=document, summary=context_result["error"])
             continue
 
         source_chunks = [_source_block(document, context_result["text"])]
@@ -495,7 +522,7 @@ def _run_validate(run, targets, references):
     for document in targets:
         context_result = get_document_context_text(document, max_chars=reference_budget)
         if "error" in context_result:
-            _write_failed_result(run, document=document)
+            _write_failed_result(run, document=document, summary=context_result["error"])
             continue
 
         source_chunks = reference_chunks + [_source_block(document, context_result["text"])]
@@ -700,7 +727,7 @@ def _run_report(run, targets, references):
     for document in targets:
         context_result = get_document_context_text(document)
         if "error" in context_result:
-            _write_failed_result(run, document=document)
+            _write_failed_result(run, document=document, summary=context_result["error"])
             continue
 
         source_chunks = [_source_block(document, context_result["text"])]
@@ -801,10 +828,23 @@ def execute_run(run):
         total_items = run.results.filter(document__isnull=False).count()
         failed_items = run.results.filter(document__isnull=False, data__error=True).count()
 
-        if failed_items and total_items:
-            run.error_message = (run.error_message + " " if run.error_message else "") + f"{failed_items} of {total_items} document(s) could not be analyzed."
+        if total_items and failed_items == total_items:
+            # Every single item failed - each item's own AITaskResult
+            # already recorded why (an LLM/provider failure via
+            # FAILED_ITEM_SUMMARY, or a storage issue via
+            # get_document_context_text()'s own error string - see
+            # _write_failed_result), but a run in this state is not a
+            # success by any definition a user would recognize.
+            # COMPLETED here would read as "it worked" while actually
+            # reporting 0 real results, and the "AI Task completed"
+            # notification below would say so too.
+            run.status = AITaskRun.Status.FAILED
+            run.error_message = run.error_message or f"All {total_items} document(s) failed - see each item's result below for why, or Admin > AI Logs for the underlying error."
+        else:
+            if failed_items:
+                run.error_message = (run.error_message + " " if run.error_message else "") + f"{failed_items} of {total_items} document(s) could not be analyzed."
 
-        run.status = AITaskRun.Status.COMPLETED
+            run.status = AITaskRun.Status.COMPLETED
 
     except _RunCancelled:
         # Whatever AITaskResult rows a handler already wrote before the

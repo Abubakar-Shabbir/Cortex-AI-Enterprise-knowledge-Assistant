@@ -4,7 +4,7 @@ import { Compass, DatabaseZap, FileText, GitBranch, Search, Sparkles, Tag } from
 import PageHeader from '../../components/PageHeader';
 import StatCard from '../../components/StatCard';
 import EmptyState from '../../components/EmptyState';
-import AppLoader from '../../components/AppLoader';
+import PageSkeleton from '../../components/PageSkeleton';
 import KnowledgeTabs from '../../layout/KnowledgeTabs';
 import { timeAgo } from '../../lib/timeAgo';
 import { useKnowledgeBrowse } from '../../api/hooks';
@@ -26,7 +26,7 @@ export default function KnowledgeBrowse() {
 
   const selectType = (type) => setSearchParams({ ...(query ? { q: query } : {}), ...(type ? { type } : {}) });
 
-  if (isLoading || !data) return <AppLoader variant="page" />;
+  if (isLoading || !data) return <PageSkeleton variant="list" />;
 
   const { overview, recently_updated: recentlyUpdated, topics, pagination } = data;
 
